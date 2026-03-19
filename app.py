@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, session, redirect, url_for, jsonify
+from werkzeug.security import check_password_hash
 import pyodbc
 import anthropic
 import config
@@ -106,9 +107,12 @@ def format_answer(sql, data, user_question):
 def login():
     error = None
     if request.method == 'POST':
-        if (request.form['username'] == config.CHAT_USERNAME and
-                request.form['password'] == config.CHAT_PASSWORD):
+        username = request.form['username']
+        password = request.form['password']
+        hashed = config.USERS.get(username)
+        if hashed and check_password_hash(hashed, password):
             session['logged_in'] = True
+            session['username'] = username
             return redirect(url_for('chat'))
         else:
             error = 'Invalid username or password.'

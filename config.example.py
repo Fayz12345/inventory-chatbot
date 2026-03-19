@@ -10,6 +10,9 @@ ANTHROPIC_API_KEY = 'sk-ant-...'
 # App secret key (used for login sessions - change this to anything random)
 SECRET_KEY = 'your_secret_key'
 
-# Login credentials for the chatbot
-CHAT_USERNAME = 'admin'
-CHAT_PASSWORD = 'your_chat_password'
+# Users — generate hashes with: python generate_password_hash.py
+# Format: 'username': 'hashed_password'
+USERS = {
+    'admin': 'pbkdf2:sha256:...',
+    'john':  'pbkdf2:sha256:...',
+}
