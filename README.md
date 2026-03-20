@@ -61,8 +61,8 @@ Flask App (Linux EC2 - Ubuntu 24.04)
 | Component | Details |
 |---|---|
 | SQL Server (Windows EC2) | IP: 3.96.24.178, hosts the flat reporting table |
-| Linux EC2 | Ubuntu 24.04, t2.micro, hosts the Flask chatbot app |
-| Linux EC2 Public IP | 3.99.133.244 |
+| Linux EC2 | Ubuntu 24.04, t2.medium, hosts the Flask chatbot app |
+| Linux EC2 Public IP | 3.96.54.81 (changes on reboot — assign Elastic IP to make permanent) |
 | Linux EC2 Private IP | 172.31.9.41 |
 | Flask port | 5000 |
 | SQL Server port | 1433 |
@@ -71,10 +71,10 @@ Flask App (Linux EC2 - Ubuntu 24.04)
 | Project folder | ~/inventory-chatbot |
 
 **Networking:**
-- Port 1433 opened in Windows EC2 Security Group for Linux EC2's **public** IP (3.99.133.244)
+- Port 1433 opened in Windows EC2 Security Group for Linux EC2's **public** IP (currently 3.96.54.81 — update this rule if the EC2 IP changes)
 - Windows Firewall inbound rule added for port 1433
 - Port 5000 opened in Linux EC2 Security Group for chatbot access
-- SSH access via key pair: `BrainAddon.pem`
+- SSH access via key pair: `BrainAddOnMBP.pem` (stored locally — do not commit)
 
 ---
 
@@ -180,7 +180,7 @@ odbcinst -q -d
 ### app.py — Core Flask Application
 
 - `GET /` — redirects to login or chat
-- `GET/POST /login` — session-based login with username/password from config
+- `GET/POST /login` — session-based login, checks username against `USERS` dict in config using `werkzeug` password hashing
 - `POST /ask` — receives question, calls Claude, executes SQL, returns answer
 - `GET /logout` — clears session
 
@@ -199,9 +199,15 @@ DB_USER = "your_db_user"
 DB_PASSWORD = "your_db_password"
 ANTHROPIC_API_KEY = "sk-ant-..."
 SECRET_KEY = "your_flask_secret_key"
-CHAT_USERNAME = "admin"
-CHAT_PASSWORD = "your_chat_password"
+
+# Multi-user login — generate hashes with: python generate_password_hash.py
+USERS = {
+    'admin':   'scrypt:32768:8:1$...',
+    'mandeep': 'scrypt:32768:8:1$...',
+}
 ```
+
+To add or change users, run `python generate_password_hash.py` on the EC2, then update `config.py` and restart gunicorn.
 
 ---
 
@@ -209,12 +215,13 @@ CHAT_PASSWORD = "your_chat_password"
 
 ```
 inventory-chatbot/
-├── app.py                  # Flask application
-├── config.py               # Credentials and settings (excluded from git)
-├── config.example.py       # Template with placeholder values
+├── app.py                      # Flask application
+├── config.py                   # Credentials and settings (excluded from git)
+├── config.example.py           # Template with placeholder values
+├── generate_password_hash.py   # Helper to generate hashed passwords for USERS
 └── templates/
-    ├── login.html          # Login page
-    └── chat.html           # Chat interface
+    ├── login.html              # Login page
+    └── chat.html               # Chat interface
 ```
 
 ---
@@ -243,8 +250,20 @@ gunicorn --bind 0.0.0.0:5000 app:app
 
 To keep it running after terminal closes:
 ```bash
-nohup gunicorn --bind 0.0.0.0:5000 app:app &
+nohup gunicorn --bind 0.0.0.0:5000 app:app > ~/gunicorn.log 2>&1 &
 ```
+
+To check logs:
+```bash
+cat ~/gunicorn.log
+```
+
+To restart after a config.py change:
+```bash
+pkill -f gunicorn && nohup gunicorn --bind 0.0.0.0:5000 app:app > ~/gunicorn.log 2>&1 &
+```
+
+> **Note:** gunicorn is not yet set up as a systemd service — it will not restart automatically if the EC2 reboots. See Future Improvements.
 
 ---
 
@@ -269,6 +288,8 @@ Using the Linux EC2 private IP in the Windows EC2 Security Group inbound rule. T
 
 **Fix:** Get the public IP with `curl ifconfig.me` and use that in the Security Group rule.
 
+> **Important:** If the Linux EC2 is stopped/restarted without an Elastic IP, its public IP will change. You must update the port 1433 inbound rule on the Windows EC2 Security Group with the new public IP, otherwise the database connection will time out.
+
 ### Flask only listening on 127.0.0.1
 Default `app.run()` binds to localhost only — not reachable from browser.
 
@@ -291,8 +312,17 @@ Also: `rd.Created` → `rd.CreateDate`, `rdpl.Created` → `rdpl.CreateDate`, `r
 
 ---
 
+## Deployment Checklist (next time EC2 IP changes)
+
+1. Run `curl ifconfig.me` on EC2 to get new public IP
+2. Update port 1433 inbound rule on Windows EC2 Security Group
+3. Update port 22 inbound rule on Linux EC2 Security Group (if IP-restricted)
+
+---
+
 ## Future Improvements
 
+- Assign an **Elastic IP** to the Linux EC2 so the public IP never changes
 - Set up gunicorn as a `systemd` service so it restarts automatically on reboot
 - Add HTTPS via nginx reverse proxy + Let's Encrypt
 - Expand MVP scope to include shipped devices (Version = '001') with user toggle
