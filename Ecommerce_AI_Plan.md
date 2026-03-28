@@ -8,14 +8,16 @@
 
 ## Overview
 
-This phase adds an AI-powered ecommerce listing workflow that runs daily, scans inventory flagged for ecommerce, researches competitive prices across marketplaces, recommends the best platform to sell on, and — upon human approval — drafts and posts the listing automatically.
+This phase adds an AI-powered ecommerce listing workflow that runs daily, scans inventory flagged for ecommerce, researches competitive prices via marketplace APIs, recommends the best platform to sell on, and — upon human approval — drafts and posts the listing automatically.
+
+**Scope:** Amazon and eBay first (official APIs, no scraping). BestBuy and Reebelo added later once the core pipeline is proven.
 
 ---
 
 ## Workflow (End-to-End)
 
 ```
-Linux cron job (daily, e.g. 7am) → python ecommerce_agent.py
+Linux cron job (daily, 7am) → python -m ecommerce.main
     ↓
 Query ReportingInventoryFlat → two queries, results merged:
   1. Product_Place = 'Ecommerce Storefront' AND Product_Placement_Created = prev business day
@@ -24,32 +26,45 @@ Query ReportingInventoryFlat → two queries, results merged:
 Reconcile against active listings table → skip already-listed SKUs, delist removed SKUs
     ↓
 For each unlisted product group:
-    → eBay Browse API        (free, official — no scraping)
-    → Amazon SP-API          (free with seller account — no scraping)
-    → BestBuy Products API or direct scraper  (BestBuy — no competitor pricing API exists)
-    → Reebelo Cobalt API or direct scraper    (Reebelo — seller API exists; pricing data TBD)
+    → Amazon SP-API (getCompetitivePricing)
+    → eBay Browse API (findItemsByKeywords)
     ↓
-Sanity check: skip any SKU where best price < DeviceCost threshold
+Sanity check: skip any SKU where best price < DeviceCost + minimum margin
     ↓
-DeepSeek V3 applies pricing algorithm → ranked marketplace recommendation per SKU
+Pricing algorithm (deterministic — no AI needed):
+    → Find lowest listed price per marketplace
+    → Pick the marketplace with the highest floor price
+    → Set listing price = that floor price
     ↓
 Email digest sent to approver:
-    one row per SKU with recommended marketplace, floor price, approve/reject link
+    One row per SKU — recommended marketplace, price, approve/reject link
     ↓ [on approval click — Flask endpoint on EC2]
 Fetch top 3–5 competitor listings from winning marketplace
     ↓
-DeepSeek V3 drafts listing title + description + bullet points
+Claude API drafts listing title + description + bullet points
     ↓
-Post via marketplace API (eBay Inventory API / Amazon SP-API / BestBuy Seller API / Reebelo Cobalt API)
+Post via marketplace API (eBay Inventory API / Amazon SP-API)
     ↓
-Log listing record to SQL Server (SKU, platform, price, timestamp)
+Log listing record to SQL Server (SKU, platform, price, timestamp, status)
 ```
+
+---
+
+## Sub-Phases
+
+Phase 1D is broken into three sub-phases. Each delivers working value independently.
+
+| Sub-Phase | Scope | Deliverable |
+|---|---|---|
+| **1D-i** | Price scanning + email digest | Daily email showing recommended marketplace + price per SKU. No auto-listing yet — human reviews and lists manually. Proves the data pipeline end-to-end. |
+| **1D-ii** | Approval flow + auto-listing | Approve/reject links in email → Claude generates listing copy → posts to Amazon or eBay automatically. |
+| **1D-iii** | BestBuy + Reebelo expansion | Add remaining marketplaces. Evaluate whether official APIs exist by then; if not, decide whether scraping ROI justifies the maintenance cost. |
 
 ---
 
 ## Inventory Data Structure
 
-**One schema addition to `ReportingInventoryFlat`:** a `Product_Placement_Created` datetime column recording when each ESN was moved into its current `Product_Place`. The flat table remains the source of truth; no other structural changes needed.
+**One schema addition to `ReportingInventoryFlat`:** a `Product_Placement_Created` datetime column recording when each ESN was moved into its current `Product_Place`.
 
 **New column:**
 | Column | Type | Source | Purpose |
@@ -65,8 +80,7 @@ WHERE Product_Place = 'Ecommerce Storefront'
 GROUP BY Manufacturer, Model, Colour, Grade
 ORDER BY Quantity DESC
 ```
-> `prev_business_day` is calculated in Python before the query runs:
-> Monday → Friday, all other days → yesterday.
+> `prev_business_day` is calculated in Python: Monday → Friday, all other days → yesterday.
 > Canadian public holidays not currently handled — flag for future improvement.
 
 **Fallback query — unlisted SKUs with no active listing record:**
@@ -92,118 +106,137 @@ ORDER BY Quantity DESC
 
 ## Pricing Algorithm
 
-**Rule (confirmed):** For each marketplace, find the lowest listed price for the SKU. Pick the marketplace with the highest of those floor prices. List at that price.
+**Rule:** For each marketplace, find the lowest listed price for the SKU. Pick the marketplace with the highest of those floor prices. List at that price.
+
+**This is deterministic — no AI/LLM needed.** It's a `max()` over a dict of floor prices. The Python implementation is ~10 lines.
 
 **Example:**
-| Marketplace | Lowest Competitor Price | Highest Competitor Price |
-|---|---|---|
-| Amazon | $750 | $900 |
-| eBay | $800 | $950 |
-| BestBuy Marketplace | $700 | $850 |
+| Marketplace | Lowest Competitor Price |
+|---|---|
+| Amazon | $750 |
+| eBay | $800 |
 
-→ eBay wins (floor = $800, highest among all floors). List at **$800**.
+→ eBay wins (floor = $800). List at **$800**.
 
-**Why this works:** You're entering the market where even the cheapest seller is selling high, maximizing your sale price while remaining competitive with the lowest-priced seller on that platform.
+**Why this works:** You enter the market where even the cheapest seller is selling high, maximizing your sale price while remaining competitive.
+
+**Sanity check:** If recommended price < `DeviceCost` + configurable margin threshold → skip the SKU and flag it in the email digest instead of recommending it.
 
 ---
 
 ## Technology Stack
 
-### Orchestration
-| Tool | Role |
-|---|---|
-| **Linux cron job** | Daily trigger — runs `ecommerce_agent.py` on the existing EC2 |
-| **Python script** | Full pipeline: DB query → price APIs → AI ranking → email → listing post → logging |
-| **Flask (existing)** | Receives approval link clicks — triggers listing creation |
+### AI Model
 
-> **OpenClaw not required for this workflow.** OpenClaw's strength is flexible AI-driven alerting (Phase 1C). This pipeline is a structured, deterministic sequence of steps — a Python cron job handles it more simply with no new platform dependency. All infrastructure (EC2, Python, ODBC, Flask) already exists.
-
-### AI / Reasoning
-| Tool | Role | Notes |
+| Task | Tool | Rationale |
 |---|---|---|
-| **DeepSeek V3** | Price comparison logic, marketplace ranking, listing generation | Cost-effective; "DeepSeek V4" does not exist yet — V3 is current latest general model |
-| **Claude API** (optional) | Listing copy generation | May produce more polished marketplace-ready text; can be used alongside DeepSeek |
+| Listing copy generation | **Claude API** (already in stack) | Generates title, description, bullet points from competitor listing analysis. Already authenticated, already paid for, already proven in this project. |
 
-### Price Intelligence APIs
+> **Why not DeepSeek V3?** The pricing algorithm is deterministic and doesn't need an LLM. The only AI task is listing copy generation, and Claude is already integrated. Adding a second AI provider adds credential management, a second billing relationship, and a second failure mode — for no clear benefit. If cost becomes a concern at scale, swap Claude for a cheaper model at that point.
+
+### Price Intelligence APIs (Sub-Phase 1D-i)
+
 | Marketplace | Tool | Cost | Notes |
 |---|---|---|---|
-| Amazon | **SP-API — Product Pricing API** (`getCompetitivePricing`) | Free (private seller app) | Official API — no scraping. Returns competitive pricing per ASIN. Rate limit: 0.5 req/sec → throttle with 2s delay between calls. 100 SKUs ≈ 3.5 min. Free if tool is built for your own seller account only; $1,400 USD/year if built as a third-party developer app. |
-| eBay | **eBay Browse API** (`findItemsByKeywords`) | Free with developer account | Official API — no scraping. Returns active listings with prices. 5,000 calls/day default; higher limits via Application Growth Check. |
-| BestBuy Marketplace | **BeautifulSoup + Playwright** (with stealth + residential proxies) | Free + ~$5–30/mo proxy cost | No official BestBuy Canada API exists. BestBuy.ca has no public pricing API and Rainforest API is Amazon-only. Direct scraping with Playwright (stealth-patched) is the only reliable programmatic option. BestBuy.ca uses aggressive bot detection (Akamai) — plain requests or datacenter IPs will be blocked. Residential proxies required. **Pre-build action:** Inspect a BestBuy.ca phone listing page manually — as a Mirakl-powered marketplace, it may make internal JSON API calls for seller offers that can be targeted directly with `requests`, bypassing full browser rendering. |
-| Reebelo | **Direct scraper** (Python + `requests`/`playwright`) | Free | Reebelo's Cobalt seller API is for managing your own listings, not for reading competitor prices. Scrape Reebelo search/listing pages for competitor prices by model + grade. Rate-limit requests; add 1–2s delay between calls. |
+| Amazon | **SP-API — Product Pricing API** (`getCompetitivePricing`) | Free (private seller app) | Official API. Rate limit: 0.5 req/sec → 2s delay between calls. 100 SKUs ≈ 3.5 min. |
+| eBay | **eBay Browse API** (`findItemsByKeywords`) | Free with developer account | Official API. 5,000 calls/day default. |
 
-**Note:** Amazon and eBay use official seller APIs — no scraping risk. BestBuy and Reebelo require direct scraping for competitor price data. Rainforest API is **Amazon-only** and is not applicable to any other platform in this workflow.
+### Future Marketplaces (Sub-Phase 1D-iii)
 
-### Listing Creation — Per Platform
+| Marketplace | Approach | Status |
+|---|---|---|
+| BestBuy | No official pricing API exists. Scraping requires Playwright + stealth plugin + residential proxies (~$5–30/mo) to bypass Akamai bot detection. **Evaluate ROI before building.** Pre-check: inspect a BestBuy.ca listing page for internal Mirakl JSON endpoints that could be called directly. | Deferred |
+| Reebelo | Cobalt API is for managing own listings only, not competitor prices. Scraping required for price data. | Deferred |
 
-#### Amazon
-Amazon used listings match to an **existing ASIN** in their catalog. You are not creating a new product page — you provide condition, price, and quantity against an existing catalog entry. Amazon pulls title, images, and description automatically.
+> **Why defer scraping?** BestBuy.ca Akamai bypass and Reebelo scraping are fragile, require ongoing maintenance, and add residential proxy costs. Amazon + eBay cover the two largest used device marketplaces in Canada. Start there, prove the pipeline, then decide if BestBuy/Reebelo volume justifies the investment.
+
+### Orchestration
+
+| Tool | Role |
+|---|---|
+| **Linux cron job** | Daily trigger — runs `python -m ecommerce.main` on the existing EC2 |
+| **Python modules** | Structured package (see Module Structure below) |
+| **Flask (existing)** | Receives approval link clicks — triggers listing creation |
+
+---
+
+## Module Structure
+
+```
+inventory-chatbot/
+├── app.py                          # Existing chatbot (unchanged)
+├── config.py                       # Existing config (add ecommerce keys)
+├── ecommerce/
+│   ├── __init__.py
+│   ├── main.py                     # Entry point — orchestrates the daily pipeline
+│   ├── config.py                   # Ecommerce-specific settings (thresholds, API keys ref)
+│   ├── db.py                       # SQL queries — inventory fetch, listings log CRUD, reconciliation
+│   ├── pricing/
+│   │   ├── __init__.py
+│   │   ├── amazon.py               # Amazon SP-API price fetching
+│   │   ├── ebay.py                 # eBay Browse API price fetching
+│   │   └── algorithm.py            # Deterministic pricing: highest floor price selection
+│   ├── listings/
+│   │   ├── __init__.py
+│   │   ├── amazon.py               # Amazon SP-API listing creation
+│   │   ├── ebay.py                 # eBay Inventory API listing creation
+│   │   └── copy_generator.py       # Claude API — generates listing title/description/bullets
+│   ├── notifications/
+│   │   ├── __init__.py
+│   │   └── email_digest.py         # Builds and sends daily approval email
+│   └── approval.py                 # Flask routes for approve/reject links (registers on existing app)
+```
+
+Each module has a single responsibility. Adding BestBuy or Reebelo later means adding one file in `pricing/` and one in `listings/`.
+
+---
+
+## Listing Creation — Per Platform
+
+### Amazon
+Amazon used listings match to an **existing ASIN** in their catalog. You provide condition, price, and quantity against an existing catalog entry.
 
 | Need | Tool | Notes |
 |---|---|---|
-| Authentication | `python-amazon-sp-api` (pip install) | Handles OAuth LWA token refresh automatically |
+| Authentication | `python-amazon-sp-api` (pip) | Handles OAuth LWA token refresh automatically |
 | Create/update listing | SP-API Listings Items API (`PUT /listings/2021-08-01/items/{sellerId}/{sku}`) | Provide: ASIN, condition, condition note, price, quantity, seller SKU |
 | Images | Not required | ASIN catalog images used automatically |
 | Category | Not required | Inferred from ASIN |
 
-#### eBay
-eBay is a two-step process: create an inventory item (defines the product), then create and publish an offer (defines price, quantity, marketplace).
+### eBay
+Two-step process: create inventory item (product), then create and publish an offer (price + marketplace).
 
 | Need | Tool | Notes |
 |---|---|---|
 | Authentication | eBay OAuth 2.0 via `requests` | Store refresh token in config; exchange for access token at runtime |
-| Create inventory item | eBay Inventory API (`PUT /sell/inventory/v1/inventory_item/{sku}`) | Provide: title, description, condition, images, item specifics |
-| Create + publish offer | eBay Inventory API (`POST /offer` → `POST /offer/{id}/publish`) | Provide: price, quantity, category ID, listing policies |
+| Create inventory item | eBay Inventory API (`PUT /sell/inventory/v1/inventory_item/{sku}`) | Title, description, condition, images, item specifics |
+| Create + publish offer | eBay Inventory API (`POST /offer` → `POST /offer/{id}/publish`) | Price, quantity, category ID, listing policies |
 | Category ID | Hardcoded | eBay Canada cell phones category (e.g. `9355`) |
-| Item specifics | Hardcoded mapping | eBay requires structured fields: Brand, Model, Storage, Colour, Network, Condition — not just free text |
+| Item specifics | Hardcoded mapping | Brand, Model, Storage, Colour, Network, Condition |
 | Images | Required — see Image Strategy below | |
-
-#### BestBuy Marketplace
-Matches to existing BestBuy catalog by UPC/EAN. Same pattern as Amazon — you provide an offer against an existing catalog item.
-
-| Need | Tool | Notes |
-|---|---|---|
-| Authentication | API key via BestBuy Marketplace Seller Portal | |
-| Create offer | BestBuy Marketplace Seller API | Provide: UPC/EAN, condition, price, quantity |
-| Images | Not required | BestBuy catalog images used automatically |
-| Category | Not required | Inferred from catalog match |
-
-#### Reebelo
-Reebelo is a true third-party marketplace with a documented seller API via their **Cobalt** platform (cobalt.reebelo.com). Listing creation can be programmatic. Fee structure: $99 USD/month flat + 10–15% commission per sale.
-
-| Need | Tool | Notes |
-|---|---|---|
-| Competitor price data | Python scraper (`requests` + `BeautifulSoup` or `playwright`) | Cobalt API manages your own listings only — scrape Reebelo public pages for competitor prices by model + grade |
-| Create listing | **Reebelo Cobalt API** | Documented API supports creating/updating products, inventory, and prices programmatically. Full docs require a seller account login at cobalt.reebelo.com/documentation/custom-api |
-| Multichannel option | Sellercloud / ChannelEngine | Both have documented Reebelo integrations — viable if already using a multichannel tool |
-| Images | Required — confirm Reebelo requirements | Likely stock images per model; confirm via Cobalt docs |
-| Category / condition | Confirm via Cobalt API docs | Map internal grades (A/B/C) to Reebelo's condition taxonomy |
-
-> **Action item:** Obtain Reebelo seller account to access full Cobalt API documentation and confirm listing fields, condition labels, and image requirements before implementation.
 
 ---
 
-### Image Strategy (eBay Only)
+## Image Strategy (eBay Only)
 
-Amazon and BestBuy use catalog images automatically. eBay requires images on every listing. Three options evaluated:
+Amazon uses catalog images automatically. eBay requires images on every listing.
 
 | Option | Recommendation | Notes |
 |---|---|---|
-| eBay Product Catalog match | **First choice** | Most major iPhones and Samsung devices are in eBay's catalog — catalog images applied automatically via `epid` (eBay Product ID). Requires a catalog lookup step. |
-| S3 image library (fallback) | **Second choice** | One-time build of ~50–100 stock device images by model, stored in AWS S3. Used when eBay catalog match fails. Cost: ~$1–2/mo. |
-| Pull stock image from web at runtime | Not recommended | Fragile, potential copyright issues, eBay may reject hotlinked images. |
+| eBay Product Catalog match | **First choice** | Major iPhones/Samsung devices are in eBay's catalog — catalog images applied via `epid`. Requires a catalog lookup step. |
+| S3 image library (fallback) | **Second choice** | One-time build of ~50–100 stock device images by model in AWS S3. Used when catalog match fails. Cost: ~$1–2/mo. |
 
 ---
 
-### Listing Content Generation
+## Listing Content Generation
 
-AI (DeepSeek V3 or Claude) generates the text layer by analyzing top competitor listings from the winning marketplace.
+Claude generates listing text by analyzing top competitor listings from the winning marketplace.
 
 | Input | Output |
 |---|---|
 | 3–5 competitor listings for same model + grade | Title, description, bullet points, condition note |
 
-**Listing format (confirmed):** One listing per product group — `Quantity × Model × Grade`
+**Listing format:** One listing per product group — `Quantity x Model x Grade`
 - Example: *"6x Apple iPhone 14 128GB — Grade A (Used – Like New)"*
 - Price set at the floor price of the winning marketplace
 
@@ -216,16 +249,57 @@ AI (DeepSeek V3 or Claude) generates the text layer by analyzing top competitor 
 
 ---
 
-### Python Libraries Required
+## Database Tables
+
+### EcommerceListingsLog (new)
+Tracks all listings created by the system.
+
+```sql
+CREATE TABLE EcommerceListingsLog (
+    ID                  int IDENTITY(1,1) PRIMARY KEY,
+    Manufacturer        nvarchar(100),
+    Model               nvarchar(100),
+    Colour              nvarchar(50),
+    Grade               nvarchar(20),
+    Quantity            int,
+    Platform            nvarchar(50),       -- 'Amazon', 'eBay'
+    ListingPrice        decimal(10,2),
+    FloorPriceAtListing decimal(10,2),      -- what the floor was when we listed
+    PlatformListingID   nvarchar(100),      -- marketplace's listing/offer ID
+    Status              nvarchar(20),       -- 'active', 'ended', 'sold', 'rejected'
+    CreatedAt           datetime DEFAULT GETDATE(),
+    EndedAt             datetime NULL,
+    ApprovedBy          nvarchar(100) NULL
+)
+```
+
+### EcommerceProductCatalog (new)
+Lookup table for marketplace product identifiers. One-time manual build (~50–100 rows).
+
+```sql
+CREATE TABLE EcommerceProductCatalog (
+    Manufacturer    nvarchar(100),
+    Model           nvarchar(100),
+    Storage         nvarchar(50),   -- e.g. '128GB', '256GB'
+    Colour          nvarchar(50),
+    AmazonASIN      nvarchar(20),
+    UPC             nvarchar(20),
+    EbayEPID        nvarchar(20)    -- eBay catalog product ID (for image matching)
+)
+```
+
+> **Pre-build requirement:** If `Storage` is not currently captured in `ReportingInventoryFlat`, it must be added as a column before this lookup will work reliably for ASIN matching.
+
+---
+
+## Python Libraries Required
 
 | Library | Purpose | Cost |
 |---|---|---|
-| `python-amazon-sp-api` | Amazon SP-API wrapper — OAuth, rate limiting, retries | Free (open source) |
-| `requests` | eBay and BestBuy API calls | Free |
+| `python-amazon-sp-api` | Amazon SP-API wrapper — OAuth, rate limiting, retries | Free |
+| `requests` | eBay API calls, email sending | Free |
 | `boto3` | AWS S3 access for eBay image hosting (if needed) | Free |
-| `jinja2` | HTML description templating for eBay listings | Free |
-| `beautifulsoup4` + `playwright-extra` | BestBuy and Reebelo scraping — `bs4` for HTML parsing, `playwright-extra` with stealth plugin patches headless browser signals that trigger bot detection | Free |
-| `playwright-extra-plugin-stealth` | Patches `navigator.webdriver` and other fingerprint signals detected by BestBuy.ca's Akamai bot protection | Free |
+| `jinja2` | HTML email digest templating | Free |
 
 All installable via pip on the existing EC2. No new infrastructure required.
 
@@ -233,52 +307,25 @@ All installable via pip on the existing EC2. No new infrastructure required.
 
 ## Infrastructure Fit
 
-No new infrastructure required. This runs on the existing Linux EC2.
+No new infrastructure. Runs on the existing Linux EC2.
 
 | Component | How Used |
 |---|---|
-| Linux EC2 | Runs `ecommerce_agent.py` via cron + Flask approval endpoint |
-| SQL Server | Inventory data (`ReportingInventoryFlat`) + listings log (`EcommerceListingsLog`) + ASIN/UPC lookup table |
-| AWS S3 (optional) | eBay image hosting fallback — only needed if eBay catalog match fails |
-| Marketplace APIs | Called outbound from Linux EC2 (Amazon SP-API, eBay APIs, BestBuy Seller API, Reebelo Cobalt API) |
-| Residential proxy service | Required for BestBuy.ca scraping — EC2 datacenter IPs are blocked by Akamai bot protection. ~$5–30/mo at 100 req/day volume. (Providers: Oxylabs, Bright Data, Webshare) |
-
-### Pre-Build Requirement: ASIN / UPC Lookup Table
-
-Amazon and BestBuy require a product identifier (ASIN or UPC/EAN) to match listings to their catalogs. Your flat table has `Manufacturer + Model + Grade + Colour` but not these identifiers. A lookup table must be built in SQL Server before implementation begins.
-
-```sql
--- EcommerceProductCatalog (one-time manual build, ~50–100 rows)
-CREATE TABLE EcommerceProductCatalog (
-    Manufacturer    nvarchar(100),
-    Model           nvarchar(100),
-    Storage         nvarchar(50),   -- e.g. '128GB', '256GB'
-    Colour          nvarchar(50),
-    AmazonASIN      nvarchar(20),
-    UPC             nvarchar(20),   -- used for BestBuy matching
-    EbayEPID        nvarchar(20)    -- optional: eBay catalog product ID
-)
-```
-
-> This is a one-time manual build covering your typical SKU range. Maintained by adding a row whenever a new model enters the Ecommerce Storefront for the first time. If `Storage` is not currently captured in `ReportingInventoryFlat`, it must be added as a column before this lookup will work reliably.
+| Linux EC2 | Runs ecommerce pipeline via cron + Flask approval endpoint |
+| SQL Server | Inventory data + listings log + product catalog |
+| AWS S3 (optional) | eBay image hosting fallback |
+| Marketplace APIs | Outbound from EC2 (Amazon SP-API, eBay APIs) |
 
 ---
 
 ## Volume & API Considerations
 
-- **~100 distinct SKUs** expected in Ecommerce Storefront at any given time
-- Daily scan = 100 SKUs × 4 marketplaces = **400 price lookups/day**
-- Amazon SP-API: 100 calls at 0.5 req/sec = ~3.5 minutes — within limits
-- eBay Browse API: No meaningful rate limit concern at this volume
-- BestBuy scraper: 100 page requests/day via Playwright + residential proxies — low volume; pace at 2–3s between requests
-- Reebelo scraper: 100 page requests/day — low volume; add 1–2s delay between requests to avoid triggering bot detection
-- Email approval: **daily digest** (one email, one row per SKU, individual approve/reject links) — not 100 separate emails
-
----
-
-## Phasing
-
-**Confirmed: Phase 1D** — the final sub-phase of Phase 1. Builds directly on the existing flat table infrastructure. No dependency on HubSpot or any Phase 2+ work.
+- **~100 distinct SKUs** expected in Ecommerce Storefront at any time
+- Daily scan = 100 SKUs x 2 marketplaces = **200 price lookups/day**
+- Amazon SP-API: 100 calls at 0.5 req/sec = ~3.5 minutes
+- eBay Browse API: no meaningful rate limit concern at this volume
+- Email: **daily digest** (one email, one row per SKU, individual approve/reject links)
+- Claude API: ~100 calls/day for listing copy generation (only on approved SKUs) — minimal token cost
 
 ---
 
@@ -286,19 +333,37 @@ CREATE TABLE EcommerceProductCatalog (
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| **ASIN / UPC matching** — Amazon and BestBuy require a product identifier to match catalog listings. Flat table has model name but not ASIN or UPC. | High | Build `EcommerceProductCatalog` lookup table in SQL Server before implementation (see Infrastructure Fit). Confirm whether storage capacity is captured in inventory data — required for accurate ASIN matching. |
-| **Rejected/skipped SKUs falling through** — `Product_Placement_Created` filter only catches previous business day. Unapproved items won't be reprocessed. | Medium | Fallback query (see Inventory Data Structure) catches any SKU in Ecommerce Storefront with no active listing record, regardless of date. |
-| **Public holidays** — Previous business day logic doesn't account for Canadian holidays; could skip a day or double-process. | Low | Flag for future improvement. Manually re-trigger if needed on post-holiday mornings. |
-| **Grade → condition mapping** — Internal grades (A/B/C) don't match marketplace condition labels. | Medium | Mapping defined in Listing Content Generation section. Agree internally before launch. |
-| **Stale pricing / bad floor price** — A one-off $50 listing could skew the floor price and cause under-pricing. | Medium | Add a sanity check: if recommended price < `DeviceCost` + minimum margin threshold, skip the SKU and flag it in the email rather than auto-proceeding. |
-| **Overselling** — Flat table refreshes hourly; a device could sell after the last refresh but before listing is posted. | Medium | Run the cron job immediately after a scheduled flat table refresh. Log all active listings in SQL Server and deduct from available quantity on next run. |
-| **Listings not delisted** — If a product sells or moves out of Ecommerce Storefront, the live marketplace listing stays up. | High | Daily job must reconcile active listing log against current flat table. Any SKU no longer in Ecommerce Storefront → call marketplace API to end listing. |
-| **Amazon SP-API rate limits** — 0.5 req/sec on `getCompetitivePricing`. | Low | Add `time.sleep(2)` between Amazon API calls. 100 SKUs completes in ~3.5 minutes — no issue. |
-| **Rainforest API cost** | Low | ~$50–200/mo depending on tier. 100 BestBuy lookups/day is light usage — likely the entry tier. |
-| **BestBuy.ca bot detection** — No official API exists. Scraping required, but BestBuy.ca uses Akamai bot protection; datacenter IPs (EC2) will be blocked without additional hardening. | High | Use `playwright-extra` with stealth plugin + residential proxy rotation. Keep request rate low (2–3s delay). **Pre-build:** Manually inspect a BestBuy.ca phone listing page to check if Mirakl's internal seller-offer JSON endpoint is callable directly with `requests` — this would bypass full browser rendering and simplify the stack significantly. |
-| **Reebelo scraper fragility** — Cobalt API is for managing your own listings, not reading competitor prices; public page scraper depends on HTML structure. | Medium | Build scraper with clear CSS/XPath selectors and add error handling so failures surface in logs rather than silently skipping Reebelo pricing. Re-test after any Reebelo site update. |
-| **Reebelo bot detection** — Scraping may be blocked if Reebelo implements rate limiting or bot detection. | Medium | Add request delays (1–2s), rotate user-agent headers. If blocked, consider Playwright with a real browser context. Check Reebelo's `robots.txt` before launch. |
-| **Reebelo Cobalt API access** — Full API documentation requires an active seller account. Listing fields, condition taxonomy, and image requirements are unknown until access is granted. | Medium | Obtain Reebelo seller account early to unblock API implementation. $99 USD/month + 10–15% commission. |
+| **ASIN / UPC matching** — Amazon requires ASIN to match catalog. Flat table has model name but not ASIN. | High | Build `EcommerceProductCatalog` lookup table before implementation. Confirm whether storage capacity is captured in inventory data. |
+| **Rejected/skipped SKUs falling through** — date filter only catches previous business day. | Medium | Fallback query catches any SKU with no active listing record, regardless of date. |
+| **Stale pricing / bad floor price** — a one-off $50 listing could cause under-pricing. | Medium | Sanity check: skip any SKU where price < DeviceCost + margin threshold. Flag in email. |
+| **Overselling** — flat table refreshes hourly; device could sell between refresh and listing. | Medium | Run cron immediately after flat table refresh. Log active listings and deduct from available quantity on next run. |
+| **Listings not delisted** — product sells or moves out of Ecommerce Storefront but listing stays up. | High | Daily reconciliation: compare active listings log against current flat table. Auto-delist via API for any SKU no longer in Ecommerce Storefront. |
+| **Amazon SP-API rate limits** — 0.5 req/sec on `getCompetitivePricing`. | Low | 2s delay between calls. 100 SKUs in ~3.5 min. |
+| **eBay token expiry** — OAuth refresh tokens expire if not used within 18 months. | Low | Token refresh runs on every daily job execution. |
+| **Public holidays** — previous business day logic doesn't account for Canadian holidays. | Low | Manually re-trigger if needed. Flag for future improvement. |
+| **Grade → condition mapping** — internal grades don't match marketplace labels. | Medium | Mapping defined above. Agree internally before launch. |
+
+---
+
+## Implementation Order (Sub-Phase 1D-i)
+
+This is the build sequence for the first deliverable: daily price scan + email digest.
+
+| Step | Task | Dependencies |
+|---|---|---|
+| 1 | Add `Product_Placement_Created` column to `ReportingInventoryFlat` + update refresh SP | SQL Server access |
+| 2 | Create `EcommerceProductCatalog` table + populate for top ~50 SKUs | Manual data entry (ASINs from Amazon, UPCs from packaging) |
+| 3 | Create `EcommerceListingsLog` table | SQL Server access |
+| 4 | Build `ecommerce/db.py` — inventory queries + listings log CRUD | Steps 1–3 |
+| 5 | Build `ecommerce/pricing/amazon.py` — SP-API price fetching | Amazon Seller Central credentials |
+| 6 | Build `ecommerce/pricing/ebay.py` — Browse API price fetching | eBay developer account |
+| 7 | Build `ecommerce/pricing/algorithm.py` — highest floor price selection | None |
+| 8 | Build `ecommerce/notifications/email_digest.py` — daily approval email | SMTP credentials or SES |
+| 9 | Build `ecommerce/main.py` — orchestrates steps 4–8 | All above |
+| 10 | Set up cron job on EC2 | Step 9 |
+| 11 | **Test for 1–2 weeks** — validate pricing recommendations manually before enabling auto-listing | None |
+
+Sub-phase 1D-ii (auto-listing) begins only after 1D-i email recommendations have been validated manually.
 
 ---
 
@@ -306,12 +371,28 @@ CREATE TABLE EcommerceProductCatalog (
 
 | Decision | Answer |
 |---|---|
-| Marketplace seller status | Approved on Amazon Seller Central, eBay, BestBuy Marketplace, and Reebelo |
-| Pricing algorithm | Highest floor price across marketplaces — list at that price |
-| Approval UX | Email digest (one email, one row per SKU, individual approve/reject links) |
+| Marketplace seller status | Approved on Amazon Seller Central and eBay |
+| Pricing algorithm | Highest floor price across marketplaces — deterministic, no AI |
+| AI model for listing copy | Claude API (already in stack) |
+| Approval UX | Email digest (one email, one row per SKU, approve/reject links) |
 | SKU volume | ~100 distinct SKUs in Ecommerce Storefront at a time |
-| Listing granularity | One listing per product group: Quantity × Model × Grade |
+| Listing granularity | One listing per product group: Quantity x Model x Grade |
 | Daily filter | `Product_Placement_Created` = previous business day + fallback for unlisted SKUs |
+| Initial marketplaces | Amazon + eBay (official APIs). BestBuy + Reebelo deferred. |
+
+---
+
+## What Was Removed From the Original Plan (and Why)
+
+| Removed | Reason |
+|---|---|
+| DeepSeek V3 for pricing | Pricing algorithm is deterministic (`max()` over floor prices). No LLM needed. |
+| BestBuy.ca scraping (Playwright + stealth + residential proxies) | Fragile, requires Akamai bypass, ongoing proxy cost, maintenance burden. Deferred to 1D-iii — evaluate ROI when core pipeline is proven. |
+| Reebelo scraping | Same fragility concerns. Cobalt API only manages own listings. Deferred. |
+| Rainforest API | Amazon-only, redundant with SP-API which is free. Was listed as a risk in the original plan but explicitly stated as "not applicable" in the same document. |
+| DeepSeek as second AI provider | Adds second billing, second set of credentials, second failure mode. Claude already integrated and running. |
+| `playwright-extra` + `playwright-extra-plugin-stealth` | Only needed for BestBuy/Reebelo scraping. Deferred with those marketplaces. |
+| `beautifulsoup4` | Only needed for scraping. Deferred. |
 
 ---
 
