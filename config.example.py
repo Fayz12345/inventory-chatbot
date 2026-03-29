@@ -16,3 +16,31 @@ USERS = {
     'admin': 'pbkdf2:sha256:...',
     'john':  'pbkdf2:sha256:...',
 }
+
+# --- Ecommerce settings (Phase 1D) ---
+
+# Amazon SP-API — get from Seller Central > Apps & Services > Develop Apps
+AMAZON_SELLER_ID = ''
+AMAZON_MARKETPLACE_ID = 'A2EUQ1WTGCTBG2'  # Amazon.ca
+AMAZON_REFRESH_TOKEN = ''
+AMAZON_LWA_APP_ID = ''
+AMAZON_LWA_CLIENT_SECRET = ''
+
+# eBay API — get from developer.ebay.com
+EBAY_APP_ID = ''
+EBAY_CERT_ID = ''
+EBAY_REFRESH_TOKEN = ''
+
+# SMTP (for ecommerce digest emails)
+SMTP_HOST = ''
+SMTP_PORT = 587
+SMTP_USER = ''
+SMTP_PASSWORD = ''
+ECOMMERCE_EMAIL_FROM = ''
+ECOMMERCE_EMAIL_TO = ''
+
+# Pricing
+ECOMMERCE_MINIMUM_MARGIN = 25.00
+
+# Base URL for approval links (set to your EC2 public IP + port)
+APP_BASE_URL = 'http://your-ec2-ip:5000'

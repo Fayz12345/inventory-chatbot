@@ -7,6 +7,10 @@ import config
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
 
+# Register ecommerce approval routes
+from ecommerce.approval import approval_bp
+app.register_blueprint(approval_bp)
+
 # --- Database connection ---
 def get_db_connection():
     conn = pyodbc.connect(
