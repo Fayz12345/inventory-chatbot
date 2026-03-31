@@ -9,8 +9,7 @@ All 15 modules in `ecommerce/` are built and integrated. The approval Blueprint 
 ### Remaining Deployment Tasks
 
 1. **Create SQL Server tables** — Run DDL for `EcommerceListingsLog` and `EcommerceProductCatalog` on the Windows EC2 SQL Server. Schema is defined in `Ecommerce_AI_Plan.md` under "Database Tables".
-2. **Add `Product_Placement_Created` column** — Add datetime column to `ReportingInventoryFlat` and update the refresh stored procedure to populate it.
-3. **Install Python dependencies on EC2** — `pip install python-amazon-sp-api jinja2` in `~/chatbot-env`.
+2. **Install Python dependencies on EC2** — `pip install python-amazon-sp-api jinja2` in `~/chatbot-env`.
 4. **Fill in marketplace credentials in `config.py`** — Amazon SP-API keys (Seller Central), eBay OAuth tokens (developer.ebay.com), SMTP credentials for digest emails.
 5. **Set `APP_BASE_URL`** in `config.py` to the EC2 public IP (e.g. `http://3.96.54.81:5000`).
 6. **Set up cron job** — `0 7 * * * cd ~/inventory-chatbot && ~/chatbot-env/bin/python -m ecommerce.main`

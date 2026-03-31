@@ -1,0 +1,27 @@
+CREATE TABLE EcommerceListingsLog (                   
+      ID                  int IDENTITY(1,1) PRIMARY KEY,
+      Manufacturer        nvarchar(100),                
+      Model               nvarchar(100),                
+      Colour              nvarchar(50),                 
+      Grade               nvarchar(20),                 
+      Quantity            int,                          
+      Platform            nvarchar(50),                 
+      ListingPrice        decimal(10,2),                
+      FloorPriceAtListing decimal(10,2),                
+      PlatformListingID   nvarchar(100),                
+      Status              nvarchar(20),                 
+      CreatedAt           datetime DEFAULT GETDATE(),   
+      EndedAt             datetime NULL,                
+      ApprovedBy          nvarchar(100) NULL            
+  )                                                     
+                                                        
+  2. EcommerceProductCatalog                            
+                                                        
+  CREATE TABLE EcommerceProductCatalog (                
+      Manufacturer    nvarchar(100),                    
+      Model           nvarchar(100),                    
+      Colour          nvarchar(50),                     
+      AmazonASIN      nvarchar(20),                     
+      UPC             nvarchar(20),                     
+      EbayEPID        nvarchar(20)                      
+  )   

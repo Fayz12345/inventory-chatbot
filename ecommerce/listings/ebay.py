@@ -54,8 +54,6 @@ def _build_item_specifics(product, catalog_info=None):
         {'name': 'Model', 'values': [product['Model']]},
         {'name': 'Colour', 'values': [product['Colour']]},
     ]
-    if catalog_info and catalog_info.get('storage'):
-        specifics.append({'name': 'Storage Capacity', 'values': [catalog_info['storage']]})
     return specifics
 
 

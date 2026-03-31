@@ -19,9 +19,7 @@ This phase adds an AI-powered ecommerce listing workflow that runs daily, scans 
 ```
 Linux cron job (daily, 7am) → python -m ecommerce.main
     ↓
-Query ReportingInventoryFlat → two queries, results merged:
-  1. Product_Place = 'Ecommerce Storefront' AND Product_Placement_Created = prev business day
-  2. Product_Place = 'Ecommerce Storefront' AND no active listing in EcommerceListingsLog (fallback)
+Query ReportingInventoryFlat → find all SKUs in 'Ecommerce Storefront' with no active listing in EcommerceListingsLog
     ↓
 Reconcile against active listings table → skip already-listed SKUs, delist removed SKUs
     ↓
@@ -64,26 +62,9 @@ Phase 1D is broken into three sub-phases. Each delivers working value independen
 
 ## Inventory Data Structure
 
-**One schema addition to `ReportingInventoryFlat`:** a `Product_Placement_Created` datetime column recording when each ESN was moved into its current `Product_Place`.
+No schema changes required to `ReportingInventoryFlat`. The pipeline queries existing columns only.
 
-**New column:**
-| Column | Type | Source | Purpose |
-|---|---|---|---|
-| `Product_Placement_Created` | datetime | ReceiveDetailProcessLog or the relevant audit trail for Product Place changes | Identifies when each device entered its current Product Place — used to filter for newly ecommerce-ready devices |
-
-**Primary query — previous business day additions:**
-```sql
-SELECT Manufacturer, Model, Colour, Grade, COUNT(*) AS Quantity
-FROM ReportingInventoryFlat
-WHERE Product_Place = 'Ecommerce Storefront'
-  AND CAST(Product_Placement_Created AS DATE) = :prev_business_day
-GROUP BY Manufacturer, Model, Colour, Grade
-ORDER BY Quantity DESC
-```
-> `prev_business_day` is calculated in Python: Monday → Friday, all other days → yesterday.
-> Canadian public holidays not currently handled — flag for future improvement.
-
-**Fallback query — unlisted SKUs with no active listing record:**
+**Daily query — unlisted SKUs with no active listing record:**
 ```sql
 SELECT Manufacturer, Model, Colour, Grade, COUNT(*) AS Quantity
 FROM ReportingInventoryFlat r
@@ -99,8 +80,7 @@ WHERE Product_Place = 'Ecommerce Storefront'
 GROUP BY Manufacturer, Model, Colour, Grade
 ORDER BY Quantity DESC
 ```
-> Catches SKUs that were rejected, skipped, or missed on a prior day.
-> Both queries run on each daily job — results are merged and deduplicated before price scanning.
+> Picks up any SKU in Ecommerce Storefront that doesn't already have an active listing. Automatically catches new placements, previously rejected SKUs, and missed items.
 
 ---
 
@@ -280,7 +260,6 @@ Lookup table for marketplace product identifiers. One-time manual build (~50–1
 CREATE TABLE EcommerceProductCatalog (
     Manufacturer    nvarchar(100),
     Model           nvarchar(100),
-    Storage         nvarchar(50),   -- e.g. '128GB', '256GB'
     Colour          nvarchar(50),
     AmazonASIN      nvarchar(20),
     UPC             nvarchar(20),
@@ -288,7 +267,7 @@ CREATE TABLE EcommerceProductCatalog (
 )
 ```
 
-> **Pre-build requirement:** If `Storage` is not currently captured in `ReportingInventoryFlat`, it must be added as a column before this lookup will work reliably for ASIN matching.
+> Storage capacity is tracked within the Model attribute (e.g. "iPhone 14 128GB"), so no separate Storage column is needed.
 
 ---
 
@@ -333,14 +312,12 @@ No new infrastructure. Runs on the existing Linux EC2.
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| **ASIN / UPC matching** — Amazon requires ASIN to match catalog. Flat table has model name but not ASIN. | High | Build `EcommerceProductCatalog` lookup table before implementation. Confirm whether storage capacity is captured in inventory data. |
-| **Rejected/skipped SKUs falling through** — date filter only catches previous business day. | Medium | Fallback query catches any SKU with no active listing record, regardless of date. |
+| **ASIN / UPC matching** — Amazon requires ASIN to match catalog. Flat table has model name but not ASIN. | High | Build `EcommerceProductCatalog` lookup table before implementation. Storage is embedded in the Model attribute. |
 | **Stale pricing / bad floor price** — a one-off $50 listing could cause under-pricing. | Medium | Sanity check: skip any SKU where price < DeviceCost + margin threshold. Flag in email. |
 | **Overselling** — flat table refreshes hourly; device could sell between refresh and listing. | Medium | Run cron immediately after flat table refresh. Log active listings and deduct from available quantity on next run. |
 | **Listings not delisted** — product sells or moves out of Ecommerce Storefront but listing stays up. | High | Daily reconciliation: compare active listings log against current flat table. Auto-delist via API for any SKU no longer in Ecommerce Storefront. |
 | **Amazon SP-API rate limits** — 0.5 req/sec on `getCompetitivePricing`. | Low | 2s delay between calls. 100 SKUs in ~3.5 min. |
 | **eBay token expiry** — OAuth refresh tokens expire if not used within 18 months. | Low | Token refresh runs on every daily job execution. |
-| **Public holidays** — previous business day logic doesn't account for Canadian holidays. | Low | Manually re-trigger if needed. Flag for future improvement. |
 | **Grade → condition mapping** — internal grades don't match marketplace labels. | Medium | Mapping defined above. Agree internally before launch. |
 
 ---
@@ -351,17 +328,16 @@ This is the build sequence for the first deliverable: daily price scan + email d
 
 | Step | Task | Dependencies |
 |---|---|---|
-| 1 | Add `Product_Placement_Created` column to `ReportingInventoryFlat` + update refresh SP | SQL Server access |
-| 2 | Create `EcommerceProductCatalog` table + populate for top ~50 SKUs | Manual data entry (ASINs from Amazon, UPCs from packaging) |
-| 3 | Create `EcommerceListingsLog` table | SQL Server access |
-| 4 | Build `ecommerce/db.py` — inventory queries + listings log CRUD | Steps 1–3 |
-| 5 | Build `ecommerce/pricing/amazon.py` — SP-API price fetching | Amazon Seller Central credentials |
-| 6 | Build `ecommerce/pricing/ebay.py` — Browse API price fetching | eBay developer account |
-| 7 | Build `ecommerce/pricing/algorithm.py` — highest floor price selection | None |
-| 8 | Build `ecommerce/notifications/email_digest.py` — daily approval email | SMTP credentials or SES |
-| 9 | Build `ecommerce/main.py` — orchestrates steps 4–8 | All above |
-| 10 | Set up cron job on EC2 | Step 9 |
-| 11 | **Test for 1–2 weeks** — validate pricing recommendations manually before enabling auto-listing | None |
+| 1 | Create `EcommerceProductCatalog` table + populate for top ~50 SKUs | Manual data entry (ASINs from Amazon, UPCs from packaging) |
+| 2 | Create `EcommerceListingsLog` table | SQL Server access |
+| 3 | Build `ecommerce/db.py` — inventory queries + listings log CRUD | Steps 1–2 |
+| 4 | Build `ecommerce/pricing/amazon.py` — SP-API price fetching | Amazon Seller Central credentials |
+| 5 | Build `ecommerce/pricing/ebay.py` — Browse API price fetching | eBay developer account |
+| 6 | Build `ecommerce/pricing/algorithm.py` — highest floor price selection | None |
+| 7 | Build `ecommerce/notifications/email_digest.py` — daily approval email | SMTP credentials or SES |
+| 8 | Build `ecommerce/main.py` — orchestrates steps 3–7 | All above |
+| 9 | Set up cron job on EC2 | Step 8 |
+| 10 | **Test for 1–2 weeks** — validate pricing recommendations manually before enabling auto-listing | None |
 
 Sub-phase 1D-ii (auto-listing) begins only after 1D-i email recommendations have been validated manually.
 
@@ -377,7 +353,7 @@ Sub-phase 1D-ii (auto-listing) begins only after 1D-i email recommendations have
 | Approval UX | Email digest (one email, one row per SKU, approve/reject links) |
 | SKU volume | ~100 distinct SKUs in Ecommerce Storefront at a time |
 | Listing granularity | One listing per product group: Quantity x Model x Grade |
-| Daily filter | `Product_Placement_Created` = previous business day + fallback for unlisted SKUs |
+| Daily filter | All unlisted SKUs in Ecommerce Storefront (no active listing in EcommerceListingsLog) |
 | Initial marketplaces | Amazon + eBay (official APIs). BestBuy + Reebelo deferred. |
 
 ---

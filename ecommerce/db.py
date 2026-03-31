@@ -1,5 +1,4 @@
 import pyodbc
-from datetime import date, timedelta
 from ecommerce import config
 
 
@@ -15,43 +14,12 @@ def get_db_connection():
     return conn
 
 
-def _prev_business_day(today=None):
-    """Return the previous business day. Monday -> Friday, otherwise yesterday."""
-    today = today or date.today()
-    if today.weekday() == 0:  # Monday
-        return today - timedelta(days=3)
-    elif today.weekday() == 6:  # Sunday
-        return today - timedelta(days=2)
-    else:
-        return today - timedelta(days=1)
-
-
 # ---------------------------------------------------------------------------
 # Inventory queries
 # ---------------------------------------------------------------------------
 
-def fetch_new_ecommerce_products(prev_bday=None):
-    """Primary query: devices placed into Ecommerce Storefront on the previous business day."""
-    prev_bday = prev_bday or _prev_business_day()
-    sql = """
-        SELECT Manufacturer, Model, Colour, Grade, COUNT(*) AS Quantity
-        FROM ReportingInventoryFlat
-        WHERE Product_Place = 'Ecommerce Storefront'
-          AND CAST(Product_Placement_Created AS DATE) = ?
-        GROUP BY Manufacturer, Model, Colour, Grade
-        ORDER BY Quantity DESC
-    """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(sql, (prev_bday,))
-    columns = [col[0] for col in cursor.description]
-    rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
-    conn.close()
-    return rows
-
-
-def fetch_unlisted_ecommerce_products():
-    """Fallback query: devices in Ecommerce Storefront with no active listing record."""
+def fetch_all_pending_products():
+    """Fetch all products in Ecommerce Storefront that don't have an active listing."""
     sql = """
         SELECT Manufacturer, Model, Colour, Grade, COUNT(*) AS Quantity
         FROM ReportingInventoryFlat r
@@ -74,21 +42,6 @@ def fetch_unlisted_ecommerce_products():
     rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
     conn.close()
     return rows
-
-
-def fetch_all_pending_products():
-    """Merge primary + fallback queries, deduplicated by product group key."""
-    primary = fetch_new_ecommerce_products()
-    fallback = fetch_unlisted_ecommerce_products()
-
-    seen = set()
-    merged = []
-    for row in primary + fallback:
-        key = (row['Manufacturer'], row['Model'], row['Colour'], row['Grade'])
-        if key not in seen:
-            seen.add(key)
-            merged.append(row)
-    return merged
 
 
 def fetch_device_cost(manufacturer, model, grade):
@@ -114,7 +67,7 @@ def fetch_device_cost(manufacturer, model, grade):
 def lookup_product_catalog(manufacturer, model, colour):
     """Look up ASIN, UPC, and eBay EPID from EcommerceProductCatalog."""
     sql = """
-        SELECT AmazonASIN, UPC, EbayEPID, Storage
+        SELECT AmazonASIN, UPC, EbayEPID
         FROM EcommerceProductCatalog
         WHERE Manufacturer = ? AND Model = ? AND Colour = ?
     """
@@ -129,7 +82,6 @@ def lookup_product_catalog(manufacturer, model, colour):
         'asin': row.AmazonASIN,
         'upc': row.UPC,
         'epid': row.EbayEPID,
-        'storage': row.Storage,
     }
 
 
