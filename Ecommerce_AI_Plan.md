@@ -2,30 +2,43 @@
 ### Internal Document — Management Team
 
 **Prepared:** March 2026
-**Status:** Planning — Phase 1D (final sub-phase of Phase 1, after Inventory Intelligence)
+**Updated:** April 2026
+**Status:** Implementation — Phase 1D (final sub-phase of Phase 1, after Inventory Intelligence)
 
 ---
 
 ## Overview
 
-This phase adds an AI-powered ecommerce listing workflow that runs daily, scans inventory flagged for ecommerce, researches competitive prices via marketplace APIs, recommends the best platform to sell on, and — upon human approval — drafts and posts the listing automatically.
+This phase adds an AI-powered ecommerce listing workflow that scans inventory flagged for ecommerce, researches competitive prices across four Canadian marketplaces via Octoparse web scraping, recommends the best platform to sell on, and — upon human approval — drafts and posts the listing automatically.
 
-**Scope:** Amazon and eBay first (official APIs, no scraping). BestBuy and Reebelo added later once the core pipeline is proven.
+**Scope:** Amazon Canada, eBay Canada, Best Buy Marketplace Canada, and Reebelo Canada — all four marketplaces from day one via Octoparse cloud extraction. Price scanning runs weekly (Monday mornings EST). Listing creation via marketplace APIs remains a later sub-phase.
+
+**Why Octoparse instead of marketplace APIs?** Getting approved for Amazon SP-API and eBay Browse API has been tedious. Octoparse provides a unified scraping approach across all four marketplaces with built-in IP rotation, cloud extraction, and bot humanization — no per-marketplace API credentials needed for price intelligence.
 
 ---
 
 ## Workflow (End-to-End)
 
 ```
-Linux cron job (daily, 7am) → python -m ecommerce.main
+Linux cron job (weekly, Monday 6:00 AM EST) → python -m ecommerce.main
     ↓
 Query ReportingInventoryFlat → find all SKUs in 'Ecommerce Storefront' with no active listing in EcommerceListingsLog
     ↓
 Reconcile against active listings table → skip already-listed SKUs, delist removed SKUs
     ↓
-For each unlisted product group:
-    → Amazon SP-API (getCompetitivePricing)
-    → eBay Browse API (findItemsByKeywords)
+Build search keyword list from product groups (e.g. "iPhone 14 128GB Grade A")
+    ↓
+Trigger Octoparse cloud tasks via API (4 scrapers — one per marketplace):
+    → Amazon Canada — template: amazon-product-details-scraper (by ASIN)
+    → eBay Canada — template: ebay-product-list-scraper-by-keyword (by keyword, country=Canada)
+    → Best Buy / Reebelo — template: google-shopping-product-listing-scraper (by keyword, captures aggregated prices)
+    ↓
+    Octoparse cloud runs with IP rotation + humanized behavior (random delays, scrolling)
+    First page only per search — lightweight jobs, ~100 SKUs total
+    ↓
+Poll Octoparse API → export scraped data as JSON
+    ↓
+Parse results → extract floor prices per marketplace per SKU
     ↓
 Sanity check: skip any SKU where best price < DeviceCost + minimum margin
     ↓
@@ -34,14 +47,14 @@ Pricing algorithm (deterministic — no AI needed):
     → Pick the marketplace with the highest floor price
     → Set listing price = that floor price
     ↓
-Email digest sent to approver:
-    One row per SKU — recommended marketplace, price, approve/reject link
-    ↓ [on approval click — Flask endpoint on EC2]
-Fetch top 3–5 competitor listings from winning marketplace
+Recommendations persisted to SQL Server (EcommercePricingBatch + EcommercePricingRecommendation)
     ↓
+Approver visits /ecommerce/dashboard in browser:
+    One row per SKU — recommended marketplace, price, all 4 floor prices, approve/reject buttons
+    ↓ [on approve click — AJAX POST to Flask endpoint on EC2]
 Claude API drafts listing title + description + bullet points
     ↓
-Post via marketplace API (eBay Inventory API / Amazon SP-API)
+Post via marketplace API (eBay Inventory API / Amazon SP-API) — Sub-Phase 1D-ii
     ↓
 Log listing record to SQL Server (SKU, platform, price, timestamp, status)
 ```
@@ -50,13 +63,14 @@ Log listing record to SQL Server (SKU, platform, price, timestamp, status)
 
 ## Sub-Phases
 
-Phase 1D is broken into three sub-phases. Each delivers working value independently.
+Phase 1D is broken into two sub-phases. Each delivers working value independently.
 
 | Sub-Phase | Scope | Deliverable |
 |---|---|---|
-| **1D-i** | Price scanning + email digest | Daily email showing recommended marketplace + price per SKU. No auto-listing yet — human reviews and lists manually. Proves the data pipeline end-to-end. |
-| **1D-ii** | Approval flow + auto-listing | Approve/reject links in email → Claude generates listing copy → posts to Amazon or eBay automatically. |
-| **1D-iii** | BestBuy + Reebelo expansion | Add remaining marketplaces. Evaluate whether official APIs exist by then; if not, decide whether scraping ROI justifies the maintenance cost. |
+| **1D-i** | Octoparse price scanning across all 4 marketplaces + web dashboard | Weekly pipeline writes recommendations to SQL Server. Approver visits `/ecommerce/dashboard` to review recommended marketplace + price per SKU across Amazon CA, eBay CA, Best Buy CA, and Reebelo CA. No auto-listing yet — human reviews and lists manually. Proves the data pipeline end-to-end. |
+| **1D-ii** | Approval flow + auto-listing | Approve button on dashboard → Claude generates listing copy → posts to Amazon or eBay automatically. Marketplace API credentials needed only at this stage. |
+
+> **Why no 1D-iii?** BestBuy and Reebelo are no longer deferred — Octoparse + Google Shopping captures their prices from day one alongside Amazon and eBay.
 
 ---
 
@@ -90,17 +104,21 @@ ORDER BY Quantity DESC
 
 **This is deterministic — no AI/LLM needed.** It's a `max()` over a dict of floor prices. The Python implementation is ~10 lines.
 
-**Example:**
+**Example (now across 4 marketplaces):**
 | Marketplace | Lowest Competitor Price |
 |---|---|
-| Amazon | $750 |
-| eBay | $800 |
+| Amazon CA | $750 |
+| eBay CA | $800 |
+| Best Buy CA | $820 |
+| Reebelo CA | $690 |
 
-→ eBay wins (floor = $800). List at **$800**.
+→ Best Buy wins (floor = $820). List at **$820**.
 
 **Why this works:** You enter the market where even the cheapest seller is selling high, maximizing your sale price while remaining competitive.
 
-**Sanity check:** If recommended price < `DeviceCost` + configurable margin threshold → skip the SKU and flag it in the email digest instead of recommending it.
+**Sanity check:** If recommended price < `DeviceCost` + configurable margin threshold → skip the SKU and flag it on the dashboard instead of recommending it.
+
+**Google Shopping attribution:** Best Buy and Reebelo prices are extracted from Google Shopping results by matching the seller name field (e.g. "Best Buy", "Reebelo"). If a product appears from neither seller, those marketplaces return `None` for that SKU.
 
 ---
 
@@ -114,29 +132,37 @@ ORDER BY Quantity DESC
 
 > **Why not DeepSeek V3?** The pricing algorithm is deterministic and doesn't need an LLM. The only AI task is listing copy generation, and Claude is already integrated. Adding a second AI provider adds credential management, a second billing relationship, and a second failure mode — for no clear benefit. If cost becomes a concern at scale, swap Claude for a cheaper model at that point.
 
-### Price Intelligence APIs (Sub-Phase 1D-i)
+### Price Intelligence — Octoparse Web Scraping (Sub-Phase 1D-i)
 
-| Marketplace | Tool | Cost | Notes |
-|---|---|---|---|
-| Amazon | **SP-API — Product Pricing API** (`getCompetitivePricing`) | Free (private seller app) | Official API. Rate limit: 0.5 req/sec → 2s delay between calls. 100 SKUs ≈ 3.5 min. |
-| eBay | **eBay Browse API** (`findItemsByKeywords`) | Free with developer account | Official API. 5,000 calls/day default. |
+All price data is gathered via **Octoparse cloud extraction** — no marketplace API credentials needed for pricing.
 
-### Future Marketplaces (Sub-Phase 1D-iii)
+| Marketplace | Octoparse Template | Cloud | Parameters | Notes |
+|---|---|---|---|---|
+| **Amazon Canada** | `amazon-product-details-scraper` | Yes | `MainKeys` (ASINs from catalog), `ZipCode` (Canadian postal code) | Scrapes amazon.ca product pages by ASIN. Extracts title, price, ratings, seller info. |
+| **eBay Canada** | `ebay-product-list-scraper-by-keyword` | Yes | `123` (Country=Canada), `6tutxf6k2ik.List` (Site), `j4s3pig01g.ExecutedTimesLimitation` (Pages=1), `1x7v90yy9yr.List` (Keywords) | Keyword search on ebay.ca. Extracts title, price, URL, rating. First page only. |
+| **Best Buy Canada** | `google-shopping-product-listing-scraper` | Yes | `bur6xb09mnl.List` (Keywords) | No direct Best Buy template exists. Google Shopping aggregates Best Buy Marketplace CA listings with prices. |
+| **Reebelo Canada** | `google-shopping-product-listing-scraper` | Yes | `bur6xb09mnl.List` (Keywords) | No Reebelo template exists. Google Shopping captures Reebelo CA listings alongside other sellers. |
 
-| Marketplace | Approach | Status |
-|---|---|---|
-| BestBuy | No official pricing API exists. Scraping requires Playwright + stealth plugin + residential proxies (~$5–30/mo) to bypass Akamai bot detection. **Evaluate ROI before building.** Pre-check: inspect a BestBuy.ca listing page for internal Mirakl JSON endpoints that could be called directly. | Deferred |
-| Reebelo | Cobalt API is for managing own listings only, not competitor prices. Scraping required for price data. | Deferred |
+> **Why Google Shopping for Best Buy + Reebelo?** Octoparse has no dedicated Best Buy pricing or Reebelo template. Google Shopping aggregates prices across sellers (including Best Buy Marketplace and Reebelo), providing a single scrape that covers both. The pipeline parses results to attribute prices back to the correct marketplace by seller name.
 
-> **Why defer scraping?** BestBuy.ca Akamai bypass and Reebelo scraping are fragile, require ongoing maintenance, and add residential proxy costs. Amazon + eBay cover the two largest used device marketplaces in Canada. Start there, prove the pipeline, then decide if BestBuy/Reebelo volume justifies the investment.
+#### Anti-Detection & IP Safety Strategy
+
+| Concern | Mitigation |
+|---|---|
+| **IP blacklisting** | Octoparse cloud extraction uses automatic **IP rotation** across residential/datacenter pools. No single IP hits any site repeatedly. |
+| **Bot detection** | Octoparse templates include **humanized behavior**: randomized delays between actions, natural scrolling, varied user-agent strings. |
+| **Request volume** | **First page only** per search, **once per week** (Monday 6:00 AM EST). ~100 SKUs × 3 scraper tasks = ~300 page loads/week — negligible volume. |
+| **Rate limiting** | Weekly cadence ensures no marketplace sees frequent automated traffic. Monday early morning avoids peak hours. |
+| **Fingerprinting** | Cloud extraction runs on Octoparse's managed browser fleet — no local fingerprint exposed. |
 
 ### Orchestration
 
 | Tool | Role |
 |---|---|
-| **Linux cron job** | Daily trigger — runs `python -m ecommerce.main` on the existing EC2 |
+| **Linux cron job** | Weekly trigger (Monday 6:00 AM EST) — runs `python -m ecommerce.main` on the existing EC2 |
+| **Octoparse Cloud API** | Runs scraping tasks remotely with IP rotation. Python calls `execute_task` → polls → `export_data` |
 | **Python modules** | Structured package (see Module Structure below) |
-| **Flask (existing)** | Receives approval link clicks — triggers listing creation |
+| **Flask (existing)** | Serves the pricing dashboard at `/ecommerce/dashboard` — handles approve/reject actions via AJAX |
 
 ---
 
@@ -145,29 +171,35 @@ ORDER BY Quantity DESC
 ```
 inventory-chatbot/
 ├── app.py                          # Existing chatbot (unchanged)
-├── config.py                       # Existing config (add ecommerce keys)
+├── config.py                       # Existing config (add Octoparse API token + ecommerce keys)
 ├── ecommerce/
 │   ├── __init__.py
-│   ├── main.py                     # Entry point — orchestrates the daily pipeline
-│   ├── config.py                   # Ecommerce-specific settings (thresholds, API keys ref)
+│   ├── main.py                     # Entry point — orchestrates the weekly pipeline
+│   ├── config.py                   # Ecommerce-specific settings (thresholds, Octoparse config)
 │   ├── db.py                       # SQL queries — inventory fetch, listings log CRUD, reconciliation
 │   ├── pricing/
 │   │   ├── __init__.py
-│   │   ├── amazon.py               # Amazon SP-API price fetching
-│   │   ├── ebay.py                 # eBay Browse API price fetching
-│   │   └── algorithm.py            # Deterministic pricing: highest floor price selection
+│   │   ├── octoparse_client.py     # Octoparse API wrapper — create tasks, poll status, export JSON
+│   │   ├── amazon.py               # Parse Amazon scrape results → extract floor prices by ASIN
+│   │   ├── ebay.py                 # Parse eBay scrape results → extract floor prices by keyword
+│   │   ├── google_shopping.py      # Parse Google Shopping results → attribute prices to Best Buy / Reebelo by seller name
+│   │   └── algorithm.py            # Deterministic pricing: highest floor price across 4 marketplaces
 │   ├── listings/
 │   │   ├── __init__.py
-│   │   ├── amazon.py               # Amazon SP-API listing creation
-│   │   ├── ebay.py                 # eBay Inventory API listing creation
+│   │   ├── amazon.py               # Amazon SP-API listing creation (Sub-Phase 1D-ii)
+│   │   ├── ebay.py                 # eBay Inventory API listing creation (Sub-Phase 1D-ii)
 │   │   └── copy_generator.py       # Claude API — generates listing title/description/bullets
 │   ├── notifications/
 │   │   ├── __init__.py
-│   │   └── email_digest.py         # Builds and sends daily approval email
-│   └── approval.py                 # Flask routes for approve/reject links (registers on existing app)
+│   │   └── email_digest.py         # Jinja2 HTML templates for the web dashboard (batch list + detail page)
+│   └── approval.py                 # Flask Blueprint — /ecommerce/dashboard (batch list + detail), approve/reject via AJAX POST
 ```
 
-Each module has a single responsibility. Adding BestBuy or Reebelo later means adding one file in `pricing/` and one in `listings/`.
+**What changed from the original structure:**
+- `pricing/amazon.py` and `pricing/ebay.py` — rewritten to parse Octoparse JSON output instead of calling marketplace APIs directly
+- `pricing/octoparse_client.py` — **new** — Octoparse REST API client (trigger tasks, poll, export)
+- `pricing/google_shopping.py` — **new** — parses Google Shopping scrape results, attributes prices to Best Buy and Reebelo by seller name
+- `pricing/algorithm.py` — expanded to compare 4 marketplaces instead of 2
 
 ---
 
@@ -275,10 +307,12 @@ CREATE TABLE EcommerceProductCatalog (
 
 | Library | Purpose | Cost |
 |---|---|---|
-| `python-amazon-sp-api` | Amazon SP-API wrapper — OAuth, rate limiting, retries | Free |
-| `requests` | eBay API calls, email sending | Free |
-| `boto3` | AWS S3 access for eBay image hosting (if needed) | Free |
-| `jinja2` | HTML email digest templating | Free |
+| `requests` | Octoparse REST API calls | Free |
+| `jinja2` | HTML dashboard page templating | Free |
+| `python-amazon-sp-api` | Amazon SP-API listing creation (Sub-Phase 1D-ii only) | Free |
+| `boto3` | AWS S3 access for eBay image hosting (if needed, 1D-ii) | Free |
+
+> **Simplified for 1D-i:** Only `requests`, `jinja2`, and `python-dotenv` are needed for the price scanning phase. `python-amazon-sp-api` is deferred to 1D-ii when auto-listing begins.
 
 All installable via pip on the existing EC2. No new infrastructure required.
 
@@ -292,19 +326,24 @@ No new infrastructure. Runs on the existing Linux EC2.
 |---|---|
 | Linux EC2 | Runs ecommerce pipeline via cron + Flask approval endpoint |
 | SQL Server | Inventory data + listings log + product catalog |
-| AWS S3 (optional) | eBay image hosting fallback |
-| Marketplace APIs | Outbound from EC2 (Amazon SP-API, eBay APIs) |
+| **Octoparse Cloud** | Runs scraping tasks remotely — EC2 only calls the REST API |
+| AWS S3 (optional) | eBay image hosting fallback (1D-ii) |
+| Marketplace APIs | Outbound from EC2 for listing creation only (1D-ii) |
 
 ---
 
-## Volume & API Considerations
+## Volume & Scraping Considerations
 
 - **~100 distinct SKUs** expected in Ecommerce Storefront at any time
-- Daily scan = 100 SKUs x 2 marketplaces = **200 price lookups/day**
-- Amazon SP-API: 100 calls at 0.5 req/sec = ~3.5 minutes
-- eBay Browse API: no meaningful rate limit concern at this volume
-- Email: **daily digest** (one email, one row per SKU, individual approve/reject links)
-- Claude API: ~100 calls/day for listing copy generation (only on approved SKUs) — minimal token cost
+- **Weekly scan** (Monday 6:00 AM EST) — not daily. Reduces detection risk and is sufficient for used device pricing which doesn't change hourly.
+- **3 Octoparse cloud tasks per run:**
+  - Amazon CA: ~100 ASINs → single batch task, first page per ASIN
+  - eBay CA: ~100 keywords → single batch task, first page per keyword
+  - Google Shopping: ~100 keywords → single batch task, first page per keyword (covers Best Buy + Reebelo)
+- **Total page loads per week: ~300** — negligible volume, no risk of rate limiting or IP issues
+- **Octoparse cloud handles IP rotation automatically** — no residential proxy cost
+- Dashboard: **weekly batch** written to SQL Server, viewable at `/ecommerce/dashboard` (one row per SKU, inline approve/reject)
+- Claude API: ~100 calls/week for listing copy generation (only on approved SKUs) — minimal token cost
 
 ---
 
@@ -312,34 +351,70 @@ No new infrastructure. Runs on the existing Linux EC2.
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| **ASIN / UPC matching** — Amazon requires ASIN to match catalog. Flat table has model name but not ASIN. | High | Build `EcommerceProductCatalog` lookup table before implementation. Storage is embedded in the Model attribute. |
+| **ASIN / UPC matching** — Amazon scraper needs ASINs. Flat table has model name but not ASIN. | High | Build `EcommerceProductCatalog` lookup table before implementation. Storage is embedded in the Model attribute. |
 | **Stale pricing / bad floor price** — a one-off $50 listing could cause under-pricing. | Medium | Sanity check: skip any SKU where price < DeviceCost + margin threshold. Flag in email. |
 | **Overselling** — flat table refreshes hourly; device could sell between refresh and listing. | Medium | Run cron immediately after flat table refresh. Log active listings and deduct from available quantity on next run. |
-| **Listings not delisted** — product sells or moves out of Ecommerce Storefront but listing stays up. | High | Daily reconciliation: compare active listings log against current flat table. Auto-delist via API for any SKU no longer in Ecommerce Storefront. |
-| **Amazon SP-API rate limits** — 0.5 req/sec on `getCompetitivePricing`. | Low | 2s delay between calls. 100 SKUs in ~3.5 min. |
-| **eBay token expiry** — OAuth refresh tokens expire if not used within 18 months. | Low | Token refresh runs on every daily job execution. |
+| **Listings not delisted** — product sells or moves out of Ecommerce Storefront but listing stays up. | High | Weekly reconciliation: compare active listings log against current flat table. Auto-delist via API for any SKU no longer in Ecommerce Storefront. |
+| **Octoparse scrape failures** — template breaks if site layout changes. | Medium | Octoparse maintains templates for popular sites (Amazon, eBay). Google Shopping layout is stable. Monitor export data for empty results — they will appear as N/A on the dashboard. |
+| **Google Shopping seller attribution** — Best Buy or Reebelo may not appear in Google Shopping results for every product. | Medium | If seller name doesn't match, that marketplace returns `None` for the SKU. Algorithm still works with partial data (same as before when marketplaces were deferred). |
+| **Octoparse API downtime / rate limits** | Low | Weekly cadence means one attempt per week. If task fails, retry once. Log failure — partial data will appear on the dashboard. |
 | **Grade → condition mapping** — internal grades don't match marketplace labels. | Medium | Mapping defined above. Agree internally before launch. |
+| **IP blacklisting** | Low | Octoparse cloud IP rotation + first-page-only + weekly cadence = negligible footprint. No single IP is reused. |
 
 ---
 
 ## Implementation Order (Sub-Phase 1D-i)
 
-This is the build sequence for the first deliverable: daily price scan + email digest.
+This is the build sequence for the first deliverable: weekly price scan + web dashboard.
 
 | Step | Task | Dependencies |
 |---|---|---|
 | 1 | Create `EcommerceProductCatalog` table + populate for top ~50 SKUs | Manual data entry (ASINs from Amazon, UPCs from packaging) |
 | 2 | Create `EcommerceListingsLog` table | SQL Server access |
 | 3 | Build `ecommerce/db.py` — inventory queries + listings log CRUD | Steps 1–2 |
-| 4 | Build `ecommerce/pricing/amazon.py` — SP-API price fetching | Amazon Seller Central credentials |
-| 5 | Build `ecommerce/pricing/ebay.py` — Browse API price fetching | eBay developer account |
-| 6 | Build `ecommerce/pricing/algorithm.py` — highest floor price selection | None |
-| 7 | Build `ecommerce/notifications/email_digest.py` — daily approval email | SMTP credentials or SES |
-| 8 | Build `ecommerce/main.py` — orchestrates steps 3–7 | All above |
-| 9 | Set up cron job on EC2 | Step 8 |
-| 10 | **Test for 1–2 weeks** — validate pricing recommendations manually before enabling auto-listing | None |
+| 4 | Build `ecommerce/pricing/octoparse_client.py` — Octoparse API wrapper (create task, poll, export JSON) | Octoparse API token |
+| 5 | Build `ecommerce/pricing/amazon.py` — parse Amazon scrape data → extract floor prices | Step 4 |
+| 6 | Build `ecommerce/pricing/ebay.py` — parse eBay scrape data → extract floor prices | Step 4 |
+| 7 | Build `ecommerce/pricing/google_shopping.py` — parse Google Shopping data → attribute Best Buy / Reebelo prices | Step 4 |
+| 8 | Build `ecommerce/pricing/algorithm.py` — highest floor price across 4 marketplaces | None |
+| 9 | Build `ecommerce/notifications/email_digest.py` — Jinja2 HTML templates for dashboard | None |
+| 10 | Build `ecommerce/main.py` — orchestrates steps 3–9, persists batch + recommendations to DB | All above |
+| 11 | Set up cron job on EC2: `0 11 * * 1` (Monday 6:00 AM EST = 11:00 UTC) | Step 10 |
+| 12 | **Test for 2–3 weeks** — validate pricing recommendations manually before enabling auto-listing | None |
 
 Sub-phase 1D-ii (auto-listing) begins only after 1D-i email recommendations have been validated manually.
+
+### Octoparse API Integration Detail (Step 4)
+
+The `octoparse_client.py` module wraps the Octoparse REST API. The pipeline flow per scraper:
+
+```
+1. POST execute_task(templateName, parameters, targetMaxRows)
+   → Creates a cloud task from a template, starts extraction
+   → Returns taskId immediately
+
+2. Poll export_data(taskId) every 30s (up to 10 min timeout)
+   → Returns "executing" while running
+   → Returns scraped data as JSON when complete
+
+3. Parse JSON response → normalize into per-SKU price records
+```
+
+**Configuration needed in `config.py`:**
+```python
+# Octoparse
+OCTOPARSE_API_TOKEN = ''  # From Octoparse account → API settings
+
+# Template names (validated against Octoparse template library)
+OCTOPARSE_AMAZON_TEMPLATE = 'amazon-product-details-scraper'
+OCTOPARSE_EBAY_TEMPLATE = 'ebay-product-list-scraper-by-keyword'
+OCTOPARSE_GOOGLE_SHOPPING_TEMPLATE = 'google-shopping-product-listing-scraper'
+
+# Scraper settings
+OCTOPARSE_AMAZON_ZIPCODE = 'M5V 2T6'   # Toronto postal code for Amazon.ca localization
+OCTOPARSE_EBAY_PAGES = '1'              # First page only
+OCTOPARSE_TARGET_MAX_ROWS = 50          # Stop after N rows per task (first page safety cap)
+```
 
 ---
 
@@ -347,14 +422,18 @@ Sub-phase 1D-ii (auto-listing) begins only after 1D-i email recommendations have
 
 | Decision | Answer |
 |---|---|
+| **Price intelligence tool** | **Octoparse cloud extraction** — replaces direct marketplace API calls for pricing |
+| **Marketplaces (pricing)** | All 4 from day one: Amazon CA, eBay CA, Best Buy CA, Reebelo CA |
+| **Scan frequency** | Weekly — Monday 6:00 AM EST (not daily) |
+| **Scrape depth** | First page only per search — keeps jobs lightweight |
+| **IP safety** | Octoparse cloud IP rotation + weekly cadence + first-page-only |
 | Marketplace seller status | Approved on Amazon Seller Central and eBay |
-| Pricing algorithm | Highest floor price across marketplaces — deterministic, no AI |
+| Pricing algorithm | Highest floor price across 4 marketplaces — deterministic, no AI |
 | AI model for listing copy | Claude API (already in stack) |
-| Approval UX | Email digest (one email, one row per SKU, approve/reject links) |
+| Approval UX | Web dashboard at `/ecommerce/dashboard` — one row per SKU, inline approve/reject buttons, persisted in SQL Server |
 | SKU volume | ~100 distinct SKUs in Ecommerce Storefront at a time |
 | Listing granularity | One listing per product group: Quantity x Model x Grade |
-| Daily filter | All unlisted SKUs in Ecommerce Storefront (no active listing in EcommerceListingsLog) |
-| Initial marketplaces | Amazon + eBay (official APIs). BestBuy + Reebelo deferred. |
+| Weekly filter | All unlisted SKUs in Ecommerce Storefront (no active listing in EcommerceListingsLog) |
 
 ---
 
@@ -362,13 +441,18 @@ Sub-phase 1D-ii (auto-listing) begins only after 1D-i email recommendations have
 
 | Removed | Reason |
 |---|---|
+| **Amazon SP-API for pricing** | Replaced by Octoparse scraping. SP-API approval was tedious and rate-limited (0.5 req/sec). SP-API retained for listing creation in 1D-ii. |
+| **eBay Browse API for pricing** | Replaced by Octoparse scraping. eBay developer account approval was tedious. eBay API retained for listing creation in 1D-ii. |
+| **Daily scan cadence** | Changed to weekly (Monday AM). Used device prices don't change hourly. Weekly reduces detection risk and Octoparse task usage. |
+| **Sub-Phase 1D-iii** | Eliminated. BestBuy and Reebelo are no longer deferred — Google Shopping scraping covers them from day one. |
 | DeepSeek V3 for pricing | Pricing algorithm is deterministic (`max()` over floor prices). No LLM needed. |
-| BestBuy.ca scraping (Playwright + stealth + residential proxies) | Fragile, requires Akamai bypass, ongoing proxy cost, maintenance burden. Deferred to 1D-iii — evaluate ROI when core pipeline is proven. |
-| Reebelo scraping | Same fragility concerns. Cobalt API only manages own listings. Deferred. |
-| Rainforest API | Amazon-only, redundant with SP-API which is free. Was listed as a risk in the original plan but explicitly stated as "not applicable" in the same document. |
-| DeepSeek as second AI provider | Adds second billing, second set of credentials, second failure mode. Claude already integrated and running. |
-| `playwright-extra` + `playwright-extra-plugin-stealth` | Only needed for BestBuy/Reebelo scraping. Deferred with those marketplaces. |
-| `beautifulsoup4` | Only needed for scraping. Deferred. |
+| BestBuy.ca scraping (Playwright + stealth + residential proxies) | No longer needed. Octoparse Google Shopping template captures Best Buy Marketplace prices without Akamai bypass. |
+| Reebelo custom scraping | No longer needed. Google Shopping captures Reebelo listings. |
+| Rainforest API | Amazon-only, redundant. Octoparse handles Amazon scraping. |
+| DeepSeek as second AI provider | Adds second billing, second set of credentials, second failure mode. Claude already integrated. |
+| `playwright-extra` + `playwright-extra-plugin-stealth` | Not needed. Octoparse cloud handles browser automation and anti-detection. |
+| `beautifulsoup4` | Not needed. Octoparse exports structured JSON — no HTML parsing required. |
+| `python-amazon-sp-api` (for 1D-i) | Deferred to 1D-ii. Not needed for price scanning — only for listing creation. |
 
 ---
 

@@ -23,7 +23,7 @@ def fetch_all_pending_products():
     sql = """
         SELECT Manufacturer, Model, Colour, Grade, COUNT(*) AS Quantity
         FROM ReportingInventoryFlat r
-        WHERE Product_Place = 'Ecommerce Storefront'
+        WHERE Product_Place = 'E-Commerce Store Front'
           AND NOT EXISTS (
               SELECT 1 FROM EcommerceListingsLog l
               WHERE l.Manufacturer = r.Manufacturer
@@ -50,7 +50,7 @@ def fetch_device_cost(manufacturer, model, grade):
         SELECT AVG(DeviceCost) AS AvgCost
         FROM ReportingInventoryFlat
         WHERE Manufacturer = ? AND Model = ? AND Grade = ?
-          AND Product_Place = 'Ecommerce Storefront'
+          AND Product_Place = 'E-Commerce Store Front'
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -157,6 +157,164 @@ def get_listing_by_id(listing_id):
 
 
 # ---------------------------------------------------------------------------
+# Pricing batches & recommendations (dashboard persistence)
+# ---------------------------------------------------------------------------
+
+def create_pricing_batch():
+    """Create a new pricing batch and return its ID."""
+    sql = """
+        INSERT INTO EcommercePricingBatch (Status)
+        VALUES ('pending')
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql)
+    conn.commit()
+    batch_id = cursor.execute("SELECT SCOPE_IDENTITY()").fetchone()[0]
+    conn.close()
+    return int(batch_id)
+
+
+def insert_recommendation(batch_id, rec):
+    """Insert a single pricing recommendation into the database."""
+    product = rec['product']
+    sql = """
+        INSERT INTO EcommercePricingRecommendation
+            (BatchID, Manufacturer, Model, Colour, Grade, Quantity,
+             RecommendedMarketplace, RecommendedPrice,
+             AmazonFloor, EbayFloor, BestBuyFloor, ReebeloFloor,
+             DeviceCost, MarginOK, SkipReason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql, (
+        batch_id,
+        product['Manufacturer'], product['Model'],
+        product['Colour'], product['Grade'], product['Quantity'],
+        rec.get('marketplace'), rec.get('price'),
+        rec.get('amazon_price'), rec.get('ebay_price'),
+        rec.get('bestbuy_price'), rec.get('reebelo_price'),
+        rec.get('device_cost'),
+        1 if rec.get('margin_ok') else 0,
+        rec.get('skip_reason'),
+    ))
+    conn.commit()
+    conn.close()
+
+
+def update_batch_status(batch_id, status):
+    """Update a batch status (e.g. 'ready', 'completed')."""
+    sql = "UPDATE EcommercePricingBatch SET Status = ? WHERE ID = ?"
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql, (status, batch_id))
+    conn.commit()
+    conn.close()
+
+
+def get_latest_batch():
+    """Return the most recent pricing batch."""
+    sql = """
+        SELECT TOP 1 ID, CreatedAt, Status
+        FROM EcommercePricingBatch
+        ORDER BY CreatedAt DESC
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql)
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {'ID': row.ID, 'CreatedAt': row.CreatedAt, 'Status': row.Status}
+
+
+def get_batch_by_id(batch_id):
+    """Return a specific pricing batch."""
+    sql = "SELECT ID, CreatedAt, Status FROM EcommercePricingBatch WHERE ID = ?"
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql, (batch_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {'ID': row.ID, 'CreatedAt': row.CreatedAt, 'Status': row.Status}
+
+
+def get_recommendations_for_batch(batch_id):
+    """Return all recommendations for a batch, ordered by ID."""
+    sql = """
+        SELECT ID, BatchID, Manufacturer, Model, Colour, Grade, Quantity,
+               RecommendedMarketplace, RecommendedPrice,
+               AmazonFloor, EbayFloor, BestBuyFloor, ReebeloFloor,
+               DeviceCost, MarginOK, SkipReason, Decision, DecidedAt
+        FROM EcommercePricingRecommendation
+        WHERE BatchID = ?
+        ORDER BY ID
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql, (batch_id,))
+    columns = [col[0] for col in cursor.description]
+    rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+def get_recommendation_by_id(rec_id):
+    """Return a single recommendation."""
+    sql = """
+        SELECT ID, BatchID, Manufacturer, Model, Colour, Grade, Quantity,
+               RecommendedMarketplace, RecommendedPrice,
+               AmazonFloor, EbayFloor, BestBuyFloor, ReebeloFloor,
+               DeviceCost, MarginOK, SkipReason, Decision, DecidedAt
+        FROM EcommercePricingRecommendation
+        WHERE ID = ?
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql, (rec_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    columns = [col[0] for col in cursor.description]
+    return dict(zip(columns, row))
+
+
+def update_recommendation_decision(rec_id, decision):
+    """Set the decision ('approved' or 'rejected') on a recommendation."""
+    sql = """
+        UPDATE EcommercePricingRecommendation
+        SET Decision = ?, DecidedAt = GETDATE()
+        WHERE ID = ?
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql, (decision, rec_id))
+    conn.commit()
+    conn.close()
+
+
+def get_all_batches():
+    """Return all pricing batches, newest first."""
+    sql = """
+        SELECT ID, CreatedAt, Status
+        FROM EcommercePricingBatch
+        ORDER BY CreatedAt DESC
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql)
+    columns = [col[0] for col in cursor.description]
+    rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Reconciliation
 # ---------------------------------------------------------------------------
 
@@ -173,7 +331,7 @@ def find_stale_listings():
                 AND r.Model = l.Model
                 AND r.Grade = l.Grade
                 AND r.Colour = l.Colour
-                AND r.Product_Place = 'Ecommerce Storefront'
+                AND r.Product_Place = 'E-Commerce Store Front'
           )
     """
     conn = get_db_connection()

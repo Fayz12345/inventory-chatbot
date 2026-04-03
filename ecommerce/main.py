@@ -1,17 +1,17 @@
 """
-Ecommerce AI Pipeline — Daily Orchestrator
+Ecommerce AI Pipeline — Weekly Orchestrator
 
 Usage:
     python -m ecommerce.main
 
-Runs the full daily pipeline:
+Runs the full weekly pipeline:
     1. Fetch products from Ecommerce Storefront (new + unlisted fallback)
     2. Look up catalog info (ASIN, EPID) for each product group
-    3. Fetch competitive prices from Amazon SP-API and eBay Browse API
-    4. Run pricing algorithm (highest floor price wins)
+    3. Scrape competitive prices via Octoparse (Amazon CA, eBay CA, Google Shopping)
+    4. Run pricing algorithm (highest floor price across 4 marketplaces)
     5. Sanity check margins
     6. Reconcile stale listings (delist products no longer in storefront)
-    7. Send email digest with approve/reject links
+    7. Persist recommendations to DB (viewable on /ecommerce/dashboard)
 """
 
 import logging
@@ -20,11 +20,8 @@ import sys
 from ecommerce import db
 from ecommerce.pricing import amazon as amazon_pricing
 from ecommerce.pricing import ebay as ebay_pricing
+from ecommerce.pricing import google_shopping as gs_pricing
 from ecommerce.pricing.algorithm import recommend
-from ecommerce.notifications.email_digest import send_digest
-from ecommerce.approval import generate_approval_token
-from ecommerce.listings import amazon as amazon_listings
-from ecommerce.listings import ebay as ebay_listings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,38 +34,10 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-def run_reconciliation():
-    """Delist any active listings whose products are no longer in Ecommerce Storefront."""
-    log.info("Running reconciliation...")
-    stale = db.find_stale_listings()
-    if not stale:
-        log.info("No stale listings found.")
-        return
-
-    for listing in stale:
-        platform = listing['Platform']
-        platform_id = listing['PlatformListingID']
-        log.info("Delisting stale %s listing %s (ID=%s)", platform, platform_id, listing['ID'])
-
-        success = False
-        if platform == 'Amazon':
-            success = amazon_listings.delist(platform_id)
-        elif platform == 'eBay':
-            success = ebay_listings.delist(platform_id)
-
-        if success:
-            db.update_listing_status(listing['ID'], 'ended')
-            log.info("Successfully delisted ID=%s", listing['ID'])
-        else:
-            log.warning("Failed to delist ID=%s — will retry next run", listing['ID'])
-
-    log.info("Reconciliation complete: %d stale listings processed.", len(stale))
-
-
 def run_pipeline():
-    """Execute the full daily ecommerce pipeline."""
+    """Execute the full weekly ecommerce pipeline."""
     log.info("=" * 60)
-    log.info("Ecommerce AI Pipeline — starting daily run")
+    log.info("Ecommerce AI Pipeline — starting weekly run")
     log.info("=" * 60)
 
     # Step 1: Fetch products
@@ -82,39 +51,79 @@ def run_pipeline():
         log.info("Pipeline complete (no products).")
         return
 
-    # Step 2: Look up catalog info and fetch prices
-    log.info("Step 2: Looking up catalog info and fetching prices...")
-    recommendations = []
+    # Step 2: Look up catalog info and build scrape inputs
+    log.info("Step 2: Looking up catalog info...")
+    asins = []
+    asin_to_product = {}
+    keyword_to_product = {}
+    catalog_cache = {}  # (manufacturer, model, colour) -> catalog dict
 
     for product in products:
         manufacturer = product['Manufacturer']
         model = product['Model']
         colour = product['Colour']
         grade = product['Grade']
+        product_key = (manufacturer, model, grade)
+        keywords = f"{manufacturer} {model} {grade}".strip()
+        keyword_to_product[keywords] = product_key
+
+        # Catalog lookup for Amazon ASIN (cached for reuse in Step 4)
+        cache_key = (manufacturer, model, colour)
+        catalog = db.lookup_product_catalog(manufacturer, model, colour)
+        catalog_cache[cache_key] = catalog
+        if catalog and catalog.get('asin'):
+            asins.append(catalog['asin'])
+            asin_to_product[catalog['asin']] = product_key
+        else:
+            log.warning("No ASIN found for %s %s %s — Amazon pricing will be skipped",
+                        manufacturer, model, colour)
+
+    # Step 3: Scrape prices from all marketplaces via Octoparse
+    log.info("Step 3: Scraping prices via Octoparse (3 cloud tasks)...")
+
+    # Amazon — by ASIN
+    amazon_raw = amazon_pricing.scrape_prices(asins) if asins else {}
+
+    # eBay — by keyword
+    ebay_raw = ebay_pricing.scrape_prices(list(keyword_to_product.keys()))
+
+    # Google Shopping — by keyword (covers Best Buy + Reebelo)
+    bestbuy_raw, reebelo_raw = gs_pricing.scrape_prices(list(keyword_to_product.keys()))
+
+    # Step 4: Build recommendations
+    log.info("Step 4: Running pricing algorithm...")
+    recommendations = []
+
+    for product in products:
+        manufacturer = product['Manufacturer']
+        model = product['Model']
+        grade = product['Grade']
+        colour = product['Colour']
+        product_key = (manufacturer, model, grade)
+        keywords = f"{manufacturer} {model} {grade}".strip()
 
         log.info("Processing: %s %s %s Grade %s (qty: %s)",
                  manufacturer, model, colour, grade, product['Quantity'])
 
-        # Catalog lookup
-        catalog = db.lookup_product_catalog(manufacturer, model, colour)
-
-        # Amazon price (needs ASIN from catalog)
+        # Get Amazon price by ASIN
         amazon_price = None
+        catalog = catalog_cache.get((manufacturer, model, colour))
         if catalog and catalog.get('asin'):
-            amazon_price = amazon_pricing.get_competitive_price(catalog['asin'])
-        else:
-            log.warning("No ASIN found for %s %s %s — skipping Amazon pricing",
-                        manufacturer, model, colour)
+            amazon_price = amazon_raw.get(catalog['asin'])
 
-        # eBay price (keyword search, no catalog needed)
-        keywords = f"{manufacturer} {model} {grade}".strip()
-        ebay_price = ebay_pricing.get_floor_price(keywords)
+        # Get eBay price by keyword
+        ebay_price = ebay_raw.get(keywords)
+
+        # Get Best Buy and Reebelo prices from Google Shopping
+        bestbuy_price = bestbuy_raw.get(keywords)
+        reebelo_price = reebelo_raw.get(keywords)
 
         # Device cost for margin check
         device_cost = db.fetch_device_cost(manufacturer, model, grade)
 
-        # Run pricing algorithm
-        rec = recommend(product, amazon_price, ebay_price, device_cost)
+        # Run pricing algorithm across all 4 marketplaces
+        rec = recommend(product, amazon_price, ebay_price, bestbuy_price,
+                        reebelo_price, device_cost)
         recommendations.append(rec)
 
         if rec['margin_ok']:
@@ -122,21 +131,20 @@ def run_pipeline():
         else:
             log.info("  -> Skipped: %s", rec['skip_reason'])
 
-    # Step 3: Reconciliation
-    log.info("Step 3: Running reconciliation...")
-    run_reconciliation()
-
-    # Step 4: Send email digest
-    log.info("Step 4: Sending email digest...")
-    token = generate_approval_token(recommendations)
-    send_digest(recommendations, token)
+    # Step 5: Persist recommendations to DB
+    log.info("Step 5: Saving recommendations to database...")
+    batch_id = db.create_pricing_batch()
+    for rec in recommendations:
+        db.insert_recommendation(batch_id, rec)
+    db.update_batch_status(batch_id, 'ready')
+    log.info("Batch #%d saved with %d recommendations.", batch_id, len(recommendations))
 
     # Summary
     recommended = [r for r in recommendations if r['margin_ok']]
     skipped = [r for r in recommendations if not r['margin_ok']]
     log.info("=" * 60)
-    log.info("Pipeline complete: %d recommended, %d skipped",
-             len(recommended), len(skipped))
+    log.info("Pipeline complete: %d recommended, %d skipped — view at /ecommerce/dashboard/%d",
+             len(recommended), len(skipped), batch_id)
     log.info("=" * 60)
 
 

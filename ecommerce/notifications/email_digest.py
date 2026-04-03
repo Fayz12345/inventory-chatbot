@@ -1,19 +1,77 @@
-import logging
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+"""
+Dashboard HTML templates for the ecommerce pricing pipeline.
+
+Renders the batch dashboard and recommendation tables served by Flask.
+"""
+
 from jinja2 import Template
-from ecommerce import config
 
-log = logging.getLogger(__name__)
 
-EMAIL_TEMPLATE = Template("""
+# ---------------------------------------------------------------------------
+# Batch list page — shows all weekly pipeline runs
+# ---------------------------------------------------------------------------
+BATCH_LIST_TEMPLATE = Template("""
 <!DOCTYPE html>
 <html>
 <head>
+<title>Ecommerce Pricing Dashboard</title>
 <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
     .container { max-width: 900px; margin: 0 auto; background: #fff; border-radius: 8px; padding: 30px; }
+    h1 { color: #333; border-bottom: 2px solid #2196F3; padding-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+    th { background: #2196F3; color: #fff; padding: 12px 10px; text-align: left; font-size: 13px; }
+    td { padding: 10px; border-bottom: 1px solid #eee; font-size: 13px; }
+    tr:hover { background: #f9f9f9; }
+    a { color: #1565c0; text-decoration: none; font-weight: bold; }
+    a:hover { text-decoration: underline; }
+    .status-ready { color: #2e7d32; font-weight: bold; }
+    .status-completed { color: #999; }
+    .status-pending { color: #e65100; }
+    .empty { color: #999; padding: 40px 0; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>Ecommerce Pricing Dashboard</h1>
+
+    {% if batches %}
+    <table>
+        <tr>
+            <th>Batch</th>
+            <th>Date</th>
+            <th>Status</th>
+            <th></th>
+        </tr>
+        {% for batch in batches %}
+        <tr>
+            <td>#{{ batch.ID }}</td>
+            <td>{{ batch.CreatedAt.strftime('%B %d, %Y at %I:%M %p') if batch.CreatedAt else 'N/A' }}</td>
+            <td class="status-{{ batch.Status }}">{{ batch.Status | capitalize }}</td>
+            <td><a href="/ecommerce/dashboard/{{ batch.ID }}">View &rarr;</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p class="empty">No pipeline runs yet. The first batch will appear after the weekly cron job runs.</p>
+    {% endif %}
+</div>
+</body>
+</html>
+""")
+
+
+# ---------------------------------------------------------------------------
+# Single batch detail page — recommendations with approve/reject
+# ---------------------------------------------------------------------------
+DASHBOARD_TEMPLATE = Template("""
+<!DOCTYPE html>
+<html>
+<head>
+<title>Batch #{{ batch.ID }} — Ecommerce Pricing</title>
+<style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+    .container { max-width: 1100px; margin: 0 auto; background: #fff; border-radius: 8px; padding: 30px; }
     h1 { color: #333; border-bottom: 2px solid #2196F3; padding-bottom: 10px; }
     h2 { color: #555; margin-top: 30px; }
     table { width: 100%; border-collapse: collapse; margin: 15px 0; }
@@ -23,24 +81,37 @@ EMAIL_TEMPLATE = Template("""
     .price { font-weight: bold; color: #2e7d32; }
     .skip { color: #c62828; }
     .btn { display: inline-block; padding: 6px 16px; border-radius: 4px; text-decoration: none;
-           font-size: 12px; font-weight: bold; margin-right: 5px; }
+           font-size: 12px; font-weight: bold; margin-right: 5px; cursor: pointer; border: none; }
     .btn-approve { background: #4CAF50; color: #fff; }
+    .btn-approve:hover { background: #388E3C; }
     .btn-reject { background: #f44336; color: #fff; }
+    .btn-reject:hover { background: #c62828; }
+    .btn-disabled { background: #bdbdbd; color: #fff; cursor: default; }
     .summary { background: #e3f2fd; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
+    .back { display: inline-block; margin-bottom: 15px; color: #1565c0; text-decoration: none; }
+    .back:hover { text-decoration: underline; }
+    .decision-approved { color: #2e7d32; font-weight: bold; }
+    .decision-rejected { color: #c62828; font-weight: bold; }
+    .decision-pending { color: #e65100; }
     .footer { margin-top: 30px; font-size: 12px; color: #999; border-top: 1px solid #eee; padding-top: 15px; }
+    .toast { display: none; position: fixed; top: 20px; right: 20px; padding: 12px 24px;
+             border-radius: 6px; color: #fff; font-weight: bold; z-index: 1000; }
+    .toast-success { background: #4CAF50; }
+    .toast-error { background: #f44336; }
 </style>
 </head>
 <body>
 <div class="container">
-    <h1>Ecommerce Daily Digest</h1>
+    <a href="/ecommerce/dashboard" class="back">&larr; All Batches</a>
+    <h1>Batch #{{ batch.ID }} — {{ batch.CreatedAt.strftime('%B %d, %Y') if batch.CreatedAt else '' }}</h1>
 
     <div class="summary">
         <strong>{{ recommendations | length }}</strong> SKUs scanned &mdash;
-        <strong>{{ recommendations | selectattr('margin_ok') | list | length }}</strong> recommended,
-        <strong>{{ recommendations | rejectattr('margin_ok') | list | length }}</strong> skipped
+        <strong>{{ recommended_count }}</strong> recommended,
+        <strong>{{ skipped_count }}</strong> skipped,
+        <strong>{{ decided_count }}</strong> decided
     </div>
 
-    {% set recommended = recommendations | selectattr('margin_ok') | list %}
     {% if recommended %}
     <h2>Recommended Listings</h2>
     <table>
@@ -49,31 +120,38 @@ EMAIL_TEMPLATE = Template("""
             <th>Qty</th>
             <th>Marketplace</th>
             <th>Price</th>
-            <th>Amazon Floor</th>
-            <th>eBay Floor</th>
+            <th>Amazon</th>
+            <th>eBay</th>
+            <th>Best Buy</th>
+            <th>Reebelo</th>
             <th>Cost</th>
             <th>Action</th>
         </tr>
         {% for rec in recommended %}
-        <tr>
-            <td>{{ rec.product.Manufacturer }} {{ rec.product.Model }}<br>
-                <small>{{ rec.product.Colour }} / Grade {{ rec.product.Grade }}</small></td>
-            <td>{{ rec.product.Quantity }}</td>
-            <td><strong>{{ rec.marketplace }}</strong></td>
-            <td class="price">${{ "%.2f" | format(rec.price) }}</td>
-            <td>{{ "$%.2f" | format(rec.amazon_price) if rec.amazon_price else "N/A" }}</td>
-            <td>{{ "$%.2f" | format(rec.ebay_price) if rec.ebay_price else "N/A" }}</td>
-            <td>{{ "$%.2f" | format(rec.device_cost) if rec.device_cost else "N/A" }}</td>
+        <tr id="rec-{{ rec.ID }}">
+            <td>{{ rec.Manufacturer }} {{ rec.Model }}<br>
+                <small>{{ rec.Colour }} / Grade {{ rec.Grade }}</small></td>
+            <td>{{ rec.Quantity }}</td>
+            <td><strong>{{ rec.RecommendedMarketplace }}</strong></td>
+            <td class="price">${{ "%.2f" | format(rec.RecommendedPrice) }}</td>
+            <td>{{ "$%.2f" | format(rec.AmazonFloor) if rec.AmazonFloor else "N/A" }}</td>
+            <td>{{ "$%.2f" | format(rec.EbayFloor) if rec.EbayFloor else "N/A" }}</td>
+            <td>{{ "$%.2f" | format(rec.BestBuyFloor) if rec.BestBuyFloor else "N/A" }}</td>
+            <td>{{ "$%.2f" | format(rec.ReebeloFloor) if rec.ReebeloFloor else "N/A" }}</td>
+            <td>{{ "$%.2f" | format(rec.DeviceCost) if rec.DeviceCost else "N/A" }}</td>
             <td>
-                <a href="{{ base_url }}/ecommerce/approve?idx={{ loop.index0 }}&token={{ token }}" class="btn btn-approve">Approve</a>
-                <a href="{{ base_url }}/ecommerce/reject?idx={{ loop.index0 }}&token={{ token }}" class="btn btn-reject">Reject</a>
+                {% if rec.Decision %}
+                    <span class="decision-{{ rec.Decision }}">{{ rec.Decision | capitalize }}</span>
+                {% else %}
+                    <button class="btn btn-approve" onclick="decide({{ rec.ID }}, 'approve')">Approve</button>
+                    <button class="btn btn-reject" onclick="decide({{ rec.ID }}, 'reject')">Reject</button>
+                {% endif %}
             </td>
         </tr>
         {% endfor %}
     </table>
     {% endif %}
 
-    {% set skipped = recommendations | rejectattr('margin_ok') | list %}
     {% if skipped %}
     <h2>Skipped (Margin / Data Issues)</h2>
     <table>
@@ -81,70 +159,97 @@ EMAIL_TEMPLATE = Template("""
             <th>Product</th>
             <th>Qty</th>
             <th>Reason</th>
-            <th>Amazon Floor</th>
-            <th>eBay Floor</th>
+            <th>Amazon</th>
+            <th>eBay</th>
+            <th>Best Buy</th>
+            <th>Reebelo</th>
             <th>Cost</th>
         </tr>
         {% for rec in skipped %}
         <tr>
-            <td>{{ rec.product.Manufacturer }} {{ rec.product.Model }}<br>
-                <small>{{ rec.product.Colour }} / Grade {{ rec.product.Grade }}</small></td>
-            <td>{{ rec.product.Quantity }}</td>
-            <td class="skip">{{ rec.skip_reason }}</td>
-            <td>{{ "$%.2f" | format(rec.amazon_price) if rec.amazon_price else "N/A" }}</td>
-            <td>{{ "$%.2f" | format(rec.ebay_price) if rec.ebay_price else "N/A" }}</td>
-            <td>{{ "$%.2f" | format(rec.device_cost) if rec.device_cost else "N/A" }}</td>
+            <td>{{ rec.Manufacturer }} {{ rec.Model }}<br>
+                <small>{{ rec.Colour }} / Grade {{ rec.Grade }}</small></td>
+            <td>{{ rec.Quantity }}</td>
+            <td class="skip">{{ rec.SkipReason }}</td>
+            <td>{{ "$%.2f" | format(rec.AmazonFloor) if rec.AmazonFloor else "N/A" }}</td>
+            <td>{{ "$%.2f" | format(rec.EbayFloor) if rec.EbayFloor else "N/A" }}</td>
+            <td>{{ "$%.2f" | format(rec.BestBuyFloor) if rec.BestBuyFloor else "N/A" }}</td>
+            <td>{{ "$%.2f" | format(rec.ReebeloFloor) if rec.ReebeloFloor else "N/A" }}</td>
+            <td>{{ "$%.2f" | format(rec.DeviceCost) if rec.DeviceCost else "N/A" }}</td>
         </tr>
         {% endfor %}
     </table>
     {% endif %}
 
     {% if not recommendations %}
-    <p>No new products to list today. All Ecommerce Storefront SKUs already have active listings.</p>
+    <p style="color: #999; text-align: center; padding: 40px 0;">
+        No products were found in this batch.
+    </p>
     {% endif %}
 
     <div class="footer">
-        Generated automatically by the Ecommerce AI Pipeline.<br>
-        Approve/reject links are single-use and expire after 48 hours.
+        Generated by the Ecommerce AI Pipeline.
     </div>
 </div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+function decide(recId, action) {
+    var row = document.getElementById('rec-' + recId);
+    var buttons = row.querySelectorAll('button');
+    buttons.forEach(function(btn) { btn.disabled = true; btn.className = 'btn btn-disabled'; });
+
+    fetch('/ecommerce/' + action + '?id=' + recId, { method: 'POST' })
+        .then(function(resp) { return resp.json(); })
+        .then(function(data) {
+            var cell = buttons[0].parentNode;
+            if (data.ok) {
+                var label = action === 'approve' ? 'Approved' : 'Rejected';
+                var cls = action === 'approve' ? 'decision-approved' : 'decision-rejected';
+                cell.innerHTML = '<span class="' + cls + '">' + label + '</span>';
+                showToast(data.message, 'success');
+            } else {
+                cell.innerHTML = '<span class="skip">' + (data.error || 'Error') + '</span>';
+                showToast(data.error || 'Action failed', 'error');
+            }
+        })
+        .catch(function() {
+            showToast('Network error', 'error');
+            buttons.forEach(function(btn) { btn.disabled = false; btn.className = btn.dataset.cls; });
+        });
+}
+
+function showToast(msg, type) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast toast-' + type;
+    t.style.display = 'block';
+    setTimeout(function() { t.style.display = 'none'; }, 3000);
+}
+</script>
 </body>
 </html>
 """)
 
 
-def build_digest_html(recommendations, approval_token):
-    """Render the email digest HTML from a list of recommendation dicts."""
-    return EMAIL_TEMPLATE.render(
+def render_batch_list(batches):
+    """Render the batch list page."""
+    return BATCH_LIST_TEMPLATE.render(batches=batches)
+
+
+def render_dashboard(batch, recommendations):
+    """Render the single-batch dashboard page."""
+    recommended = [r for r in recommendations if r.get('MarginOK')]
+    skipped = [r for r in recommendations if not r.get('MarginOK')]
+    decided = [r for r in recommended if r.get('Decision')]
+
+    return DASHBOARD_TEMPLATE.render(
+        batch=batch,
         recommendations=recommendations,
-        base_url=config.APP_BASE_URL,
-        token=approval_token,
+        recommended=recommended,
+        skipped=skipped,
+        recommended_count=len(recommended),
+        skipped_count=len(skipped),
+        decided_count=len(decided),
     )
-
-
-def send_digest(recommendations, approval_token):
-    """Build and send the daily ecommerce digest email."""
-    if not config.SMTP_HOST or not config.EMAIL_TO:
-        log.warning("SMTP not configured — printing digest to log instead")
-        html = build_digest_html(recommendations, approval_token)
-        log.info("Email digest (not sent):\n%s", html)
-        return False
-
-    html = build_digest_html(recommendations, approval_token)
-
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = f'Ecommerce Daily Digest — {len(recommendations)} SKUs'
-    msg['From'] = config.EMAIL_FROM
-    msg['To'] = config.EMAIL_TO
-    msg.attach(MIMEText(html, 'html'))
-
-    try:
-        with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT) as server:
-            server.starttls()
-            server.login(config.SMTP_USER, config.SMTP_PASSWORD)
-            server.sendmail(config.EMAIL_FROM, [config.EMAIL_TO], msg.as_string())
-        log.info("Digest email sent to %s", config.EMAIL_TO)
-        return True
-    except Exception as e:
-        log.error("Failed to send digest email: %s", e)
-        return False

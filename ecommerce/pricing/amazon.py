@@ -1,84 +1,118 @@
+"""
+Amazon Canada price fetching via Octoparse cloud scraping.
+
+Uses the 'amazon-product-details-scraper' template with ASINs from
+the EcommerceProductCatalog table. Extracts floor prices from scraped data.
+"""
+
 import logging
-import time
-from sp_api.api import ProductPricing
-from sp_api.base import Marketplaces, SellingApiException
-from ecommerce import config
+import re
+from ecommerce.pricing import octoparse_client
 
 log = logging.getLogger(__name__)
 
-# Amazon SP-API rate limit: 0.5 req/sec → 2s between calls
-RATE_LIMIT_DELAY = 2.0
+TEMPLATE = 'amazon-product-details-scraper'
+# Toronto postal code — localizes Amazon.ca results to Canada
+DEFAULT_ZIPCODE = 'M5V 2T6'
 
 
-def _get_credentials():
-    return {
-        'refresh_token': config.AMAZON_REFRESH_TOKEN,
-        'lwa_app_id': config.AMAZON_LWA_APP_ID,
-        'lwa_client_secret': config.AMAZON_LWA_CLIENT_SECRET,
+def _parse_price(price_str):
+    """Extract a numeric price from a scraped string like '$749.99' or 'CDN$ 749.99'."""
+    if not price_str:
+        return None
+    match = re.search(r'[\d,]+\.?\d*', str(price_str).replace(',', ''))
+    if match:
+        try:
+            return float(match.group())
+        except ValueError:
+            return None
+    return None
+
+
+def scrape_prices(asins, zipcode=None):
+    """
+    Scrape Amazon.ca prices for a list of ASINs via Octoparse.
+
+    Args:
+        asins: list of ASIN strings (e.g. ['B0BDJH7M8H', 'B0CHX3QBCH'])
+        zipcode: Canadian postal code for localization (defaults to Toronto)
+
+    Returns:
+        dict mapping ASIN -> lowest price (float), or ASIN -> None if not found.
+    """
+    if not asins:
+        return {}
+
+    zipcode = zipcode or DEFAULT_ZIPCODE
+    parameters = {
+        'MainKeys': asins,
+        'ZipCode': zipcode,
     }
 
+    log.info("Scraping Amazon.ca prices for %d ASINs...", len(asins))
+    rows = octoparse_client.scrape(
+        template_name=TEMPLATE,
+        parameters=parameters,
+        task_name=f'Amazon CA Price Scan ({len(asins)} ASINs)',
+        target_max_rows=len(asins),
+    )
 
-def _get_marketplace():
-    marketplace_map = {
-        'A2EUQ1WTGCTBG2': Marketplaces.CA,
-        'ATVPDKIKX0DER': Marketplaces.US,
-    }
-    return marketplace_map.get(config.AMAZON_MARKETPLACE_ID, Marketplaces.CA)
+    return _parse_results(rows, asins)
 
 
-def get_competitive_price(asin):
+def _parse_results(rows, original_asins):
     """
-    Fetch the lowest competitive price for an ASIN on Amazon.
+    Parse Octoparse export rows into ASIN -> price mapping.
 
-    Returns the lowest landed price (float) or None if unavailable.
+    The amazon-product-details-scraper template typically returns fields like:
+    Title, Price, ASIN, Rating, etc. Field names may vary — we search flexibly.
     """
-    if not config.AMAZON_REFRESH_TOKEN:
-        log.warning("Amazon SP-API credentials not configured — skipping")
-        return None
+    prices = {asin: None for asin in original_asins}
 
-    try:
-        pricing_api = ProductPricing(
-            credentials=_get_credentials(),
-            marketplace=_get_marketplace(),
-        )
-        response = pricing_api.get_competitive_pricing_for_asins([asin])
-        time.sleep(RATE_LIMIT_DELAY)
+    for row in rows:
+        # Find ASIN in the row (field name varies by template version)
+        asin = None
+        for key in ('ASIN', 'asin', 'Asin', 'product_asin', 'MainKeys'):
+            if key in row and row[key]:
+                asin = str(row[key]).strip()
+                break
 
-        for product in response.payload:
-            competitive_prices = product.get('Product', {}).get(
-                'CompetitivePricing', {}
-            ).get('CompetitivePrices', [])
-            for cp in competitive_prices:
-                price_obj = cp.get('Price', {})
-                landed = price_obj.get('LandedPrice', {}).get('Amount')
-                if landed is not None:
-                    return float(landed)
-        return None
+        if not asin or asin not in prices:
+            continue
 
-    except SellingApiException as e:
-        log.error("Amazon SP-API error for ASIN %s: %s", asin, e)
-        return None
-    except Exception as e:
-        log.error("Unexpected error fetching Amazon price for ASIN %s: %s", asin, e)
-        return None
+        # Find price (try multiple possible field names)
+        price = None
+        for key in ('Price', 'price', 'Current Price', 'current_price',
+                     'Sale Price', 'sale_price', 'Deal Price'):
+            if key in row and row[key]:
+                price = _parse_price(row[key])
+                if price and price > 0:
+                    break
+
+        if price and price > 0:
+            # Keep the lowest price seen for this ASIN
+            if prices[asin] is None or price < prices[asin]:
+                prices[asin] = price
+                log.info("Amazon price for %s: $%.2f", asin, price)
+
+    found = sum(1 for v in prices.values() if v is not None)
+    log.info("Amazon scrape results: %d/%d ASINs with prices.", found, len(original_asins))
+    return prices
 
 
-def get_prices_for_products(products_with_asins):
+def get_prices_for_products(products_with_asins, zipcode=None):
     """
     Fetch Amazon floor prices for a list of products.
 
     Args:
         products_with_asins: list of dicts, each with at least 'asin' key
+        zipcode: optional Canadian postal code
 
     Returns:
         dict mapping asin -> lowest price (float or None)
     """
-    results = {}
-    for item in products_with_asins:
-        asin = item.get('asin')
-        if not asin:
-            continue
-        price = get_competitive_price(asin)
-        results[asin] = price
-        log.info("Amazon price for %s: %s", asin, price)
-    return results
+    asins = [p['asin'] for p in products_with_asins if p.get('asin')]
+    if not asins:
+        log.warning("No ASINs provided — skipping Amazon pricing.")
+        return {}
+    return scrape_prices(asins, zipcode)

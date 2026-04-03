@@ -1,115 +1,79 @@
-import json
+"""
+Ecommerce approval routes — Flask Blueprint.
+
+Serves the pricing dashboard and handles approve/reject actions.
+All state is persisted in SQL Server (EcommercePricingBatch / EcommercePricingRecommendation).
+"""
+
 import logging
-import hashlib
-import hmac
-import time
-from flask import Blueprint, request, jsonify, render_template_string
-from ecommerce import config
+from flask import Blueprint, request, jsonify
+
 from ecommerce import db
 from ecommerce.listings import copy_generator
 from ecommerce.listings import amazon as amazon_listings
 from ecommerce.listings import ebay as ebay_listings
+from ecommerce.notifications.email_digest import render_batch_list, render_dashboard
 
 log = logging.getLogger(__name__)
 
 approval_bp = Blueprint('ecommerce', __name__, url_prefix='/ecommerce')
 
-# In-memory store for pending approval batches (keyed by token)
-# In production this could be Redis or a DB table, but for ~100 SKUs/day
-# and single-server deployment, in-memory is fine.
-_pending_batches = {}
 
-TOKEN_EXPIRY_SECONDS = 48 * 3600  # 48 hours
+# ---------------------------------------------------------------------------
+# Dashboard pages
+# ---------------------------------------------------------------------------
 
-
-def generate_approval_token(recommendations):
-    """
-    Store a batch of recommendations and return a signed token.
-    Called by main.py after building recommendations.
-    """
-    timestamp = str(int(time.time()))
-    payload = json.dumps([r['product'] for r in recommendations], default=str)
-    raw = f"{timestamp}:{payload}"
-    token = hmac.new(
-        config.ANTHROPIC_API_KEY[:16].encode(),  # use first 16 chars as signing key
-        raw.encode(),
-        hashlib.sha256,
-    ).hexdigest()[:24]
-
-    _pending_batches[token] = {
-        'recommendations': recommendations,
-        'created_at': int(timestamp),
-        'actions': {},  # idx -> 'approved' | 'rejected'
-    }
-    return token
+@approval_bp.route('/dashboard')
+def dashboard_index():
+    """List all pricing batches."""
+    batches = db.get_all_batches()
+    return render_batch_list(batches)
 
 
-def _get_batch(token):
-    """Retrieve a pending batch and validate it hasn't expired."""
-    batch = _pending_batches.get(token)
+@approval_bp.route('/dashboard/<int:batch_id>')
+def dashboard_detail(batch_id):
+    """Show recommendations for a single batch."""
+    batch = db.get_batch_by_id(batch_id)
     if not batch:
-        return None, "Invalid or expired approval token."
-    if time.time() - batch['created_at'] > TOKEN_EXPIRY_SECONDS:
-        del _pending_batches[token]
-        return None, "This approval link has expired (48 hours)."
-    return batch, None
+        return '<h2>Batch not found.</h2>', 404
+    recommendations = db.get_recommendations_for_batch(batch_id)
+    return render_dashboard(batch, recommendations)
 
 
-RESULT_PAGE = """
-<!DOCTYPE html>
-<html>
-<head><style>
-    body { font-family: Arial, sans-serif; display: flex; justify-content: center;
-           align-items: center; min-height: 100vh; margin: 0; background: #f5f5f5; }
-    .card { background: #fff; padding: 40px; border-radius: 8px; text-align: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 500px; }
-    .success { color: #2e7d32; }
-    .error { color: #c62828; }
-    .info { color: #1565c0; }
-</style></head>
-<body>
-<div class="card">
-    <h2 class="{{ css_class }}">{{ title }}</h2>
-    <p>{{ message }}</p>
-</div>
-</body>
-</html>
-"""
+# ---------------------------------------------------------------------------
+# Approve / Reject actions (called via AJAX from the dashboard)
+# ---------------------------------------------------------------------------
 
-
-@approval_bp.route('/approve')
+@approval_bp.route('/approve', methods=['POST'])
 def approve():
-    token = request.args.get('token', '')
-    idx = request.args.get('idx', type=int)
+    rec_id = request.args.get('id', type=int)
+    if not rec_id:
+        return jsonify({'ok': False, 'error': 'Missing recommendation ID.'}), 400
 
-    batch, error = _get_batch(token)
-    if error:
-        return render_template_string(RESULT_PAGE, css_class='error',
-                                      title='Error', message=error), 400
+    rec = db.get_recommendation_by_id(rec_id)
+    if not rec:
+        return jsonify({'ok': False, 'error': 'Recommendation not found.'}), 404
 
-    if idx is None or idx < 0 or idx >= len(batch['recommendations']):
-        return render_template_string(RESULT_PAGE, css_class='error',
-                                      title='Error', message='Invalid product index.'), 400
+    if rec.get('Decision'):
+        return jsonify({'ok': False, 'error': f'Already {rec["Decision"]}.'}), 409
 
-    if idx in batch['actions']:
-        prev = batch['actions'][idx]
-        return render_template_string(RESULT_PAGE, css_class='info',
-                                      title='Already Processed',
-                                      message=f'This SKU was already {prev}.'), 200
+    marketplace = rec['RecommendedMarketplace']
+    price = float(rec['RecommendedPrice'])
 
-    rec = batch['recommendations'][idx]
-    product = rec['product']
-    marketplace = rec['marketplace']
-    price = rec['price']
+    product = {
+        'Manufacturer': rec['Manufacturer'],
+        'Model': rec['Model'],
+        'Colour': rec['Colour'],
+        'Grade': rec['Grade'],
+        'Quantity': rec['Quantity'],
+    }
 
-    # Generate listing copy
+    # Generate listing copy via Claude
     try:
         listing_copy = copy_generator.generate_listing_copy(product, marketplace)
     except Exception as e:
-        log.error("Failed to generate listing copy: %s", e)
-        return render_template_string(RESULT_PAGE, css_class='error',
-                                      title='Error',
-                                      message=f'Failed to generate listing copy: {e}'), 500
+        log.error("Failed to generate listing copy for rec %s: %s", rec_id, e)
+        return jsonify({'ok': False, 'error': f'Listing copy generation failed: {e}'}), 500
 
     # Look up catalog info for ASIN/EPID
     catalog_info = db.lookup_product_catalog(
@@ -118,79 +82,56 @@ def approve():
 
     # Post to marketplace
     platform_listing_id = None
-    if marketplace == 'Amazon':
-        asin = catalog_info['asin'] if catalog_info else None
+    if marketplace == 'Amazon CA':
+        asin = catalog_info.get('asin') if catalog_info else None
         if not asin:
-            return render_template_string(RESULT_PAGE, css_class='error',
-                                          title='Error',
-                                          message='No ASIN found in product catalog for this SKU.'), 400
-        platform_listing_id = amazon_listings.create_listing(
-            product, asin, price, listing_copy
-        )
-    elif marketplace == 'eBay':
-        platform_listing_id = ebay_listings.create_listing(
-            product, price, listing_copy, catalog_info
-        )
+            return jsonify({'ok': False, 'error': 'No ASIN in product catalog.'}), 400
+        platform_listing_id = amazon_listings.create_listing(product, asin, price, listing_copy)
+    elif marketplace == 'eBay CA':
+        platform_listing_id = ebay_listings.create_listing(product, price, listing_copy, catalog_info)
 
     if not platform_listing_id:
-        return render_template_string(RESULT_PAGE, css_class='error',
-                                      title='Listing Failed',
-                                      message='The marketplace API rejected the listing. Check server logs for details.'), 500
+        # For Best Buy CA / Reebelo CA there's no auto-listing — just mark approved
+        if marketplace not in ('Amazon CA', 'eBay CA'):
+            db.update_recommendation_decision(rec_id, 'approved')
+            product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
+            return jsonify({
+                'ok': True,
+                'message': f'{product_name} approved for {marketplace} (manual listing required).',
+            })
+        return jsonify({'ok': False, 'error': 'Marketplace API rejected the listing.'}), 500
 
-    # Log to database
+    # Log listing to EcommerceListingsLog
     db.create_listing_record(
-        product, marketplace, price, rec.get('price', price),
-        str(platform_listing_id), approved_by='email_link',
+        product, marketplace, price, price,
+        str(platform_listing_id), approved_by='dashboard',
     )
-    batch['actions'][idx] = 'approved'
+    db.update_recommendation_decision(rec_id, 'approved')
 
     product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
-    return render_template_string(
-        RESULT_PAGE, css_class='success', title='Listing Created',
-        message=f'{product_name} listed on {marketplace} at ${price:.2f}.'
-    ), 200
-
-
-@approval_bp.route('/reject')
-def reject():
-    token = request.args.get('token', '')
-    idx = request.args.get('idx', type=int)
-
-    batch, error = _get_batch(token)
-    if error:
-        return render_template_string(RESULT_PAGE, css_class='error',
-                                      title='Error', message=error), 400
-
-    if idx is None or idx < 0 or idx >= len(batch['recommendations']):
-        return render_template_string(RESULT_PAGE, css_class='error',
-                                      title='Error', message='Invalid product index.'), 400
-
-    if idx in batch['actions']:
-        prev = batch['actions'][idx]
-        return render_template_string(RESULT_PAGE, css_class='info',
-                                      title='Already Processed',
-                                      message=f'This SKU was already {prev}.'), 200
-
-    rec = batch['recommendations'][idx]
-    product = rec['product']
-    batch['actions'][idx] = 'rejected'
-
-    product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
-    return render_template_string(
-        RESULT_PAGE, css_class='info', title='Listing Rejected',
-        message=f'{product_name} has been rejected and will not be listed.'
-    ), 200
-
-
-@approval_bp.route('/status')
-def status():
-    """API endpoint to check the status of a batch (for debugging)."""
-    token = request.args.get('token', '')
-    batch, error = _get_batch(token)
-    if error:
-        return jsonify({'error': error}), 400
     return jsonify({
-        'total': len(batch['recommendations']),
-        'actions': batch['actions'],
-        'created_at': batch['created_at'],
+        'ok': True,
+        'message': f'{product_name} listed on {marketplace} at ${price:.2f}.',
+    })
+
+
+@approval_bp.route('/reject', methods=['POST'])
+def reject():
+    rec_id = request.args.get('id', type=int)
+    if not rec_id:
+        return jsonify({'ok': False, 'error': 'Missing recommendation ID.'}), 400
+
+    rec = db.get_recommendation_by_id(rec_id)
+    if not rec:
+        return jsonify({'ok': False, 'error': 'Recommendation not found.'}), 404
+
+    if rec.get('Decision'):
+        return jsonify({'ok': False, 'error': f'Already {rec["Decision"]}.'}), 409
+
+    db.update_recommendation_decision(rec_id, 'rejected')
+
+    product_name = f"{rec['Manufacturer']} {rec['Model']} Grade {rec['Grade']}"
+    return jsonify({
+        'ok': True,
+        'message': f'{product_name} rejected.',
     })

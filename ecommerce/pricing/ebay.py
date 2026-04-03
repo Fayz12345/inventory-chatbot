@@ -1,81 +1,117 @@
+"""
+eBay Canada price fetching via Octoparse cloud scraping.
+
+Uses the 'ebay-product-list-scraper-by-keyword' template with
+product keywords. Extracts floor prices from first-page results.
+"""
+
 import logging
-import requests
-from ecommerce import config
+import re
+from ecommerce.pricing import octoparse_client
 
 log = logging.getLogger(__name__)
 
-EBAY_AUTH_URL = 'https://api.ebay.com/identity/v1/oauth2/token'
-EBAY_BROWSE_URL = 'https://api.ebay.com/buy/browse/v1/item_summary/search'
+TEMPLATE = 'ebay-product-list-scraper-by-keyword'
 
 
-def _get_access_token():
-    """Exchange refresh token for a short-lived access token."""
-    if not config.EBAY_REFRESH_TOKEN:
-        log.warning("eBay credentials not configured — skipping")
+def _parse_price(price_str):
+    """Extract a numeric price from a scraped string like 'C $749.99' or '$749.99'."""
+    if not price_str:
         return None
-
-    response = requests.post(
-        EBAY_AUTH_URL,
-        headers={'Content-Type': 'application/x-www-form-urlencoded'},
-        auth=(config.EBAY_APP_ID, config.EBAY_CERT_ID),
-        data={
-            'grant_type': 'refresh_token',
-            'refresh_token': config.EBAY_REFRESH_TOKEN,
-            'scope': 'https://api.ebay.com/oauth/api_scope/buy.browse',
-        },
-    )
-    response.raise_for_status()
-    return response.json()['access_token']
+    match = re.search(r'[\d,]+\.?\d*', str(price_str).replace(',', ''))
+    if match:
+        try:
+            return float(match.group())
+        except ValueError:
+            return None
+    return None
 
 
-def get_floor_price(keywords, category_id=None):
+def scrape_prices(keywords_list):
     """
-    Search eBay for the lowest price matching the given keywords.
+    Scrape eBay.ca prices for a list of search keywords via Octoparse.
 
     Args:
-        keywords: search string (e.g. "iPhone 14 128GB Grade A")
-        category_id: optional eBay category ID (defaults to config)
+        keywords_list: list of keyword strings
+                       (e.g. ['iPhone 14 128GB Grade A', 'Samsung S24 256GB Grade B'])
 
     Returns:
-        Lowest price as float, or None if no results / credentials missing.
+        dict mapping keyword -> lowest price (float), or keyword -> None if not found.
     """
-    token = _get_access_token()
-    if not token:
-        return None
+    if not keywords_list:
+        return {}
 
-    category_id = category_id or config.EBAY_CATEGORY_ID
-
-    params = {
-        'q': keywords,
-        'category_ids': category_id,
-        'filter': 'buyingOptions:{FIXED_PRICE},conditionIds:{2000|2500|3000}',
-        'sort': 'price',
-        'limit': '5',
-    }
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'X-EBAY-C-MARKETPLACE-ID': config.EBAY_MARKETPLACE_ID,
+    parameters = {
+        '123': 'Canada',
+        '6tutxf6k2ik.List': ['ebay.ca'],
+        'j4s3pig01g.ExecutedTimesLimitation': '1',  # First page only
+        '1x7v90yy9yr.List': keywords_list,
     }
 
-    try:
-        response = requests.get(EBAY_BROWSE_URL, headers=headers, params=params)
-        response.raise_for_status()
-        data = response.json()
+    log.info("Scraping eBay.ca prices for %d keywords...", len(keywords_list))
+    rows = octoparse_client.scrape(
+        template_name=TEMPLATE,
+        parameters=parameters,
+        task_name=f'eBay CA Price Scan ({len(keywords_list)} keywords)',
+        target_max_rows=len(keywords_list) * 10,  # ~10 results per keyword on page 1
+    )
 
-        items = data.get('itemSummaries', [])
-        if not items:
-            log.info("No eBay results for: %s", keywords)
-            return None
+    return _parse_results(rows, keywords_list)
 
-        # Items are sorted by price ascending — first item is the floor
-        price_str = items[0].get('price', {}).get('value')
-        if price_str:
-            return float(price_str)
-        return None
 
-    except requests.RequestException as e:
-        log.error("eBay API error for '%s': %s", keywords, e)
-        return None
+def _parse_results(rows, original_keywords):
+    """
+    Parse Octoparse export rows into keyword -> floor price mapping.
+
+    The ebay-product-list-scraper-by-keyword template typically returns:
+    Keyword, Title, Price, URL, Rating, Image, etc.
+    """
+    prices = {kw: None for kw in original_keywords}
+
+    for row in rows:
+        # Find which keyword this result belongs to
+        keyword = None
+        for key in ('Keyword', 'keyword', 'Search Keyword', 'search_keyword'):
+            if key in row and row[key]:
+                keyword = str(row[key]).strip()
+                break
+
+        if not keyword:
+            continue
+
+        # Match to original keyword (case-insensitive)
+        matched_kw = None
+        keyword_lower = keyword.lower()
+        for orig_kw in original_keywords:
+            if orig_kw.lower() == keyword_lower:
+                matched_kw = orig_kw
+                break
+
+        if not matched_kw:
+            continue
+
+        # Extract price
+        price = None
+        for key in ('Price', 'price', 'Item Price', 'item_price', 'Current Price'):
+            if key in row and row[key]:
+                price = _parse_price(row[key])
+                if price and price > 0:
+                    break
+
+        if price and price > 0:
+            # Keep the lowest price seen for this keyword
+            if prices[matched_kw] is None or price < prices[matched_kw]:
+                prices[matched_kw] = price
+
+    for kw, price in prices.items():
+        if price:
+            log.info("eBay floor price for '%s': $%.2f", kw, price)
+        else:
+            log.info("eBay: no results for '%s'", kw)
+
+    found = sum(1 for v in prices.values() if v is not None)
+    log.info("eBay scrape results: %d/%d keywords with prices.", found, len(original_keywords))
+    return prices
 
 
 def get_prices_for_products(products):
@@ -88,11 +124,18 @@ def get_prices_for_products(products):
     Returns:
         dict mapping (Manufacturer, Model, Grade) -> lowest price (float or None)
     """
-    results = {}
+    keyword_map = {}
     for p in products:
         keywords = f"{p['Manufacturer']} {p['Model']} {p.get('Grade', '')}".strip()
         key = (p['Manufacturer'], p['Model'], p['Grade'])
-        price = get_floor_price(keywords)
-        results[key] = price
-        log.info("eBay price for %s: %s", keywords, price)
+        keyword_map[keywords] = key
+
+    if not keyword_map:
+        return {}
+
+    raw_prices = scrape_prices(list(keyword_map.keys()))
+
+    results = {}
+    for keywords, product_key in keyword_map.items():
+        results[product_key] = raw_prices.get(keywords)
     return results

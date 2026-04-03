@@ -2,8 +2,8 @@
 ### Internal Document — Management Team
 
 **Prepared:** March 2026
-**Last Updated:** March 29, 2026
-**Status:** Active — Phase 1 In Progress (1D Code Complete)
+**Last Updated:** April 2, 2026
+**Status:** Active — Phase 1 In Progress (1D Code Complete, 1E Planned)
 
 ---
 
@@ -31,7 +31,7 @@ This document outlines a multi-phase AI implementation strategy for the business
 The foundation has already been laid: a live AI chatbot is operational for inventory queries, and the ecommerce listing pipeline (Phase 1D) is code-complete and ready for deployment. This plan builds on that foundation systematically, ending with a unified AI assistant that can answer questions across inventory, CRM, and financial data simultaneously.
 
 **Core Principles:**
-- Build on existing infrastructure where possible (SQL Server, EC2)
+- Build on existing infrastructure where possible (SQL Server, new ERP on MySQL, EC2)
 - Leverage Claude's ecosystem (API, Claude Code, Cowork) as the primary AI toolchain
 - Each phase delivers standalone value before the next begins
 - Security and access control are non-negotiable at every phase
@@ -47,7 +47,8 @@ The foundation has already been laid: a live AI chatbot is operational for inven
 | Inventory AI Chatbot | **Live** | Flask app on Linux EC2, powered by Claude API, queries `ReportingInventoryFlat` |
 | Ecommerce Pipeline | **Code Complete** | 15 modules in `ecommerce/` — price scanning, approval flow, auto-listing. Awaiting deployment (credentials, DB tables, cron). See `Ecommerce_AI_Plan.md`. |
 | Flat Reporting Table | **Live** | `ReportingInventoryFlat` — ~41,277 in-stock devices, refreshes hourly |
-| SQL Server | **Live** | Windows EC2, hosts all inventory data |
+| SQL Server (Legacy) | **Live** | Windows EC2, hosts current inventory data — will be phased out after ERP migration |
+| New ERP | **Migration Planned** | MySQL 5.7 (`gadgetkg_bwqa_main`) — normalized schema with `wh_inv_master`, workshop pipeline, invoicing, client management. Will become single source of truth |
 | Linux EC2 | **Live** | Ubuntu 24.04, t2.medium, hosts chatbot + ecommerce pipeline |
 | CRM | **None** | No CRM in place |
 | Financial AI | **None** | QuickBooks used manually |
@@ -76,7 +77,8 @@ The foundation has already been laid: a live AI chatbot is operational for inven
 | **Claude Cowork** | Meeting summaries, action items, document generation | Included in Pro/Team/Enterprise |
 | **HubSpot (Free/Starter)** | CRM — contacts, deals, pipeline | Free tier available |
 | **Python Flask** | Chatbot backend + ecommerce approval endpoints | Free / open source |
-| **SQL Server Agent** | Scheduled flat table refreshes | Already licensed |
+| **PyMySQL** | MySQL connector for new ERP database queries | Free / open source |
+| **SQL Server Agent** | Scheduled flat table refreshes (legacy) | Already licensed |
 
 > **Why Claude Code over OpenClaw?** OpenClaw was originally planned for autonomous data alerts. Claude Code's scheduled agents and CLI provide the same capability (connect to SQL Server, run queries on a schedule, send alerts via email/Slack) while staying within a single vendor ecosystem. This eliminates a separate open-source tool to install, maintain, and troubleshoot. Claude Code can run Python scripts directly, access the database, and integrate with notification services — all from the same toolchain already used for development.
 
@@ -184,6 +186,84 @@ All 15 modules are built and integrated in the `ecommerce/` directory. The appro
 
 ---
 
+### 1E. ERP Inventory Chatbot (New ERP)
+**Status: Planned — Phase 1**
+
+A second inventory chatbot instance (or extended mode within the existing chatbot) that queries the new ERP system (`gadgetkg_bwqa_main`) on MySQL. This gives management the same natural language Q&A experience they have today with `ReportingInventoryFlat`, but against the live ERP data — covering inventory, workshop pipeline, invoicing, and client records.
+
+**Why a separate data source:**
+- The current chatbot queries `ReportingInventoryFlat` on SQL Server (the legacy system)
+- The new ERP runs on MySQL 5.7 (`gadgetkg_bwqa_main`) and uses a normalized schema with foreign key references across master tables
+- During the migration period, both systems may run in parallel; after migration, the ERP becomes the single source of truth
+
+**Key ERP tables the chatbot will query:**
+
+| Table | Purpose |
+|---|---|
+| `wh_inv_master` | Core inventory — serial number, model, grade, status, bin location, cost, sales price |
+| `web_model_master` | Model name/code lookup (joined via `model_id`) |
+| `web_brand_master` | Brand name lookup (joined via `brand_id`) |
+| `web_attribute_master` | Color, RAM, ROM lookups (joined via `color_id`, `ram_id`, `rom_id`) |
+| `workshop_master` | Work order status and pipeline tracking (IQC → Repair → OQC) |
+| `workshop_iqc` / `workshop_oqc` | Quality check status and dates |
+| `workshop_device_repairs` | Repair status, engineer assignment, costs |
+| `bw_sales_invoice_header` / `bw_sales_invoice_items` | Sales order and line item data |
+| `master_clients` | Client/vendor details |
+| `shipment_header` | Shipment tracking and status |
+
+**Example queries this enables:**
+- "How many devices are in Ready status by brand and model?"
+- "What devices are currently in IQC or awaiting repair?"
+- "Show me all inventory received from lot number X"
+- "What is the total outward sales value of devices graded A?"
+- "Which devices have been in the workshop for more than 48 hours?"
+- "How many units were shipped to client Y this month?"
+
+**Implementation approach:**
+1. **Denormalized VIEW or flat table** — Create a MySQL VIEW (e.g., `vw_erp_inventory_flat`) that JOINs `wh_inv_master` with the model/brand/attribute master tables. This gives Claude a single, readable schema to generate SQL against — no complex multi-table JOINs in every query.
+
+   ```sql
+   CREATE VIEW vw_erp_inventory_flat AS
+   SELECT wim.id AS inventory_id, wim.serial_number, wim.imei_1,
+          wim.lot_num, wim.item_status, wim.bin_location,
+          wim.inward_grade, wim.outward_grade,
+          wim.inward_item_cost, wim.outward_sales_price,
+          wm.model_name, wm.model_code,
+          wb.brand_name,
+          wa_color.attribute_value AS color,
+          wa_ram.attribute_value AS ram,
+          wa_rom.attribute_value AS storage,
+          mc.vendor_name AS vendor,
+          wim.cr_dateTime AS received_date,
+          wim.final_order_id,
+          wim.used_flag, wim.ewaste_flag
+   FROM wh_inv_master wim
+   LEFT JOIN web_model_master wm ON wim.model_id = wm.id
+   LEFT JOIN web_brand_master wb ON wim.brand_id = wb.id
+   LEFT JOIN web_attribute_master wa_color ON wim.color_id = wa_color.id
+   LEFT JOIN web_attribute_master wa_ram ON wim.ram_id = wa_ram.id
+   LEFT JOIN web_attribute_master wa_rom ON wim.rom_id = wa_rom.id
+   LEFT JOIN master_clients mc ON wim.vendor_code = mc.id;
+   ```
+
+2. **MySQL connection from EC2** — Use `PyMySQL` or `mysql-connector-python` from the existing Flask app. The EC2 IP must be whitelisted on the MySQL host's firewall.
+
+3. **Schema prompt for Claude** — Provide the VIEW column definitions (or the flat table schema) as context, same pattern as the existing chatbot. Claude generates MySQL-dialect SQL instead of T-SQL.
+
+4. **Workshop pipeline view (optional)** — A second VIEW joining `workshop_master` → `workshop_iqc` → `workshop_device_repairs` → `workshop_oqc` for pipeline-specific questions.
+
+**Dependencies:**
+- MySQL host firewall must allow inbound connections from the Linux EC2
+- ERP must be live and populated with data
+- `PyMySQL` or `mysql-connector-python` installed in `~/chatbot-env`
+
+**Relationship to Phase 1A:**
+- Phase 1A (existing chatbot) continues to run against SQL Server during the migration period
+- Phase 1E can run as a separate route/mode in the same Flask app (e.g., `/erp-chat`)
+- Once the ERP migration is complete and validated, Phase 1E replaces 1A as the primary inventory chatbot
+
+---
+
 ## Phase 2 — CRM & Sales Pipeline
 
 ### 2A. CRM Platform — HubSpot
@@ -210,6 +290,12 @@ All 15 modules are built and integrated in the `ecommerce/` directory. The appro
 - Automatic CRM data enrichment (fills in company size, industry, revenue)
 - AI deal summaries — catch up on a deal in seconds
 
+**ERP Integration Note:**
+The new ERP (`gadgetkg_bwqa_main`) has its own `master_clients` table with vendor/client records, addresses, and billing info. HubSpot and the ERP serve different purposes — HubSpot manages the sales pipeline, the ERP manages operational client records. To keep them connected:
+- Create a mapping table (or HubSpot custom property) that links each HubSpot Company/Contact ID to the corresponding `master_clients.id` in the ERP
+- Plan this mapping from day one — retrofitting it later creates data integrity headaches
+- The mapping enables Phase 2B (inventory visibility) and Phase 2C (warehouse handoff) to look up the correct ERP client when a HubSpot deal progresses
+
 ---
 
 ### 2B. Inventory Visibility Inside HubSpot
@@ -217,18 +303,31 @@ All 15 modules are built and integrated in the `ecommerce/` directory. The appro
 
 Management should be able to view relevant inventory data directly on a HubSpot deal record — without switching to the chatbot.
 
-**Approach:**
-- Use HubSpot's **Custom Properties** to sync key inventory metrics (e.g., available stock by model) from the flat table via a lightweight daily API sync script
-- Or embed a filtered view of the chatbot as a **Custom Card** on deal records using HubSpot's CRM Card API
+**Data source:** The new ERP's MySQL database (`gadgetkg_bwqa_main`), specifically the `vw_erp_inventory_flat` VIEW created in Phase 1E (or equivalent denormalized query against `wh_inv_master` + master tables).
 
-This gives sales staff context like "we have 120 A-Grade iPhone 15s available" while they're working a deal — without leaving HubSpot.
+**Approach:**
+- Use HubSpot's **Custom Properties** to sync key inventory metrics (e.g., available stock by model) from the ERP via a lightweight daily API sync script
+- Or embed a filtered view of the chatbot as a **Custom Card** on deal records using HubSpot's CRM Card API
+- The sync script connects to MySQL using `PyMySQL` (same driver as Phase 1E) and pushes aggregated stock counts to HubSpot via the HubSpot API
+
+**What the sync provides on a deal record:**
+- Available stock count by brand/model/grade relevant to the deal
+- Current `item_status` breakdown (e.g., "85 Ready, 12 in IQC, 3 in Repair")
+- Last refresh timestamp
+
+**Technical notes:**
+- The sync script runs on the Linux EC2, same as the chatbot — requires MySQL connectivity to the ERP host (firewall whitelisting from Phase 1E)
+- Uses the HubSpot ↔ `master_clients.id` mapping established in Phase 2A to associate inventory with the correct HubSpot deal/company
+- MySQL dialect — queries use `wh_inv_master.item_status` to determine availability (replaces the old `Version = '000'` filter from SQL Server)
+
+This gives sales staff context like "we have 120 A-Grade iPhone 15s in Ready status" while they're working a deal — without leaving HubSpot.
 
 ---
 
 ### 2C. Warehouse Handoff Automation
 **Status: Planned — Phase 2**
 
-When a deal is marked "Closed Won" in HubSpot, an automated workflow triggers a warehouse packing/processing notification.
+When a deal is marked "Closed Won" in HubSpot, an automated workflow triggers order creation directly in the ERP — so the warehouse team sees the order natively in their system.
 
 **Flow:**
 ```
@@ -238,12 +337,33 @@ HubSpot Workflow triggers webhook
         ↓
 Python script receives webhook on Linux EC2
         ↓
-Inserts order into SQL Server (or sends formatted email/Slack to warehouse)
+Script uses HubSpot ↔ master_clients.id mapping to resolve ERP client
         ↓
-Warehouse receives packing instructions
+Creates records in ERP MySQL database:
+  1. bw_sales_invoice_header  (order header — client, date, totals)
+  2. bw_sales_invoice_items   (line items — serial, model, grade, pricing)
+  3. Updates wh_inv_master.item_status → "Allocated" for each device
+  4. Updates wh_inv_master.final_order_id with the new invoice ID
+        ↓
+Warehouse sees the order natively in the ERP UI
+        ↓
+(Optional) shipment_header record created when warehouse ships
 ```
 
-This eliminates manual handoff between sales and warehouse.
+**Why ERP-native instead of email/Slack:**
+- The warehouse team will be working inside the ERP daily — orders should appear there, not in a separate notification channel
+- Creating proper `bw_sales_invoice` records means the order is tracked, auditable, and feeds into the ERP's invoicing and shipment workflows
+- `wh_inv_master.item_status` update prevents the same device from being sold twice (inventory reservation)
+
+**Key implementation question:**
+Does the ERP have an API layer, or will the webhook script write directly to MySQL? Writing directly is simpler but bypasses any application-level validation. If the ERP vendor provides an API, use that instead of raw SQL inserts.
+
+**Dependencies:**
+- Phase 2A (HubSpot live + client ID mapping in place)
+- MySQL write access from Linux EC2 to the ERP database (or ERP API credentials)
+- Agreement on which `item_status` values represent "Allocated" vs "Ready" vs "Shipped"
+
+This eliminates manual handoff between sales and warehouse, and keeps the ERP as the single source of truth for order fulfillment.
 
 ---
 
@@ -300,7 +420,7 @@ Expand the single chatbot into a unified assistant that can answer questions acr
 
 | Domain | Data Source |
 |---|---|
-| Inventory | `ReportingInventoryFlat` (+ Telus, MobileShop, OSL tables) |
+| Inventory | New ERP `vw_erp_inventory_flat` on MySQL (+ legacy SQL Server flat tables during migration) |
 | CRM | HubSpot API or synced flat table |
 | Financial | QuickBooks flat table |
 
@@ -418,53 +538,69 @@ A client-facing portal where carriers (Telus, MobileShop, OSL) can log in and se
 ## Infrastructure Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        AWS Cloud                            │
-│                                                             │
-│  ┌──────────────────────┐    ┌──────────────────────────┐  │
-│  │   Windows EC2         │    │      Linux EC2            │  │
-│  │   SQL Server          │    │      Ubuntu 24.04         │  │
-│  │                       │    │      t2.medium             │  │
-│  │  • ReportingInventory │◄───│  • Flask Chatbot (5000)  │  │
-│  │    Flat (hourly)      │    │  • Ecommerce Pipeline     │  │
-│  │  • Telus Flat (wkly)  │    │  • Inventory Alerts       │  │
-│  │  • MobileShop (wkly)  │    │  • Gunicorn (prod)        │  │
-│  │  • OSL Flat (wkly)    │    │  • Python 3.12            │  │
-│  │  • QB Flat (daily)    │    │  • chatbot-env venv       │  │
-│  │  • EcommListingsLog   │    │                           │  │
-│  │  • EcommProductCat    │    └──────────┬───────────────┘  │
-│  │  • SQL Agent Jobs     │               │                  │
-│  └──────────────────────┘               │                   │
-│                                         │                   │
-└─────────────────────────────────────────┼───────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                              AWS Cloud                                    │
+│                                                                          │
+│  ┌──────────────────────┐    ┌──────────────────────────┐               │
+│  │  Windows EC2 (Legacy) │    │      Linux EC2            │               │
+│  │  SQL Server           │    │      Ubuntu 24.04         │               │
+│  │                       │    │      t2.medium             │               │
+│  │  • ReportingInventory │◄───│  • Flask Chatbot (5000)  │               │
+│  │    Flat (hourly)      │    │  • Ecommerce Pipeline     │               │
+│  │  • Telus Flat (wkly)  │    │  • Inventory Alerts       │               │
+│  │  • MobileShop (wkly)  │    │  • Gunicorn (prod)        │               │
+│  │  • OSL Flat (wkly)    │    │  • Python 3.12            │               │
+│  │  • QB Flat (daily)    │    │  • chatbot-env venv       │               │
+│  │  • EcommListingsLog   │    │  • PyMySQL (ERP conn)     │               │
+│  │  • EcommProductCat    │    │                           │               │
+│  │  • SQL Agent Jobs     │    └──────────┬───────────────┘               │
+│  │                       │               │                                │
+│  │  (Phased out after    │               │                                │
+│  │   ERP migration)      │               │                                │
+│  └──────────────────────┘               │                                │
+│                                         │                                │
+└─────────────────────────────────────────┼────────────────────────────────┘
                                           │
-                    ┌─────────────────────┼──────────────────┐
-                    │                     │  External APIs    │
-                    │  ┌──────────────┐   │                  │
-                    │  │ Claude API   │◄──┘                  │
-                    │  │ (Anthropic)  │                       │
-                    │  └──────────────┘                       │
-                    │  ┌──────────────┐                       │
-                    │  │ Claude Code  │  (Dev + Alerts)       │
-                    │  │              │                       │
-                    │  └──────────────┘                       │
-                    │  ┌──────────────┐                       │
-                    │  │ Amazon SP-API│  (Phase 1D)           │
-                    │  │ eBay APIs    │                       │
-                    │  └──────────────┘                       │
-                    │  ┌──────────────┐                       │
-                    │  │  HubSpot     │  (Phase 2)            │
-                    │  │  CRM API     │                       │
-                    │  └──────────────┘                       │
-                    │  ┌──────────────┐                       │
-                    │  │  QuickBooks  │  (Phase 3)            │
-                    │  │  Online API  │                       │
-                    │  └──────────────┘                       │
-                    │  ┌──────────────┐                       │
-                    │  │  Slack API   │  (Alerts)             │
-                    │  │  Email/SMTP  │                       │
-                    │  └──────────────┘                       │
-                    └────────────────────────────────────────-┘
+          ┌───────────────────────────────┼──────────────────────────────┐
+          │                               │                              │
+          │  ┌──────────────────┐         │     External Services        │
+          │  │  New ERP (MySQL)  │◄────────┤                              │
+          │  │  gadgetkg_bwqa_   │         │                              │
+          │  │  main             │         │                              │
+          │  │                   │         │                              │
+          │  │  • wh_inv_master  │         │                              │
+          │  │  • workshop_*     │         │                              │
+          │  │  • bw_sales_*     │         │                              │
+          │  │  • master_clients │         │                              │
+          │  │  • shipment_hdr   │         │                              │
+          │  │  • vw_erp_inv_    │         │                              │
+          │  │    flat (Phase 1E)│         │                              │
+          │  └──────────────────┘         │                              │
+          │                               │                              │
+          │  ┌──────────────┐             │                              │
+          │  │ Claude API   │◄────────────┘                              │
+          │  │ (Anthropic)  │                                            │
+          │  └──────────────┘                                            │
+          │  ┌──────────────┐                                            │
+          │  │ Claude Code  │  (Dev + Alerts)                            │
+          │  └──────────────┘                                            │
+          │  ┌──────────────┐                                            │
+          │  │ Amazon SP-API│  (Phase 1D)                                │
+          │  │ eBay APIs    │                                            │
+          │  └──────────────┘                                            │
+          │  ┌──────────────┐                                            │
+          │  │  HubSpot     │  (Phase 2)                                 │
+          │  │  CRM API     │                                            │
+          │  └──────────────┘                                            │
+          │  ┌──────────────┐                                            │
+          │  │  QuickBooks  │  (Phase 3)                                 │
+          │  │  Online API  │                                            │
+          │  └──────────────┘                                            │
+          │  ┌──────────────┐                                            │
+          │  │  Slack API   │  (Alerts)                                  │
+          │  │  Email/SMTP  │                                            │
+          │  └──────────────┘                                            │
+          └──────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -473,18 +609,19 @@ A client-facing portal where carriers (Telus, MobileShop, OSL) can log in and se
 
 | Phase | Initiative | Key Deliverable | Status | Dependencies |
 |---|---|---|---|---|
-| **Phase 1** | 1A — Chatbot | Live chatbot for inventory queries | **Live** | None |
+| **Phase 1** | 1A — Chatbot (Legacy) | Live chatbot for inventory queries (SQL Server) | **Live** | None |
 | **Phase 1** | 1A — Production setup | Gunicorn systemd service, chatbot always-on | **Pending** | None |
 | **Phase 1** | 1B — Additional flat tables | Telus, MobileShop, OSL tables + weekly jobs | **Planned** | SQL Server access |
 | **Phase 1** | 1C — Inventory alerts | Python alert scripts, Grading/Function Test alerts | **Planned** | Phase 1B flat tables |
 | **Phase 1** | 1D — Ecommerce pipeline | Daily price scan, approval email, auto-listing | **Code Complete** | Credentials + DB tables (see Ecommerce_AI_Plan.md) |
-| **Phase 2** | 2A — HubSpot CRM | Contacts, deals, pipeline live | **Planned** | None (independent) |
-| **Phase 2** | 2B — Inventory in HubSpot | Stock visibility on deal records | **Planned** | Phase 1A + 2A |
-| **Phase 2** | 2C — Warehouse handoff | Automated packing trigger on Closed Won | **Planned** | Phase 2A |
+| **Phase 1** | 1E — ERP Chatbot | Inventory chatbot querying new MySQL ERP | **Planned** | ERP live + MySQL connectivity from EC2 |
+| **Phase 2** | 2A — HubSpot CRM | Contacts, deals, pipeline live + ERP client ID mapping | **Planned** | None (independent) |
+| **Phase 2** | 2B — Inventory in HubSpot | Stock visibility on deal records (from ERP MySQL) | **Planned** | Phase 1E + 2A |
+| **Phase 2** | 2C — Warehouse handoff | ERP-native order creation on Closed Won | **Planned** | Phase 2A + ERP MySQL write access |
 | **Phase 3** | 3A — QB flat table | Financial data in SQL Server | **Planned** | QuickBooks API access |
 | **Phase 3** | 3B — QB chatbot | Financial Q&A in chatbot | **Planned** | Phase 3A |
 | **Phase 3** | 3C — QB alerts | Overdue invoice, cash flow alerts | **Planned** | Phase 3A + alerts module |
-| **Phase 4** | Unified chatbot | Single assistant for inventory + CRM + QB | **Planned** | Phases 1–3 |
+| **Phase 4** | Unified chatbot | Single assistant for inventory (ERP) + CRM + QB | **Planned** | Phases 1–3 |
 | **Anytime** | Phase 5 — Claude Cowork | Meeting summaries, action items | **Planned** | Claude Pro/Team plan |
 
 ---
@@ -499,7 +636,9 @@ A client-facing portal where carriers (Telus, MobileShop, OSL) can log in and se
 | HubSpot Free | Free | $0 (upgrade to Starter ~$20/mo for AI features) |
 | QuickBooks Online | Existing subscription | No additional cost (API access included) |
 | Linux EC2 (t2.medium) | Existing | Already running |
-| SQL Server (Windows EC2) | Existing | Already running |
+| SQL Server (Windows EC2) | Existing (Legacy) | Already running — phased out after ERP migration |
+| New ERP (MySQL) | Existing / Migration | Hosted externally — no additional infrastructure cost |
+| PyMySQL / mysql-connector-python | Free / open source | $0 |
 
 ---
 
