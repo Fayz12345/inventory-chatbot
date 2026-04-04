@@ -3,6 +3,10 @@ Ecommerce approval routes — Flask Blueprint.
 
 Serves the pricing dashboard and handles approve/reject actions.
 All state is persisted in SQL Server (EcommercePricingBatch / EcommercePricingRecommendation).
+
+Current mode: PREVIEW ONLY — approve generates listing copy via Claude for
+manual copy-paste.  No marketplace API calls until we have confidence in the
+system.
 """
 
 import logging
@@ -10,8 +14,6 @@ from flask import Blueprint, request, jsonify
 
 from ecommerce import db
 from ecommerce.listings import copy_generator
-from ecommerce.listings import amazon as amazon_listings
-from ecommerce.listings import ebay as ebay_listings
 from ecommerce.notifications.email_digest import render_batch_list, render_dashboard
 
 log = logging.getLogger(__name__)
@@ -46,6 +48,7 @@ def dashboard_detail(batch_id):
 
 @approval_bp.route('/approve', methods=['POST'])
 def approve():
+    """Generate listing copy for preview — no marketplace API calls yet."""
     rec_id = request.args.get('id', type=int)
     if not rec_id:
         return jsonify({'ok': False, 'error': 'Missing recommendation ID.'}), 400
@@ -75,43 +78,16 @@ def approve():
         log.error("Failed to generate listing copy for rec %s: %s", rec_id, e)
         return jsonify({'ok': False, 'error': f'Listing copy generation failed: {e}'}), 500
 
-    # Look up catalog info for ASIN/EPID
-    catalog_info = db.lookup_product_catalog(
-        product['Manufacturer'], product['Model'], product['Colour']
-    )
-
-    # Post to marketplace
-    platform_listing_id = None
-    if marketplace == 'Amazon CA':
-        asin = catalog_info.get('asin') if catalog_info else None
-        if not asin:
-            return jsonify({'ok': False, 'error': 'No ASIN in product catalog.'}), 400
-        platform_listing_id = amazon_listings.create_listing(product, asin, price, listing_copy)
-    elif marketplace == 'eBay CA':
-        platform_listing_id = ebay_listings.create_listing(product, price, listing_copy, catalog_info)
-
-    if not platform_listing_id:
-        # For Best Buy CA / Reebelo CA there's no auto-listing — just mark approved
-        if marketplace not in ('Amazon CA', 'eBay CA'):
-            db.update_recommendation_decision(rec_id, 'approved')
-            product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
-            return jsonify({
-                'ok': True,
-                'message': f'{product_name} approved for {marketplace} (manual listing required).',
-            })
-        return jsonify({'ok': False, 'error': 'Marketplace API rejected the listing.'}), 500
-
-    # Log listing to EcommerceListingsLog
-    db.create_listing_record(
-        product, marketplace, price, price,
-        str(platform_listing_id), approved_by='dashboard',
-    )
     db.update_recommendation_decision(rec_id, 'approved')
 
     product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
     return jsonify({
         'ok': True,
-        'message': f'{product_name} listed on {marketplace} at ${price:.2f}.',
+        'message': f'{product_name} approved for {marketplace} at ${price:.2f}.',
+        'listing': listing_copy,
+        'marketplace': marketplace,
+        'price': price,
+        'product': product_name,
     })
 
 

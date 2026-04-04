@@ -54,7 +54,9 @@ Approver visits /ecommerce/dashboard in browser:
     ↓ [on approve click — AJAX POST to Flask endpoint on EC2]
 Claude API drafts listing title + description + bullet points
     ↓
-Post via marketplace API (eBay Inventory API / Amazon SP-API) — Sub-Phase 1D-ii
+[1D-ii — current] Preview modal with copy-to-clipboard — human pastes to marketplace manually
+    ↓
+[1D-iii — future] Post via marketplace API (eBay Inventory API / Amazon SP-API) automatically
     ↓
 Log listing record to SQL Server (SKU, platform, price, timestamp, status)
 ```
@@ -68,9 +70,10 @@ Phase 1D is broken into two sub-phases. Each delivers working value independentl
 | Sub-Phase | Scope | Deliverable |
 |---|---|---|
 | **1D-i** | Octoparse price scanning across all 4 marketplaces + web dashboard | Weekly pipeline writes recommendations to SQL Server. Approver visits `/ecommerce/dashboard` to review recommended marketplace + price per SKU across Amazon CA, eBay CA, Best Buy CA, and Reebelo CA. No auto-listing yet — human reviews and lists manually. Proves the data pipeline end-to-end. |
-| **1D-ii** | Approval flow + auto-listing | Approve button on dashboard → Claude generates listing copy → posts to Amazon or eBay automatically. Marketplace API credentials needed only at this stage. |
+| **1D-ii (current)** | Approval flow + listing preview | Approve button on dashboard → Claude generates listing copy → preview modal with copy-to-clipboard. Human pastes to marketplace manually. Builds confidence before enabling API auto-listing. |
+| **1D-iii** | Auto-listing via marketplace APIs | Approve button → Claude generates copy → posts to Amazon SP-API / eBay Inventory API automatically. Marketplace API credentials needed at this stage. |
 
-> **Why no 1D-iii?** BestBuy and Reebelo are no longer deferred — Octoparse + Google Shopping captures their prices from day one alongside Amazon and eBay.
+> **Why the interim 1D-ii step?** We want to validate listing quality and pricing recommendations manually before giving the system direct marketplace API access. Once we're confident, 1D-iii flips the approve action from "preview + copy-paste" to "auto-post via API".
 
 ---
 
@@ -132,35 +135,37 @@ ORDER BY Quantity DESC
 
 > **Why not DeepSeek V3?** The pricing algorithm is deterministic and doesn't need an LLM. The only AI task is listing copy generation, and Claude is already integrated. Adding a second AI provider adds credential management, a second billing relationship, and a second failure mode — for no clear benefit. If cost becomes a concern at scale, swap Claude for a cheaper model at that point.
 
-### Price Intelligence — Octoparse Web Scraping (Sub-Phase 1D-i)
+### Price Intelligence — Apify Cloud Scraping (Sub-Phase 1D-i)
 
-All price data is gathered via **Octoparse cloud extraction** — no marketplace API credentials needed for pricing.
+All price data is gathered via **Apify cloud actors** — no marketplace API credentials needed for pricing. Apify provides full API access on all plans (including Free), an official Python SDK (`apify-client`), and 22,000+ pre-built scraping actors.
 
-| Marketplace | Octoparse Template | Cloud | Parameters | Notes |
-|---|---|---|---|---|
-| **Amazon Canada** | `amazon-product-details-scraper` | Yes | `MainKeys` (ASINs from catalog), `ZipCode` (Canadian postal code) | Scrapes amazon.ca product pages by ASIN. Extracts title, price, ratings, seller info. |
-| **eBay Canada** | `ebay-product-list-scraper-by-keyword` | Yes | `123` (Country=Canada), `6tutxf6k2ik.List` (Site), `j4s3pig01g.ExecutedTimesLimitation` (Pages=1), `1x7v90yy9yr.List` (Keywords) | Keyword search on ebay.ca. Extracts title, price, URL, rating. First page only. |
-| **Best Buy Canada** | `google-shopping-product-listing-scraper` | Yes | `bur6xb09mnl.List` (Keywords) | No direct Best Buy template exists. Google Shopping aggregates Best Buy Marketplace CA listings with prices. |
-| **Reebelo Canada** | `google-shopping-product-listing-scraper` | Yes | `bur6xb09mnl.List` (Keywords) | No Reebelo template exists. Google Shopping captures Reebelo CA listings alongside other sellers. |
+> **Why Apify instead of Octoparse?** Octoparse's Standard plan ($69/mo) does not include API access for starting tasks programmatically — that requires the Professional plan ($249/mo). Apify provides full API access on all plans starting at $29/mo, has a mature Python SDK, and offers pre-built actors for all target marketplaces including a dedicated Best Buy Canada scraper.
 
-> **Why Google Shopping for Best Buy + Reebelo?** Octoparse has no dedicated Best Buy pricing or Reebelo template. Google Shopping aggregates prices across sellers (including Best Buy Marketplace and Reebelo), providing a single scrape that covers both. The pipeline parses results to attribute prices back to the correct marketplace by seller name.
+| Marketplace | Apify Actor | Parameters | Notes |
+|---|---|---|---|
+| **Amazon Canada** | `automation-lab/amazon-scraper` | ASINs + country='CA' | Scrapes amazon.ca product pages by ASIN. Extracts title, price, ratings, seller info. |
+| **eBay Canada** | `automation-lab/ebay-scraper` | Keywords + site='ebay.ca' | Keyword search on ebay.ca. Extracts title, price, URL, rating. First page only. |
+| **Best Buy Canada** | `automation-lab/google-shopping-scraper` | Keywords + countryCode='CA' | Google Shopping aggregates Best Buy Marketplace CA listings with prices. Attributed by seller name. |
+| **Reebelo Canada** | `automation-lab/google-shopping-scraper` | Keywords + countryCode='CA' | Google Shopping captures Reebelo CA listings alongside other sellers. Attributed by seller name. |
+
+> **Why Google Shopping for Best Buy + Reebelo?** Google Shopping aggregates prices across sellers (including Best Buy Marketplace and Reebelo), providing a single scrape that covers both. The pipeline parses results to attribute prices back to the correct marketplace by seller name. A dedicated Best Buy CA actor (`saswave/bestbuy-ca-product-availability`) exists for future use if direct SKU-based lookups are needed.
 
 #### Anti-Detection & IP Safety Strategy
 
 | Concern | Mitigation |
 |---|---|
-| **IP blacklisting** | Octoparse cloud extraction uses automatic **IP rotation** across residential/datacenter pools. No single IP hits any site repeatedly. |
-| **Bot detection** | Octoparse templates include **humanized behavior**: randomized delays between actions, natural scrolling, varied user-agent strings. |
-| **Request volume** | **First page only** per search, **once per week** (Monday 6:00 AM EST). ~100 SKUs × 3 scraper tasks = ~300 page loads/week — negligible volume. |
+| **IP blacklisting** | Apify cloud uses automatic **proxy rotation** across datacenter and residential pools. No single IP hits any site repeatedly. |
+| **Bot detection** | Apify actors use Playwright/Puppeteer with **anti-detection measures**: fingerprint randomization, human-like behavior patterns, varied user-agent strings. |
+| **Request volume** | **First page only** per search, **once per week** (Monday 6:00 AM EST). ~200 SKUs × 3 actor runs = ~600 page loads/week — negligible volume. |
 | **Rate limiting** | Weekly cadence ensures no marketplace sees frequent automated traffic. Monday early morning avoids peak hours. |
-| **Fingerprinting** | Cloud extraction runs on Octoparse's managed browser fleet — no local fingerprint exposed. |
+| **Fingerprinting** | Cloud extraction runs on Apify's managed browser fleet — no local fingerprint exposed. |
 
 ### Orchestration
 
 | Tool | Role |
 |---|---|
 | **Linux cron job** | Weekly trigger (Monday 6:00 AM EST) — runs `python -m ecommerce.main` on the existing EC2 |
-| **Octoparse Cloud API** | Runs scraping tasks remotely with IP rotation. Python calls `execute_task` → polls → `export_data` |
+| **Apify Cloud API** | Runs scraping actors remotely with proxy rotation. Python SDK calls `actor.call()` → blocks until complete → retrieves dataset |
 | **Python modules** | Structured package (see Module Structure below) |
 | **Flask (existing)** | Serves the pricing dashboard at `/ecommerce/dashboard` — handles approve/reject actions via AJAX |
 
@@ -171,18 +176,18 @@ All price data is gathered via **Octoparse cloud extraction** — no marketplace
 ```
 inventory-chatbot/
 ├── app.py                          # Existing chatbot (unchanged)
-├── config.py                       # Existing config (add Octoparse API token + ecommerce keys)
+├── config.py                       # Existing config (add Apify API token + ecommerce keys)
 ├── ecommerce/
 │   ├── __init__.py
 │   ├── main.py                     # Entry point — orchestrates the weekly pipeline
-│   ├── config.py                   # Ecommerce-specific settings (thresholds, Octoparse config)
+│   ├── config.py                   # Ecommerce-specific settings (thresholds, Apify config)
 │   ├── db.py                       # SQL queries — inventory fetch, listings log CRUD, reconciliation
 │   ├── pricing/
 │   │   ├── __init__.py
-│   │   ├── octoparse_client.py     # Octoparse API wrapper — create tasks, poll status, export JSON
-│   │   ├── amazon.py               # Parse Amazon scrape results → extract floor prices by ASIN
-│   │   ├── ebay.py                 # Parse eBay scrape results → extract floor prices by keyword
-│   │   ├── google_shopping.py      # Parse Google Shopping results → attribute prices to Best Buy / Reebelo by seller name
+│   │   ├── apify_client.py         # Apify SDK wrapper — run actors, retrieve datasets
+│   │   ├── amazon.py               # Run Amazon actor → extract floor prices by ASIN
+│   │   ├── ebay.py                 # Run eBay actor → extract floor prices by keyword
+│   │   ├── google_shopping.py      # Run Google Shopping actor → attribute prices to Best Buy / Reebelo by seller name
 │   │   └── algorithm.py            # Deterministic pricing: highest floor price across 4 marketplaces
 │   ├── listings/
 │   │   ├── __init__.py
@@ -196,9 +201,9 @@ inventory-chatbot/
 ```
 
 **What changed from the original structure:**
-- `pricing/amazon.py` and `pricing/ebay.py` — rewritten to parse Octoparse JSON output instead of calling marketplace APIs directly
-- `pricing/octoparse_client.py` — **new** — Octoparse REST API client (trigger tasks, poll, export)
-- `pricing/google_shopping.py` — **new** — parses Google Shopping scrape results, attributes prices to Best Buy and Reebelo by seller name
+- `pricing/amazon.py` and `pricing/ebay.py` — rewritten to use Apify actors instead of direct marketplace APIs
+- `pricing/apify_client.py` — **new** — Apify SDK wrapper (run actors, poll, retrieve datasets). Replaces `octoparse_client.py`.
+- `pricing/google_shopping.py` — **new** — runs Google Shopping actor, attributes prices to Best Buy and Reebelo by seller name
 - `pricing/algorithm.py` — expanded to compare 4 marketplaces instead of 2
 
 ---
@@ -307,12 +312,12 @@ CREATE TABLE EcommerceProductCatalog (
 
 | Library | Purpose | Cost |
 |---|---|---|
-| `requests` | Octoparse REST API calls | Free |
+| `apify-client` | Apify Python SDK — run actors, retrieve datasets | Free |
 | `jinja2` | HTML dashboard page templating | Free |
 | `python-amazon-sp-api` | Amazon SP-API listing creation (Sub-Phase 1D-ii only) | Free |
 | `boto3` | AWS S3 access for eBay image hosting (if needed, 1D-ii) | Free |
 
-> **Simplified for 1D-i:** Only `requests`, `jinja2`, and `python-dotenv` are needed for the price scanning phase. `python-amazon-sp-api` is deferred to 1D-ii when auto-listing begins.
+> **Simplified for 1D-i:** Only `apify-client`, `jinja2`, and `python-dotenv` are needed for the price scanning phase. `python-amazon-sp-api` is deferred to 1D-ii when auto-listing begins.
 
 All installable via pip on the existing EC2. No new infrastructure required.
 
@@ -326,7 +331,7 @@ No new infrastructure. Runs on the existing Linux EC2.
 |---|---|
 | Linux EC2 | Runs ecommerce pipeline via cron + Flask approval endpoint |
 | SQL Server | Inventory data + listings log + product catalog |
-| **Octoparse Cloud** | Runs scraping tasks remotely — EC2 only calls the REST API |
+| **Apify Cloud** | Runs scraping actors remotely — EC2 calls the Python SDK |
 | AWS S3 (optional) | eBay image hosting fallback (1D-ii) |
 | Marketplace APIs | Outbound from EC2 for listing creation only (1D-ii) |
 
@@ -334,14 +339,14 @@ No new infrastructure. Runs on the existing Linux EC2.
 
 ## Volume & Scraping Considerations
 
-- **~100 distinct SKUs** expected in Ecommerce Storefront at any time
+- **~200 distinct SKUs** in Ecommerce Storefront (actual count as of April 2026)
 - **Weekly scan** (Monday 6:00 AM EST) — not daily. Reduces detection risk and is sufficient for used device pricing which doesn't change hourly.
-- **3 Octoparse cloud tasks per run:**
-  - Amazon CA: ~100 ASINs → single batch task, first page per ASIN
-  - eBay CA: ~100 keywords → single batch task, first page per keyword
-  - Google Shopping: ~100 keywords → single batch task, first page per keyword (covers Best Buy + Reebelo)
-- **Total page loads per week: ~300** — negligible volume, no risk of rate limiting or IP issues
-- **Octoparse cloud handles IP rotation automatically** — no residential proxy cost
+- **3 Apify actor runs per week:**
+  - Amazon CA: ASINs from `EcommerceProductCatalog` → single actor run
+  - eBay CA: ~200 keywords → single actor run, first page per keyword
+  - Google Shopping: ~200 keywords → single actor run (covers Best Buy + Reebelo)
+- **Estimated Apify cost:** ~$29/month (Starter plan) covers compute credits. Residential proxies extra at $7-8/GB if needed.
+- **Apify handles proxy rotation automatically** — datacenter proxies included on all plans
 - Dashboard: **weekly batch** written to SQL Server, viewable at `/ecommerce/dashboard` (one row per SKU, inline approve/reject)
 - Claude API: ~100 calls/week for listing copy generation (only on approved SKUs) — minimal token cost
 
@@ -355,11 +360,11 @@ No new infrastructure. Runs on the existing Linux EC2.
 | **Stale pricing / bad floor price** — a one-off $50 listing could cause under-pricing. | Medium | Sanity check: skip any SKU where price < DeviceCost + margin threshold. Flag in email. |
 | **Overselling** — flat table refreshes hourly; device could sell between refresh and listing. | Medium | Run cron immediately after flat table refresh. Log active listings and deduct from available quantity on next run. |
 | **Listings not delisted** — product sells or moves out of Ecommerce Storefront but listing stays up. | High | Weekly reconciliation: compare active listings log against current flat table. Auto-delist via API for any SKU no longer in Ecommerce Storefront. |
-| **Octoparse scrape failures** — template breaks if site layout changes. | Medium | Octoparse maintains templates for popular sites (Amazon, eBay). Google Shopping layout is stable. Monitor export data for empty results — they will appear as N/A on the dashboard. |
-| **Google Shopping seller attribution** — Best Buy or Reebelo may not appear in Google Shopping results for every product. | Medium | If seller name doesn't match, that marketplace returns `None` for the SKU. Algorithm still works with partial data (same as before when marketplaces were deferred). |
-| **Octoparse API downtime / rate limits** | Low | Weekly cadence means one attempt per week. If task fails, retry once. Log failure — partial data will appear on the dashboard. |
+| **Apify actor failures** — actor breaks if site layout changes. | Medium | Apify actors are maintained by their publishers and updated when sites change. Monitor export data for empty results — they will appear as N/A on the dashboard. |
+| **Google Shopping seller attribution** — Best Buy or Reebelo may not appear in Google Shopping results for every product. | Medium | If seller name doesn't match, that marketplace returns `None` for the SKU. Algorithm still works with partial data. |
+| **Apify downtime / rate limits** | Low | Weekly cadence means one attempt per week. SDK has built-in retry. Log failure — partial data will appear on the dashboard. |
 | **Grade → condition mapping** — internal grades don't match marketplace labels. | Medium | Mapping defined above. Agree internally before launch. |
-| **IP blacklisting** | Low | Octoparse cloud IP rotation + first-page-only + weekly cadence = negligible footprint. No single IP is reused. |
+| **IP blacklisting** | Low | Apify proxy rotation + first-page-only + weekly cadence = negligible footprint. No single IP is reused. |
 
 ---
 
@@ -372,7 +377,7 @@ This is the build sequence for the first deliverable: weekly price scan + web da
 | 1 | Create `EcommerceProductCatalog` table + populate for top ~50 SKUs | Manual data entry (ASINs from Amazon, UPCs from packaging) |
 | 2 | Create `EcommerceListingsLog` table | SQL Server access |
 | 3 | Build `ecommerce/db.py` — inventory queries + listings log CRUD | Steps 1–2 |
-| 4 | Build `ecommerce/pricing/octoparse_client.py` — Octoparse API wrapper (create task, poll, export JSON) | Octoparse API token |
+| 4 | Build `ecommerce/pricing/apify_client.py` — Apify SDK wrapper (run actors, retrieve datasets) | Apify API token |
 | 5 | Build `ecommerce/pricing/amazon.py` — parse Amazon scrape data → extract floor prices | Step 4 |
 | 6 | Build `ecommerce/pricing/ebay.py` — parse eBay scrape data → extract floor prices | Step 4 |
 | 7 | Build `ecommerce/pricing/google_shopping.py` — parse Google Shopping data → attribute Best Buy / Reebelo prices | Step 4 |
@@ -384,37 +389,31 @@ This is the build sequence for the first deliverable: weekly price scan + web da
 
 Sub-phase 1D-ii (auto-listing) begins only after 1D-i email recommendations have been validated manually.
 
-### Octoparse API Integration Detail (Step 4)
+### Apify Integration Detail (Step 4)
 
-The `octoparse_client.py` module wraps the Octoparse REST API. The pipeline flow per scraper:
+The `apify_client.py` module wraps the official Apify Python SDK. The pipeline flow per scraper:
 
 ```
-1. POST execute_task(templateName, parameters, targetMaxRows)
-   → Creates a cloud task from a template, starts extraction
-   → Returns taskId immediately
+1. client.actor(actor_id).call(run_input={...})
+   → Starts the actor on Apify cloud with dynamic parameters
+   → SDK blocks with smart polling until the run completes
 
-2. Poll export_data(taskId) every 30s (up to 10 min timeout)
-   → Returns "executing" while running
-   → Returns scraped data as JSON when complete
+2. client.dataset(run['defaultDatasetId']).list_items()
+   → Retrieves structured JSON results from the completed run
 
-3. Parse JSON response → normalize into per-SKU price records
+3. Parse results → normalize into per-SKU price records
 ```
 
 **Configuration needed in `config.py`:**
 ```python
-# Octoparse
-OCTOPARSE_API_TOKEN = ''  # From Octoparse account → API settings
-
-# Template names (validated against Octoparse template library)
-OCTOPARSE_AMAZON_TEMPLATE = 'amazon-product-details-scraper'
-OCTOPARSE_EBAY_TEMPLATE = 'ebay-product-list-scraper-by-keyword'
-OCTOPARSE_GOOGLE_SHOPPING_TEMPLATE = 'google-shopping-product-listing-scraper'
-
-# Scraper settings
-OCTOPARSE_AMAZON_ZIPCODE = 'M5V 2T6'   # Toronto postal code for Amazon.ca localization
-OCTOPARSE_EBAY_PAGES = '1'              # First page only
-OCTOPARSE_TARGET_MAX_ROWS = 50          # Stop after N rows per task (first page safety cap)
+# Apify
+APIFY_API_TOKEN = ''  # From Apify account → Settings → Integrations
 ```
+
+**Actor IDs are defined in each pricing module** (not config) since they rarely change:
+- Amazon: `automation-lab/amazon-scraper`
+- eBay: `automation-lab/ebay-scraper`
+- Google Shopping: `automation-lab/google-shopping-scraper`
 
 ---
 
@@ -422,11 +421,11 @@ OCTOPARSE_TARGET_MAX_ROWS = 50          # Stop after N rows per task (first page
 
 | Decision | Answer |
 |---|---|
-| **Price intelligence tool** | **Octoparse cloud extraction** — replaces direct marketplace API calls for pricing |
+| **Price intelligence tool** | **Apify cloud actors** — replaces direct marketplace API calls for pricing |
 | **Marketplaces (pricing)** | All 4 from day one: Amazon CA, eBay CA, Best Buy CA, Reebelo CA |
 | **Scan frequency** | Weekly — Monday 6:00 AM EST (not daily) |
 | **Scrape depth** | First page only per search — keeps jobs lightweight |
-| **IP safety** | Octoparse cloud IP rotation + weekly cadence + first-page-only |
+| **IP safety** | Apify proxy rotation + weekly cadence + first-page-only |
 | Marketplace seller status | Approved on Amazon Seller Central and eBay |
 | Pricing algorithm | Highest floor price across 4 marketplaces — deterministic, no AI |
 | AI model for listing copy | Claude API (already in stack) |
@@ -441,17 +440,18 @@ OCTOPARSE_TARGET_MAX_ROWS = 50          # Stop after N rows per task (first page
 
 | Removed | Reason |
 |---|---|
-| **Amazon SP-API for pricing** | Replaced by Octoparse scraping. SP-API approval was tedious and rate-limited (0.5 req/sec). SP-API retained for listing creation in 1D-ii. |
-| **eBay Browse API for pricing** | Replaced by Octoparse scraping. eBay developer account approval was tedious. eBay API retained for listing creation in 1D-ii. |
-| **Daily scan cadence** | Changed to weekly (Monday AM). Used device prices don't change hourly. Weekly reduces detection risk and Octoparse task usage. |
+| **Amazon SP-API for pricing** | Replaced by Apify scraping. SP-API approval was tedious and rate-limited (0.5 req/sec). SP-API retained for listing creation in 1D-ii. |
+| **eBay Browse API for pricing** | Replaced by Apify scraping. eBay developer account approval was tedious. eBay API retained for listing creation in 1D-ii. |
+| **Daily scan cadence** | Changed to weekly (Monday AM). Used device prices don't change hourly. Weekly reduces detection risk. |
 | **Sub-Phase 1D-iii** | Eliminated. BestBuy and Reebelo are no longer deferred — Google Shopping scraping covers them from day one. |
+| **Octoparse** | Replaced by Apify. Octoparse Standard plan ($69/mo) did not include API access for programmatic task execution — required Professional ($249/mo). Apify provides full API + Python SDK on all plans starting at $29/mo. |
 | DeepSeek V3 for pricing | Pricing algorithm is deterministic (`max()` over floor prices). No LLM needed. |
-| BestBuy.ca scraping (Playwright + stealth + residential proxies) | No longer needed. Octoparse Google Shopping template captures Best Buy Marketplace prices without Akamai bypass. |
+| BestBuy.ca scraping (Playwright + stealth + residential proxies) | No longer needed. Google Shopping actor captures Best Buy Marketplace prices without Akamai bypass. |
 | Reebelo custom scraping | No longer needed. Google Shopping captures Reebelo listings. |
-| Rainforest API | Amazon-only, redundant. Octoparse handles Amazon scraping. |
+| Rainforest API | Amazon-only, redundant. Apify handles Amazon scraping. |
 | DeepSeek as second AI provider | Adds second billing, second set of credentials, second failure mode. Claude already integrated. |
-| `playwright-extra` + `playwright-extra-plugin-stealth` | Not needed. Octoparse cloud handles browser automation and anti-detection. |
-| `beautifulsoup4` | Not needed. Octoparse exports structured JSON — no HTML parsing required. |
+| `playwright-extra` + `playwright-extra-plugin-stealth` | Not needed. Apify cloud handles browser automation and anti-detection. |
+| `beautifulsoup4` | Not needed. Apify exports structured JSON — no HTML parsing required. |
 | `python-amazon-sp-api` (for 1D-i) | Deferred to 1D-ii. Not needed for price scanning — only for listing creation. |
 
 ---

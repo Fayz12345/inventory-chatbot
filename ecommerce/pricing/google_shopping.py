@@ -1,28 +1,30 @@
 """
 Best Buy Canada and Reebelo Canada price fetching via Google Shopping scraping.
 
-Uses the 'google-shopping-product-listing-scraper' Octoparse template.
+Uses the 'automation-lab/google-shopping-scraper' Apify actor.
 Parses results and attributes prices to Best Buy or Reebelo by seller name.
 """
 
 import logging
 import re
-from ecommerce.pricing import octoparse_client
+from ecommerce.pricing import apify_client
 
 log = logging.getLogger(__name__)
 
-TEMPLATE = 'google-shopping-product-listing-scraper'
+ACTOR_ID = 'automation-lab/google-shopping-scraper'
 
 # Seller name patterns for attribution (case-insensitive)
-BESTBUY_PATTERNS = ['best buy', 'bestbuy', 'best buy canada', 'bestbuy.ca']
+BESTBUY_PATTERNS = ['best buy', 'bestbuy', 'best buy canada', 'bestbuy.ca', 'best buy canada marketplace']
 REEBELO_PATTERNS = ['reebelo', 'reebelo.ca', 'reebelo canada']
 
 
-def _parse_price(price_str):
-    """Extract a numeric price from a scraped string like 'C$749.99' or '$749.99'."""
-    if not price_str:
+def _parse_price(price_val):
+    """Extract a numeric price from a scraped value (string or number)."""
+    if price_val is None:
         return None
-    match = re.search(r'[\d,]+\.?\d*', str(price_str).replace(',', ''))
+    if isinstance(price_val, (int, float)):
+        return float(price_val) if price_val > 0 else None
+    match = re.search(r'[\d,]+\.?\d*', str(price_val).replace(',', ''))
     if match:
         try:
             return float(match.group())
@@ -41,11 +43,10 @@ def _match_seller(seller_name, patterns):
 
 def scrape_prices(keywords_list):
     """
-    Scrape Google Shopping for Best Buy and Reebelo prices.
+    Scrape Google Shopping for Best Buy and Reebelo prices via Apify.
 
     Args:
         keywords_list: list of keyword strings
-                       (e.g. ['iPhone 14 128GB', 'Samsung S24 256GB'])
 
     Returns:
         tuple of two dicts:
@@ -55,37 +56,29 @@ def scrape_prices(keywords_list):
     if not keywords_list:
         return {}, {}
 
-    parameters = {
-        'bur6xb09mnl.List': keywords_list,
-    }
-
     log.info("Scraping Google Shopping for %d keywords (Best Buy + Reebelo)...",
              len(keywords_list))
-    rows = octoparse_client.scrape(
-        template_name=TEMPLATE,
-        parameters=parameters,
-        task_name=f'Google Shopping CA Scan ({len(keywords_list)} keywords)',
-        target_max_rows=len(keywords_list) * 20,  # ~20 results per keyword
-    )
 
+    run_input = {
+        'queries': keywords_list,
+        'country': 'ca',
+        'maxResults': 20,  # results per keyword
+    }
+
+    rows = apify_client.run_actor(ACTOR_ID, run_input, timeout_secs=900)
     return _parse_results(rows, keywords_list)
 
 
 def _parse_results(rows, original_keywords):
-    """
-    Parse Google Shopping results and attribute to Best Buy / Reebelo by seller name.
-
-    Returns:
-        tuple of (bestbuy_prices, reebelo_prices) dicts.
-    """
+    """Parse Google Shopping results and attribute to Best Buy / Reebelo."""
     bestbuy_prices = {kw: None for kw in original_keywords}
     reebelo_prices = {kw: None for kw in original_keywords}
 
     for row in rows:
         # Find keyword
         keyword = None
-        for key in ('Keyword', 'keyword', 'Search Keyword', 'search_keyword',
-                     'Query', 'query'):
+        for key in ('query', 'searchTerm', 'keyword', 'Keyword',
+                     'search_keyword', 'Query'):
             if key in row and row[key]:
                 keyword = str(row[key]).strip()
                 break
@@ -104,26 +97,13 @@ def _parse_results(rows, original_keywords):
         if not matched_kw:
             continue
 
-        # Get seller name
-        seller = None
-        for key in ('Seller', 'seller', 'Store', 'store', 'Shop', 'shop',
-                     'Merchant', 'merchant', 'Source'):
-            if key in row and row[key]:
-                seller = str(row[key]).strip()
-                break
-
+        # Get seller name — actor returns 'merchant'
+        seller = str(row.get('merchant', '')).strip()
         if not seller:
             continue
 
-        # Extract price
-        price = None
-        for key in ('Price', 'price', 'Current Price', 'Sale Price',
-                     'Discounted Price', 'Total Price'):
-            if key in row and row[key]:
-                price = _parse_price(row[key])
-                if price and price > 0:
-                    break
-
+        # Extract price — actor returns 'priceNumeric' (float) and 'price' (string)
+        price = _parse_price(row.get('priceNumeric') or row.get('price'))
         if not price or price <= 0:
             continue
 
@@ -146,35 +126,3 @@ def _parse_results(rows, original_keywords):
              bb_found, len(original_keywords), re_found, len(original_keywords))
 
     return bestbuy_prices, reebelo_prices
-
-
-def get_prices_for_products(products):
-    """
-    Fetch Best Buy and Reebelo floor prices for a list of products.
-
-    Args:
-        products: list of dicts with Manufacturer, Model, Grade keys
-
-    Returns:
-        tuple of two dicts:
-            (bestbuy_prices, reebelo_prices)
-        Each maps (Manufacturer, Model, Grade) -> lowest price (float or None).
-    """
-    keyword_map = {}
-    for p in products:
-        keywords = f"{p['Manufacturer']} {p['Model']} {p.get('Grade', '')}".strip()
-        key = (p['Manufacturer'], p['Model'], p['Grade'])
-        keyword_map[keywords] = key
-
-    if not keyword_map:
-        return {}, {}
-
-    raw_bb, raw_re = scrape_prices(list(keyword_map.keys()))
-
-    bestbuy = {}
-    reebelo = {}
-    for keywords, product_key in keyword_map.items():
-        bestbuy[product_key] = raw_bb.get(keywords)
-        reebelo[product_key] = raw_re.get(keywords)
-
-    return bestbuy, reebelo

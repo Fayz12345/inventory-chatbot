@@ -21,7 +21,7 @@ def get_db_connection():
 def fetch_all_pending_products():
     """Fetch all products in Ecommerce Storefront that don't have an active listing."""
     sql = """
-        SELECT Manufacturer, Model, Colour, Grade, COUNT(*) AS Quantity
+        SELECT TOP 10 Manufacturer, Model, Colour, Grade, COUNT(*) AS Quantity
         FROM ReportingInventoryFlat r
         WHERE Product_Place = 'E-Commerce Store Front'
           AND NOT EXISTS (

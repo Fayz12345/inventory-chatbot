@@ -98,6 +98,29 @@ DASHBOARD_TEMPLATE = Template("""
              border-radius: 6px; color: #fff; font-weight: bold; z-index: 1000; }
     .toast-success { background: #4CAF50; }
     .toast-error { background: #f44336; }
+
+    /* Listing preview modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000;
+                     justify-content: center; align-items: flex-start; padding: 40px 20px; overflow-y: auto; }
+    .modal-overlay.active { display: flex; }
+    .modal { background: #fff; border-radius: 8px; max-width: 700px; width: 100%; padding: 30px;
+             position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+    .modal h2 { margin-top: 0; color: #333; border-bottom: 2px solid #2196F3; padding-bottom: 10px; }
+    .modal-close { position: absolute; top: 12px; right: 16px; font-size: 22px; cursor: pointer;
+                   background: none; border: none; color: #999; }
+    .modal-close:hover { color: #333; }
+    .listing-field { margin-bottom: 16px; }
+    .listing-field label { display: block; font-weight: bold; color: #555; margin-bottom: 4px; font-size: 12px;
+                           text-transform: uppercase; letter-spacing: 0.5px; }
+    .listing-field .value { background: #f5f5f5; padding: 10px 14px; border-radius: 4px; border: 1px solid #e0e0e0;
+                            font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+    .listing-field ul { background: #f5f5f5; padding: 10px 14px 10px 30px; border-radius: 4px;
+                        border: 1px solid #e0e0e0; margin: 0; font-size: 14px; line-height: 1.8; }
+    .btn-copy { background: #2196F3; color: #fff; border: none; padding: 8px 20px; border-radius: 4px;
+                font-size: 13px; font-weight: bold; cursor: pointer; margin-right: 8px; }
+    .btn-copy:hover { background: #1565c0; }
+    .btn-copy.copied { background: #4CAF50; }
+    .modal-meta { color: #777; font-size: 13px; margin-bottom: 18px; }
 </style>
 </head>
 <body>
@@ -194,6 +217,36 @@ DASHBOARD_TEMPLATE = Template("""
 
 <div id="toast" class="toast"></div>
 
+<!-- Listing preview modal -->
+<div id="listing-modal" class="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <h2>Generated Listing Preview</h2>
+        <div class="modal-meta" id="modal-meta"></div>
+        <div class="listing-field">
+            <label>Title</label>
+            <div class="value" id="listing-title"></div>
+        </div>
+        <div class="listing-field">
+            <label>Description</label>
+            <div class="value" id="listing-description"></div>
+        </div>
+        <div class="listing-field">
+            <label>Bullet Points</label>
+            <ul id="listing-bullets"></ul>
+        </div>
+        <div class="listing-field">
+            <label>Condition Note</label>
+            <div class="value" id="listing-condition"></div>
+        </div>
+        <div style="margin-top: 20px;">
+            <button class="btn-copy" onclick="copyAll()">Copy All to Clipboard</button>
+            <button class="btn-copy" onclick="copyField('listing-title')" style="background:#78909C;">Copy Title</button>
+            <button class="btn-copy" onclick="copyField('listing-description')" style="background:#78909C;">Copy Description</button>
+        </div>
+    </div>
+</div>
+
 <script>
 function decide(recId, action) {
     var row = document.getElementById('rec-' + recId);
@@ -209,6 +262,11 @@ function decide(recId, action) {
                 var cls = action === 'approve' ? 'decision-approved' : 'decision-rejected';
                 cell.innerHTML = '<span class="' + cls + '">' + label + '</span>';
                 showToast(data.message, 'success');
+
+                // Show listing preview modal on approve
+                if (action === 'approve' && data.listing) {
+                    showListingPreview(data);
+                }
             } else {
                 cell.innerHTML = '<span class="skip">' + (data.error || 'Error') + '</span>';
                 showToast(data.error || 'Action failed', 'error');
@@ -220,6 +278,59 @@ function decide(recId, action) {
         });
 }
 
+function showListingPreview(data) {
+    var listing = data.listing;
+    document.getElementById('modal-meta').textContent =
+        data.product + ' \u2014 ' + data.marketplace + ' \u2014 $' + parseFloat(data.price).toFixed(2);
+    document.getElementById('listing-title').textContent = listing.title || '';
+    document.getElementById('listing-description').textContent = listing.description || '';
+    document.getElementById('listing-condition').textContent = listing.condition_note || '';
+
+    var bulletsEl = document.getElementById('listing-bullets');
+    bulletsEl.innerHTML = '';
+    if (listing.bullets) {
+        listing.bullets.forEach(function(b) {
+            var li = document.createElement('li');
+            li.textContent = b;
+            bulletsEl.appendChild(li);
+        });
+    }
+
+    document.getElementById('listing-modal').classList.add('active');
+}
+
+function closeModal() {
+    document.getElementById('listing-modal').classList.remove('active');
+}
+
+function copyField(elementId) {
+    var text = document.getElementById(elementId).textContent;
+    navigator.clipboard.writeText(text).then(function() {
+        showToast('Copied!', 'success');
+    });
+}
+
+function copyAll() {
+    var title = document.getElementById('listing-title').textContent;
+    var desc = document.getElementById('listing-description').textContent;
+    var condition = document.getElementById('listing-condition').textContent;
+    var bullets = [];
+    document.querySelectorAll('#listing-bullets li').forEach(function(li) {
+        bullets.push('- ' + li.textContent);
+    });
+
+    var full = 'TITLE:\\n' + title + '\\n\\nDESCRIPTION:\\n' + desc +
+               '\\n\\nBULLET POINTS:\\n' + bullets.join('\\n') +
+               '\\n\\nCONDITION NOTE:\\n' + condition;
+
+    navigator.clipboard.writeText(full).then(function() {
+        var btn = event.target;
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(function() { btn.textContent = 'Copy All to Clipboard'; btn.classList.remove('copied'); }, 2000);
+    });
+}
+
 function showToast(msg, type) {
     var t = document.getElementById('toast');
     t.textContent = msg;
@@ -227,6 +338,9 @@ function showToast(msg, type) {
     t.style.display = 'block';
     setTimeout(function() { t.style.display = 'none'; }, 3000);
 }
+
+// Close modal on Escape
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeModal(); });
 </script>
 </body>
 </html>
@@ -240,6 +354,15 @@ def render_batch_list(batches):
 
 def render_dashboard(batch, recommendations):
     """Render the single-batch dashboard page."""
+    # pyodbc returns DECIMAL columns as Python Decimal objects; cast to float
+    # so Jinja2's "%.2f" | format() filter works correctly.
+    numeric_fields = ('RecommendedPrice', 'AmazonFloor', 'EbayFloor',
+                      'BestBuyFloor', 'ReebeloFloor', 'DeviceCost')
+    for rec in recommendations:
+        for field in numeric_fields:
+            if rec.get(field) is not None:
+                rec[field] = float(rec[field])
+
     recommended = [r for r in recommendations if r.get('MarginOK')]
     skipped = [r for r in recommendations if not r.get('MarginOK')]
     decided = [r for r in recommended if r.get('Decision')]

@@ -2,30 +2,30 @@
 
 Flask-based AI inventory chatbot running on Linux EC2 (Ubuntu 24.04), connecting to SQL Server on Windows EC2 (3.96.24.178, database: bridge). Python 3.12.3, venv at `~/chatbot-env`.
 
-## Ecommerce Pipeline (Phase 1D) — Refactoring for Octoparse
+## Ecommerce Pipeline (Phase 1D) — Apify Cloud Scraping
 
-Pricing modules are being rewritten to use Octoparse cloud scraping instead of direct marketplace APIs. The approval Blueprint is registered in `app.py`. Pricing runs weekly (Monday 6 AM EST) across 4 Canadian marketplaces.
+Pricing modules use Apify cloud actors to scrape competitive prices across 4 Canadian marketplaces. The approval Blueprint is registered in `app.py`. Pricing runs weekly (Monday 6 AM EST).
 
 ### Remaining Deployment Tasks
 
-1. **Create SQL Server tables** — Run DDL for `EcommercePricingBatch` and `EcommercePricingRecommendation` on the Windows EC2 SQL Server (see below for DDL).
-2. **Install Python dependencies on EC2** — `pip install requests jinja2 anthropic python-amazon-sp-api` in `~/chatbot-env`.
-3. **Set up cron job** — `0 11 * * 1 cd ~/inventory-chatbot && ~/chatbot-env/bin/python -m ecommerce.main >> /tmp/ecommerce_pipeline.log 2>&1` (Monday 6 AM EST = 11 UTC)
-4. **Move secrets to `.env`** — DB password, API keys are currently hardcoded in `config.py`.
+1. **Install Python dependencies on EC2** — `pip install apify-client jinja2 anthropic` in `~/chatbot-env`.
+2. **Set up cron job** — `0 11 * * 1 cd ~/inventory-chatbot && ~/chatbot-env/bin/python -m ecommerce.main >> /tmp/ecommerce_pipeline.log 2>&1` (Monday 6 AM EST = 11 UTC)
+3. **Add `APIFY_API_TOKEN` to `.env`** on EC2.
+4. **Populate `EcommerceProductCatalog`** with ASINs for top SKUs (only 1 entry so far).
 
 ### Module Structure
 
 ```
 ecommerce/
-├── config.py              # Reads credentials from main config (Octoparse token, marketplace keys, etc.)
-├── db.py                  # SQL queries, listings CRUD, pricing batch/recommendation CRUD, reconciliation
+├── config.py              # Reads credentials from main config (Apify token, marketplace keys, etc.)
+├── db.py                  # SQL queries, listings CRUD, pricing batch/recommendation CRUD
 ├── main.py                # Weekly pipeline entry point (python -m ecommerce.main)
 ├── approval.py            # Flask Blueprint — dashboard at /ecommerce/dashboard, approve/reject via AJAX
 ├── pricing/
-│   ├── octoparse_client.py # Octoparse REST API — create tasks, poll, export JSON (with single retry)
-│   ├── amazon.py          # Parse Amazon scrape results → floor prices
-│   ├── ebay.py            # Parse eBay scrape results → floor prices
-│   ├── google_shopping.py # Parse Google Shopping → attribute Best Buy / Reebelo prices
+│   ├── apify_client.py    # Apify SDK wrapper — run actors, retrieve datasets
+│   ├── amazon.py          # Run Amazon actor → floor prices by ASIN
+│   ├── ebay.py            # Run eBay actor → floor prices by keyword
+│   ├── google_shopping.py # Run Google Shopping actor → attribute Best Buy / Reebelo prices
 │   └── algorithm.py       # Deterministic highest-floor-price across 4 marketplaces
 ├── listings/
 │   ├── amazon.py          # Amazon SP-API listing creation (1D-ii)
@@ -37,4 +37,11 @@ ecommerce/
 
 ### Dashboard
 
-The pricing dashboard replaces the email digest. After each weekly pipeline run, recommendations are persisted to `EcommercePricingBatch` / `EcommercePricingRecommendation` tables and viewable at `/ecommerce/dashboard`. Approve/reject actions are handled inline via AJAX and trigger listing creation on the marketplace API.
+The pricing dashboard replaces the email digest. After each weekly pipeline run, recommendations are persisted to `EcommercePricingBatch` / `EcommercePricingRecommendation` tables and viewable at `/ecommerce/dashboard`. Approve/reject actions are handled inline via AJAX.
+
+**Current mode (1D-ii): Preview only** — Approve generates listing copy via Claude and displays it in a preview modal with copy-to-clipboard buttons. No marketplace API calls yet. Once confidence is built, 1D-iii will enable auto-listing via Amazon SP-API / eBay Inventory API.
+
+### Key DB Details
+
+- Inventory location filter: `Product_Place = 'E-Commerce Store Front'` (note the exact spelling with hyphens and spaces)
+- Storage is embedded in the Model attribute (e.g. "iPhone 14 Pro Max 128 GB" — note space before GB)
