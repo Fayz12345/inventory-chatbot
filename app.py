@@ -4,12 +4,13 @@ import pyodbc
 import anthropic
 import config
 
-app = Flask(__name__)
-app.secret_key = config.SECRET_KEY
+
+chatbot_app = Flask(__name__)
+chatbot_app.secret_key = config.SECRET_KEY
 
 # Register ecommerce approval routes
 from ecommerce.approval import approval_bp
-app.register_blueprint(approval_bp)
+chatbot_app.register_blueprint(approval_bp)
 
 # --- Database connection ---
 def get_db_connection():
@@ -107,7 +108,7 @@ def format_answer(sql, data, user_question):
     return message.content[0].text.strip()
 
 # --- Routes ---
-@app.route('/', methods=['GET', 'POST'])
+@chatbot_app.route('/', methods=['GET', 'POST'])
 def login():
     error = None
     if request.method == 'POST':
@@ -122,13 +123,13 @@ def login():
             error = 'Invalid username or password.'
     return render_template('login.html', error=error)
 
-@app.route('/chat')
+@chatbot_app.route('/chat')
 def chat():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
     return render_template('chat.html')
 
-@app.route('/ask', methods=['POST'])
+@chatbot_app.route('/ask', methods=['POST'])
 def ask():
     if not session.get('logged_in'):
         return jsonify({'error': 'Not logged in'}), 401
@@ -155,10 +156,13 @@ def ask():
     answer = format_answer(sql, data, user_question)
     return jsonify({'answer': answer, 'sql': sql, 'rows': data['rows'][:50], 'columns': data['columns']})
 
-@app.route('/logout')
+@chatbot_app.route('/logout')
 def logout():
     session.clear()
     return redirect(url_for('login'))
 
+
+app = chatbot_app
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    chatbot_app.run(host='0.0.0.0', port=5000, debug=False)
