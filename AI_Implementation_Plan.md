@@ -2,8 +2,8 @@
 ### Internal Document — Management Team
 
 **Prepared:** March 2026
-**Last Updated:** April 2, 2026
-**Status:** Active — Phase 1 In Progress (1D Code Complete, 1E Planned)
+**Last Updated:** April 4, 2026
+**Status:** Active — Phase 1 In Progress (1D-i Complete, 1D-ii Testing, 1E Planned)
 
 ---
 
@@ -45,7 +45,7 @@ The foundation has already been laid: a live AI chatbot is operational for inven
 | System | Status | Details |
 |---|---|---|
 | Inventory AI Chatbot | **Live** | Flask app on Linux EC2, powered by Claude API, queries `ReportingInventoryFlat` |
-| Ecommerce Pipeline | **Code Complete** | 15 modules in `ecommerce/` — price scanning, approval flow, auto-listing. Awaiting deployment (credentials, DB tables, cron). See `Ecommerce_AI_Plan.md`. |
+| Ecommerce Pipeline | **1D-i Complete, 1D-ii Testing** | 15 modules in `ecommerce/` deployed on EC2. Weekly Apify price scanning across 4 CA marketplaces operational. Web dashboard live at `/ecommerce/dashboard`. Approval flow generates listing copy via Claude for manual copy-paste (preview mode). See `Ecommerce_AI_Plan.md`. |
 | Flat Reporting Table | **Live** | `ReportingInventoryFlat` — ~41,277 in-stock devices, refreshes hourly |
 | SQL Server (Legacy) | **Live** | Windows EC2, hosts current inventory data — will be phased out after ERP migration |
 | New ERP | **Migration Planned** | MySQL 5.7 (`gadgetkg_bwqa_main`) — normalized schema with `wh_inv_master`, workshop pipeline, invoicing, client management. Will become single source of truth |
@@ -76,6 +76,7 @@ The foundation has already been laid: a live AI chatbot is operational for inven
 | **Claude Code** | Development agent, scheduled data alerts (replaces OpenClaw), cron-triggered monitoring scripts, CI/CD automation | Included in Max plan ($100/mo) or usage-based |
 | **Claude Cowork** | Meeting summaries, action items, document generation | Included in Pro/Team/Enterprise |
 | **HubSpot (Free/Starter)** | CRM — contacts, deals, pipeline | Free tier available |
+| **Apify Cloud** | Price scraping across 4 CA marketplaces (Amazon, eBay, Best Buy, Reebelo) via cloud actors | ~$29/mo (Starter plan) |
 | **Python Flask** | Chatbot backend + ecommerce approval endpoints | Free / open source |
 | **PyMySQL** | MySQL connector for new ERP database queries | Free / open source |
 | **SQL Server Agent** | Scheduled flat table refreshes (legacy) | Already licensed |
@@ -160,29 +161,37 @@ ORDER BY HoursInGrading DESC
 
 ---
 
-### 1D. Ecommerce Listing Pipeline ✅
-**Status: Code Complete — Awaiting Deployment**
+### 1D. Ecommerce Listing Pipeline
+**Status: 1D-i Complete, 1D-ii Testing**
 
-An AI-powered ecommerce listing workflow that runs daily, scans inventory flagged for ecommerce, researches competitive prices via marketplace APIs, recommends the best platform to sell on, and — upon human approval — drafts and posts the listing automatically.
+An AI-powered ecommerce listing workflow that runs weekly, scans inventory flagged for ecommerce, researches competitive prices across 4 Canadian marketplaces via Apify cloud scraping, recommends the best platform to sell on, and — upon human approval — generates listing copy for manual posting (with future auto-listing via marketplace APIs).
 
-All 15 modules are built and integrated in the `ecommerce/` directory. The approval Blueprint is registered in `app.py`. Full details in `Ecommerce_AI_Plan.md`.
+All modules are deployed on EC2. The approval Blueprint is registered in `app.py`. Full details in `Ecommerce_AI_Plan.md`.
 
-**What's built:**
-- Daily pipeline entry point (`ecommerce/main.py`)
-- Amazon SP-API + eBay Browse API price fetching
-- Deterministic pricing algorithm (highest floor price selection)
-- HTML email digest with per-SKU approve/reject links
-- Claude API listing copy generation (title, description, bullets)
-- Amazon SP-API + eBay Inventory API listing creation
-- Flask approval/rejection endpoints
-- SQL Server listings log CRUD + daily reconciliation
+**Sub-Phases:**
 
-**Remaining deployment tasks:**
-1. Create `EcommerceListingsLog` and `EcommerceProductCatalog` tables on SQL Server
-2. Install Python dependencies on EC2 (`python-amazon-sp-api`, `jinja2`)
-3. Fill in marketplace credentials in `config.py` (Amazon SP-API, eBay OAuth, SMTP)
-4. Set `APP_BASE_URL` in `config.py` to the EC2 public IP
-5. Set up cron job: `0 7 * * * cd ~/inventory-chatbot && ~/chatbot-env/bin/python -m ecommerce.main`
+| Sub-Phase | Scope | Status |
+|---|---|---|
+| **1D-i** | Apify price scanning (Amazon CA, eBay CA, Best Buy CA, Reebelo CA) + web dashboard | **Complete** — pipeline runs weekly, recommendations visible at `/ecommerce/dashboard` |
+| **1D-ii** | Approval flow + listing preview | **Testing** — Approve generates listing copy via Claude Sonnet, displayed in preview modal with copy-to-clipboard for manual posting |
+| **1D-iii** | Auto-listing via marketplace APIs | **Planned** — Amazon SP-API + eBay Inventory API auto-posting on approve (requires marketplace API credentials) |
+
+**What's built and deployed:**
+- Weekly pipeline entry point (`ecommerce/main.py`) — runs Monday 6 AM EST via cron
+- Apify cloud scraping across 4 marketplaces (Amazon by ASIN/keyword, eBay by keyword, Google Shopping for Best Buy + Reebelo attribution)
+- Deterministic pricing algorithm (highest floor price across 4 marketplaces)
+- Web dashboard at `/ecommerce/dashboard` with per-SKU approve/reject (replaces email digest)
+- Claude Sonnet listing copy generation (title, description, bullets, condition note)
+- Listing preview modal with copy-to-clipboard buttons on approve
+- Flask approval/rejection endpoints (AJAX)
+- SQL Server: `EcommercePricingBatch`, `EcommercePricingRecommendation`, `EcommerceListingsLog`, `EcommerceProductCatalog` tables
+- Amazon SP-API + eBay Inventory API listing modules (built, not active until 1D-iii)
+
+**Remaining tasks:**
+1. **Populate `EcommerceProductCatalog`** with ASINs for top SKUs (only 1 entry so far — limits Amazon ASIN-based pricing)
+2. **Remove `TOP 10` limit** in `db.py` product query (currently caps pipeline to 10 product groups for testing)
+3. **Validate pricing + listing quality** over 2-3 weekly cycles before enabling auto-listing
+4. **1D-iii: Fill in marketplace API credentials** in `config.py` (Amazon SP-API, eBay OAuth) and switch approve endpoint from preview to auto-post
 
 ---
 
@@ -585,7 +594,10 @@ A client-facing portal where carriers (Telus, MobileShop, OSL) can log in and se
           │  │ Claude Code  │  (Dev + Alerts)                            │
           │  └──────────────┘                                            │
           │  ┌──────────────┐                                            │
-          │  │ Amazon SP-API│  (Phase 1D)                                │
+          │  │ Apify Cloud  │  (Phase 1D-i — price scraping, active)     │
+          │  └──────────────┘                                            │
+          │  ┌──────────────┐                                            │
+          │  │ Amazon SP-API│  (Phase 1D-iii — auto-listing, planned)    │
           │  │ eBay APIs    │                                            │
           │  └──────────────┘                                            │
           │  ┌──────────────┐                                            │
@@ -613,7 +625,9 @@ A client-facing portal where carriers (Telus, MobileShop, OSL) can log in and se
 | **Phase 1** | 1A — Production setup | Gunicorn systemd service, chatbot always-on | **Pending** | None |
 | **Phase 1** | 1B — Additional flat tables | Telus, MobileShop, OSL tables + weekly jobs | **Planned** | SQL Server access |
 | **Phase 1** | 1C — Inventory alerts | Python alert scripts, Grading/Function Test alerts | **Planned** | Phase 1B flat tables |
-| **Phase 1** | 1D — Ecommerce pipeline | Daily price scan, approval email, auto-listing | **Code Complete** | Credentials + DB tables (see Ecommerce_AI_Plan.md) |
+| **Phase 1** | 1D-i — Ecommerce price scanning | Weekly Apify scrape across 4 CA marketplaces + web dashboard | **Complete** | Deployed on EC2, cron active |
+| **Phase 1** | 1D-ii — Listing preview | Approve → Claude generates listing copy → preview modal for copy-paste | **Testing** | 1D-i |
+| **Phase 1** | 1D-iii — Auto-listing | Approve → auto-post to Amazon SP-API / eBay Inventory API | **Planned** | 1D-ii validated + marketplace API credentials |
 | **Phase 1** | 1E — ERP Chatbot | Inventory chatbot querying new MySQL ERP | **Planned** | ERP live + MySQL connectivity from EC2 |
 | **Phase 2** | 2A — HubSpot CRM | Contacts, deals, pipeline live + ERP client ID mapping | **Planned** | None (independent) |
 | **Phase 2** | 2B — Inventory in HubSpot | Stock visibility on deal records (from ERP MySQL) | **Planned** | Phase 1E + 2A |
@@ -631,6 +645,7 @@ A client-facing portal where carriers (Telus, MobileShop, OSL) can log in and se
 | Item | Type | Estimated Cost |
 |---|---|---|
 | Claude API (chatbot + listing copy + alerts) | Pay per use | ~$20–50/mo depending on query volume |
+| Apify Cloud (price scraping) | Subscription | ~$29/mo (Starter plan) |
 | Claude Pro/Team (Cowork) | Subscription | $20/user/mo (Pro) or $30/user/mo (Team) |
 | Claude Code (Max plan) | Subscription | $100/mo (or usage-based) |
 | HubSpot Free | Free | $0 (upgrade to Starter ~$20/mo for AI features) |
