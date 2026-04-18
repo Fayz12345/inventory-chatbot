@@ -242,7 +242,7 @@ LEFT JOIN web_category_master c ON inv.prod_cat_id = c.id
 LEFT JOIN web_attribute_master color_attr ON inv.color_id = color_attr.id
 LEFT JOIN web_attribute_master ram_attr ON inv.ram_id = ram_attr.id
 LEFT JOIN web_attribute_master rom_attr ON inv.rom_id = rom_attr.id
-WHERE COALESCE(inv.mod_dateTime, inv.cr_dateTime) > %s
+WHERE COALESCE(inv.mod_dateTime, inv.cr_dateTime) >= %s
 ```
 
 Target table uses `INSERT ... ON CONFLICT (erp_inventory_id) DO UPDATE SET ...` for idempotent upserts.
@@ -357,11 +357,12 @@ Security is baked into each phase, not bolted on at the end. This CRM is public-
 - **Security headers** in Nginx config:
   ```
   add_header X-Content-Type-Options nosniff;
-  add_header X-Frame-Options DENY;              # except /lead-form which needs SAMEORIGIN or specific origin
+  add_header X-Frame-Options DENY;              # default for the authenticated CRM UI
   add_header X-XSS-Protection "1; mode=block";
   add_header Referrer-Policy strict-origin-when-cross-origin;
   add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline';";
   ```
+- **Lead form embedding:** `/lead-form` is intended for external iFrame embedding, so do not apply `X-Frame-Options: SAMEORIGIN` there. Instead, use a route-specific `Content-Security-Policy: frame-ancestors https://allowed-site-1.com https://allowed-site-2.com;` allowlist (or the exact parent domains that will embed the form). Keep `X-Frame-Options: DENY` on the rest of the CRM.
 - **ProxyFix middleware:** `ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_prefix=1)` so Flask trusts Nginx's forwarded headers
 
 ### Database Security
