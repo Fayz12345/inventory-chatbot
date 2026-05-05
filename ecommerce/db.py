@@ -1,6 +1,8 @@
 import pyodbc
 from ecommerce import config
+from .queries import Queries
 
+qrery = Queries()
 
 def get_db_connection():
     conn = pyodbc.connect(
@@ -20,21 +22,7 @@ def get_db_connection():
 
 def fetch_all_pending_products():
     """Fetch all products in Ecommerce Storefront that don't have an active listing."""
-    sql = """
-        SELECT TOP 10 Manufacturer, Model, Colour, Grade, COUNT(*) AS Quantity
-        FROM ReportingInventoryFlat r
-        WHERE Product_Place = 'E-Commerce Store Front'
-          AND NOT EXISTS (
-              SELECT 1 FROM EcommerceListingsLog l
-              WHERE l.Manufacturer = r.Manufacturer
-                AND l.Model = r.Model
-                AND l.Grade = r.Grade
-                AND l.Colour = r.Colour
-                AND l.Status = 'active'
-          )
-        GROUP BY Manufacturer, Model, Colour, Grade
-        ORDER BY Quantity DESC
-    """
+    sql = qrery.fetch_all_pending_products_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql)
@@ -46,12 +34,7 @@ def fetch_all_pending_products():
 
 def fetch_device_cost(manufacturer, model, grade):
     """Get the average DeviceCost for a product group (used for margin sanity check)."""
-    sql = """
-        SELECT AVG(DeviceCost) AS AvgCost
-        FROM ReportingInventoryFlat
-        WHERE Manufacturer = ? AND Model = ? AND Grade = ?
-          AND Product_Place = 'E-Commerce Store Front'
-    """
+    sql = qrery.fetch_device_costs_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql, (manufacturer, model, grade))
@@ -66,11 +49,7 @@ def fetch_device_cost(manufacturer, model, grade):
 
 def lookup_product_catalog(manufacturer, model, colour):
     """Look up ASIN, UPC, and eBay EPID from EcommerceProductCatalog."""
-    sql = """
-        SELECT AmazonASIN, UPC, EbayEPID
-        FROM EcommerceProductCatalog
-        WHERE Manufacturer = ? AND Model = ? AND Colour = ?
-    """
+    sql = qrery.lookup_product_catalog_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql, (manufacturer, model, colour))
@@ -92,12 +71,7 @@ def lookup_product_catalog(manufacturer, model, colour):
 def create_listing_record(product, platform, listing_price, floor_price,
                           platform_listing_id, approved_by=None):
     """Insert a new listing record after a successful marketplace post."""
-    sql = """
-        INSERT INTO EcommerceListingsLog
-            (Manufacturer, Model, Colour, Grade, Quantity, Platform,
-             ListingPrice, FloorPriceAtListing, PlatformListingID, Status, ApprovedBy)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
-    """
+    sql = qrery.create_listing_record_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql, (
@@ -113,11 +87,7 @@ def create_listing_record(product, platform, listing_price, floor_price,
 
 def update_listing_status(listing_id, status):
     """Update the status of a listing (e.g. 'ended', 'sold', 'rejected')."""
-    sql = """
-        UPDATE EcommerceListingsLog
-        SET Status = ?, EndedAt = CASE WHEN ? IN ('ended', 'sold') THEN GETDATE() ELSE EndedAt END
-        WHERE ID = ?
-    """
+    sql = qrery.update_listing_status_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql, (status, status, listing_id))
@@ -127,11 +97,7 @@ def update_listing_status(listing_id, status):
 
 def get_active_listings():
     """Return all active listings for reconciliation."""
-    sql = """
-        SELECT ID, Manufacturer, Model, Colour, Grade, Platform, PlatformListingID
-        FROM EcommerceListingsLog
-        WHERE Status = 'active'
-    """
+    sql = qrery.get_active_listings_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql)
@@ -143,7 +109,7 @@ def get_active_listings():
 
 def get_listing_by_id(listing_id):
     """Fetch a single listing record by ID."""
-    sql = "SELECT * FROM EcommerceListingsLog WHERE ID = ?"
+    sql = qrery.get_listing_by_id_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql, (listing_id,))
@@ -162,10 +128,7 @@ def get_listing_by_id(listing_id):
 
 def create_pricing_batch():
     """Create a new pricing batch and return its ID."""
-    sql = """
-        INSERT INTO EcommercePricingBatch (Status)
-        VALUES ('pending')
-    """
+    sql = qrery.create_pricing_batch_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql)
@@ -178,14 +141,7 @@ def create_pricing_batch():
 def insert_recommendation(batch_id, rec):
     """Insert a single pricing recommendation into the database."""
     product = rec['product']
-    sql = """
-        INSERT INTO EcommercePricingRecommendation
-            (BatchID, Manufacturer, Model, Colour, Grade, Quantity,
-             RecommendedMarketplace, RecommendedPrice,
-             AmazonFloor, EbayFloor, BestBuyFloor, ReebeloFloor,
-             DeviceCost, MarginOK, SkipReason)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """
+    sql = qrery.insert_recommendation_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql, (
@@ -205,7 +161,7 @@ def insert_recommendation(batch_id, rec):
 
 def update_batch_status(batch_id, status):
     """Update a batch status (e.g. 'ready', 'completed')."""
-    sql = "UPDATE EcommercePricingBatch SET Status = ? WHERE ID = ?"
+    sql = qrery.update_batch_status_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql, (status, batch_id))
@@ -215,11 +171,7 @@ def update_batch_status(batch_id, status):
 
 def get_latest_batch():
     """Return the most recent pricing batch."""
-    sql = """
-        SELECT TOP 1 ID, CreatedAt, Status
-        FROM EcommercePricingBatch
-        ORDER BY CreatedAt DESC
-    """
+    sql = qrery.get_latest_batch_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql)
@@ -232,7 +184,7 @@ def get_latest_batch():
 
 def get_batch_by_id(batch_id):
     """Return a specific pricing batch."""
-    sql = "SELECT ID, CreatedAt, Status FROM EcommercePricingBatch WHERE ID = ?"
+    sql = qrery.get_batch_by_id_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql, (batch_id,))
@@ -245,15 +197,7 @@ def get_batch_by_id(batch_id):
 
 def get_recommendations_for_batch(batch_id):
     """Return all recommendations for a batch, ordered by ID."""
-    sql = """
-        SELECT ID, BatchID, Manufacturer, Model, Colour, Grade, Quantity,
-               RecommendedMarketplace, RecommendedPrice,
-               AmazonFloor, EbayFloor, BestBuyFloor, ReebeloFloor,
-               DeviceCost, MarginOK, SkipReason, Decision, DecidedAt
-        FROM EcommercePricingRecommendation
-        WHERE BatchID = ?
-        ORDER BY ID
-    """
+    sql = qrery.get_recommendations_for_batch_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql, (batch_id,))
@@ -265,14 +209,7 @@ def get_recommendations_for_batch(batch_id):
 
 def get_recommendation_by_id(rec_id):
     """Return a single recommendation."""
-    sql = """
-        SELECT ID, BatchID, Manufacturer, Model, Colour, Grade, Quantity,
-               RecommendedMarketplace, RecommendedPrice,
-               AmazonFloor, EbayFloor, BestBuyFloor, ReebeloFloor,
-               DeviceCost, MarginOK, SkipReason, Decision, DecidedAt
-        FROM EcommercePricingRecommendation
-        WHERE ID = ?
-    """
+    sql = qrery.get_recommendation_by_id_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql, (rec_id,))
@@ -286,11 +223,7 @@ def get_recommendation_by_id(rec_id):
 
 def update_recommendation_decision(rec_id, decision):
     """Set the decision ('approved' or 'rejected') on a recommendation."""
-    sql = """
-        UPDATE EcommercePricingRecommendation
-        SET Decision = ?, DecidedAt = GETDATE()
-        WHERE ID = ?
-    """
+    sql = qrery.update_recommendation_decision_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql, (decision, rec_id))
@@ -300,11 +233,7 @@ def update_recommendation_decision(rec_id, decision):
 
 def get_all_batches():
     """Return all pricing batches, newest first."""
-    sql = """
-        SELECT ID, CreatedAt, Status
-        FROM EcommercePricingBatch
-        ORDER BY CreatedAt DESC
-    """
+    sql = qrery.get_all_batches_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql)
@@ -320,20 +249,7 @@ def get_all_batches():
 
 def find_stale_listings():
     """Find active listings whose product group is no longer in Ecommerce Storefront."""
-    sql = """
-        SELECT l.ID, l.Manufacturer, l.Model, l.Colour, l.Grade,
-               l.Platform, l.PlatformListingID
-        FROM EcommerceListingsLog l
-        WHERE l.Status = 'active'
-          AND NOT EXISTS (
-              SELECT 1 FROM ReportingInventoryFlat r
-              WHERE r.Manufacturer = l.Manufacturer
-                AND r.Model = l.Model
-                AND r.Grade = l.Grade
-                AND r.Colour = l.Colour
-                AND r.Product_Place = 'E-Commerce Store Front'
-          )
-    """
+    sql = qrery.find_stale_listings_query
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(sql)
