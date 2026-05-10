@@ -1,6 +1,6 @@
 # Project Context
 
-Flask-based AI inventory chatbot running on Linux EC2 (Ubuntu 24.04), connecting to SQL Server on Windows EC2 (3.96.24.178, database: bridge). Python 3.12.3, venv at `~/chatbot-env`.
+Flask-based AI inventory chatbot running on Linux EC2 (Ubuntu 24.04, Public IP: 3.96.54.81, user: ubuntu, key: BrainAddOnMBP.pem), connecting to SQL Server on Windows EC2 (3.96.24.178, database: bridge). Python 3.12.3, venv at `~/chatbot-env`.
 
 ## Ecommerce Pipeline (Phase 1D) — Apify Cloud Scraping
 
@@ -45,3 +45,47 @@ The pricing dashboard replaces the email digest. After each weekly pipeline run,
 
 - Inventory location filter: `Product_Place = 'E-Commerce Store Front'` (note the exact spelling with hyphens and spaces)
 - Storage is embedded in the Model attribute (e.g. "iPhone 14 Pro Max 128 GB" — note space before GB)
+
+## Analytics Module — Telus Weekly Reports
+
+Automates the Telus Weekly repair assessment report that was previously done in Excel. Users enter a ProjectTag, the system runs the stored procedure, applies pricing formulas server-side, and renders the Repair & Resell report in the browser.
+
+### Home Page
+
+After login, users land on `/home` with 3 navigation cards: Inventory Chatbot, Ecommerce, Analytics.
+
+### Module Structure
+
+```
+analytics/
+├── config.py              # Re-exports root DB config
+├── db.py                  # Stored proc call + TelusWeeklyPricingMaster CRUD
+├── pricing.py             # Pure-Python pricing engine (replaces Excel VLOOKUP formulas)
+├── routes.py              # Flask Blueprint at /analytics
+├── templates.py           # Jinja2 HTML templates (analytics index, TW form, report, price review)
+└── import_pricing.py      # One-time script to seed pricing master from Excel
+```
+
+### Routes
+
+- `/analytics/` — Analytics index (list of available reports)
+- `/analytics/telus-weekly` — ProjectTag input form
+- `/analytics/telus-weekly/report` — POST: run stored proc + pricing engine → render report
+- `/analytics/telus-weekly/export` — POST: same pipeline → download Excel (.xlsx)
+- `/analytics/price-review` — View/edit the pricing master table (replaces Excel "DO NOT EDIT" sheet)
+- `/analytics/price-review/save` — AJAX: bulk update prices
+- `/analytics/price-review/add` — AJAX: insert new model
+
+### Key DB Details
+
+- Stored procedure: `GetReport_RepairAssessment_ByProjectTag` (already on SQL Server)
+- Pricing master table: `TelusWeeklyPricingMaster` (Model, GradeA/B/C_Price, Defective_Price, FRP_Price, DeviceType)
+- Telus Weekly devices always have `Version = '000'`, `ProjectName = 'Telus Weekly'`
+- Model lookup key: `ModelVerb` from stored proc matches `Model` in pricing master (both from Brain's Option.OptionText)
+
+### Deployment Tasks (completed 2026-05-03)
+
+1. ~~**Create `TelusWeeklyPricingMaster` table** on SQL Server~~ — Done (829 models loaded)
+2. ~~**Run import script** — `python -m analytics.import_pricing`~~ — Done
+3. ~~**Install openpyxl** — `pip install openpyxl` in `~/chatbot-env`~~ — Done
+4. ~~**Deploy analytics module + updated app.py + home.html to EC2**~~ — Done via SCP

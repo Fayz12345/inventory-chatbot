@@ -1,0 +1,69 @@
+USE bridge;
+GO
+
+IF OBJECT_ID('dbo.GetReport_RepairAssessment_ByProjectTag', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.GetReport_RepairAssessment_ByProjectTag;
+GO
+
+CREATE PROCEDURE dbo.GetReport_RepairAssessment_ByProjectTag
+    @ProjectTag NVARCHAR(50),
+    @ClientName NVARCHAR(50) = NULL  -- optional; NULL = all clients
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
+    SELECT
+        rd.ESN,
+        LTRIM(RTRIM(c.CompanyName))                                             AS Client,
+        LTRIM(RTRIM(p.Name))                                                    AS ProjectName,
+        MAX(CASE WHEN q.Name = N'Vendor'               THEN rdi.[Value]   END)  AS Vendor,
+        manVerb.OptionText                                                      AS ManufacturerVerb,
+        modVerb.OptionText                                                      AS ModelVerb,
+        MAX(CASE WHEN q.Name = N'Memory'               THEN o.OptionText END)   AS Memory,
+        MAX(CASE WHEN q.Name = N'Conditions'           THEN o.OptionText END)   AS Conditions,
+        MAX(CASE WHEN q.Name = N'Defects 1'            THEN o.OptionText END)   AS Defects_1,
+        MAX(CASE WHEN q.Name = N'Defects 2'            THEN o.OptionText END)   AS Defects_2,
+        MAX(CASE WHEN q.Name = N'Defects 3'            THEN o.OptionText END)   AS Defects_3,
+        MAX(CASE WHEN q.Name = N'QC Notes'             THEN rdi.[Value]   END)  AS QC_Notes,
+        MAX(CASE WHEN q.Name = N'Received Grade'       THEN o.OptionText END)   AS Received_Grade,
+        MAX(CASE WHEN q.Name = N'T Level Cost'         THEN rdi.[Value]   END)  AS T_Level_Cost,
+        MAX(CASE WHEN q.Name = N'T Part Cost'          THEN rdi.[Value]   END)  AS T_Part_Cost,
+        MAX(CASE WHEN q.Name = N'Post-Repair Grade'    THEN o.OptionText END)   AS [Post-Repair_Grade],
+        MAX(CASE WHEN q.Name = N'Grade Improvement'    THEN o.OptionText END)   AS Grade_Improvement,
+        MAX(CASE WHEN q.Name = N'T Level Improved Cos' THEN rdi.[Value]   END)  AS T_Level_Improved_Cos,
+        MAX(CASE WHEN q.Name = N'T Part Improved Cost' THEN rdi.[Value]   END)  AS T_Part_Improved_Cost,
+        MAX(CASE WHEN q.Name = N'Post Improved Grade'  THEN o.OptionText END)   AS Post_Improved_Grade,
+        MAX(CASE WHEN q.Name = N'Parts Used'           THEN o.OptionText END)   AS Parts_Used
+    FROM dbo.ReceiveDetail        rd
+    LEFT JOIN dbo.ClientLocation  cl      ON cl.ClientLocationID = rd.ClientLocationID
+    LEFT JOIN dbo.Client          c       ON c.ClientID  = cl.ClientID
+    LEFT JOIN dbo.Project         p       ON p.ProjectID = rd.ProjectID
+    LEFT JOIN dbo.[Option]        manVerb ON manVerb.OptionID = rd.ManufacturerID
+    LEFT JOIN dbo.[Option]        modVerb ON modVerb.OptionID = rd.ModelID
+    LEFT JOIN dbo.ReceiveDetailItem rdi   ON rdi.ReceiveDetailID = rd.ReceiveDetailID
+                                         AND rdi.Version = 0
+    LEFT JOIN dbo.[Option]        o       ON o.OptionID   = rdi.OptionID
+    LEFT JOIN dbo.Question        q       ON q.QuestionID = o.QuestionID
+                                         AND q.Name IN (
+                                                N'Vendor', N'Memory', N'Conditions',
+                                                N'Defects 1', N'Defects 2', N'Defects 3',
+                                                N'QC Notes', N'Received Grade',
+                                                N'T Level Cost', N'T Part Cost',
+                                                N'Post-Repair Grade', N'Grade Improvement',
+                                                N'T Level Improved Cos', N'T Part Improved Cost',
+                                                N'Post Improved Grade', N'Parts Used'
+                                              )
+    WHERE rd.Version    = '000'
+      AND rd.ProjectTag = @ProjectTag
+      AND (@ClientName IS NULL OR c.CompanyName LIKE N'%' + @ClientName + N'%')
+    GROUP BY
+        rd.ReceiveDetailID,
+        rd.ESN,
+        c.CompanyName,
+        p.Name,
+        manVerb.OptionText,
+        modVerb.OptionText
+    ORDER BY rd.ESN;
+END
+GO

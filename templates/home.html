@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bridge Platform</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; background: #f0f2f5; }
+        .header { background: #2563eb; color: #fff; padding: 14px 24px; display: flex;
+                  justify-content: space-between; align-items: center; }
+        .header h1 { margin: 0; font-size: 22px; }
+        .header-right { display: flex; align-items: center; gap: 16px; font-size: 14px; }
+        .header-right span { opacity: 0.85; }
+        .header-right a { color: #fff; text-decoration: none; opacity: 0.85; }
+        .header-right a:hover { opacity: 1; }
+        .container { max-width: 900px; margin: 60px auto; padding: 0 20px; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 24px; }
+        .card { background: #fff; border-radius: 10px; padding: 32px 28px; text-decoration: none; color: #333;
+                box-shadow: 0 1px 4px rgba(0,0,0,0.08); transition: box-shadow 0.2s, transform 0.2s;
+                display: block; }
+        .card:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.12); transform: translateY(-2px); }
+        .card-icon { font-size: 32px; margin-bottom: 14px; }
+        .card h2 { margin: 0 0 8px; font-size: 20px; color: #2563eb; }
+        .card p { margin: 0; color: #666; font-size: 14px; line-height: 1.5; }
+    </style>
+</head>
+<body>
+<div class="header">
+    <h1>Bridge Platform</h1>
+    <div class="header-right">
+        <span>{{ username }}</span>
+        <a href="/logout">Sign out</a>
+    </div>
+</div>
+<div class="container">
+    <div class="cards">
+        <a href="/chat" class="card">
+            <div class="card-icon">&#128172;</div>
+            <h2>Inventory Chatbot</h2>
+            <p>Ask questions about current inventory using natural language.</p>
+        </a>
+        <a href="/ecommerce/dashboard" class="card">
+            <div class="card-icon">&#128722;</div>
+            <h2>Ecommerce</h2>
+            <p>Pricing dashboard and marketplace listing management.</p>
+        </a>
+        <a href="/analytics/" class="card">
+            <div class="card-icon">&#128202;</div>
+            <h2>Analytics</h2>
+            <p>Telus Weekly reports, repair assessments, and pricing tools.</p>
+        </a>
+        {% if is_admin %}
+        <a href="/admin/users" class="card">
+            <div class="card-icon">&#9881;</div>
+            <h2>User Management</h2>
+            <p>Create, edit, and manage user accounts and permissions.</p>
+        </a>
+        {% endif %}
+    </div>
+</div>
+</body>
+</html>
