@@ -117,6 +117,62 @@ def insert_pricing_model(model, grade_a, grade_b, grade_c,
     return int(new_id)
 
 
+def get_distinct_models_for_project(project_tag, client_name=None):
+    devices = call_repair_assessment(project_tag, client_name)
+    model_counts = {}
+    for d in devices:
+        mv = (d.get('ModelVerb') or '').strip()
+        if mv:
+            model_counts[mv] = model_counts.get(mv, 0) + 1
+    return model_counts
+
+
+def get_pricing_models_by_names(model_names):
+    if not model_names:
+        return []
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    placeholders = ','.join(['?' for _ in model_names])
+    sql = f"""
+        SELECT ID, LTRIM(RTRIM(Model)) AS Model, GradeA_Price, GradeB_Price,
+               GradeC_Price, Defective_Price, FRP_Price, DeviceType,
+               UpdatedAt, UpdatedBy
+        FROM TelusWeeklyPricingMaster
+        WHERE LOWER(LTRIM(RTRIM(Model))) IN ({placeholders})
+        ORDER BY Model
+    """
+    cursor.execute(sql, [m.lower() for m in model_names])
+    columns = [col[0] for col in cursor.description]
+    rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+def bulk_insert_pricing_models(models):
+    if not models:
+        return []
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    sql = """
+        INSERT INTO TelusWeeklyPricingMaster
+            (Model, GradeA_Price, GradeB_Price, GradeC_Price,
+             Defective_Price, FRP_Price, DeviceType)
+        OUTPUT INSERTED.ID
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """
+    new_ids = []
+    for m in models:
+        cursor.execute(sql, (
+            m['model'], m.get('grade_a', 0), m.get('grade_b', 0),
+            m.get('grade_c', 0), m.get('defective', 0), m.get('frp', 0),
+            m.get('device_type', 'Phone'),
+        ))
+        new_ids.append(cursor.fetchone()[0])
+    conn.commit()
+    conn.close()
+    return new_ids
+
+
 def delete_pricing_model(model_id):
     conn = get_db_connection()
     cursor = conn.cursor()

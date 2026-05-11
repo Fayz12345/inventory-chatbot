@@ -220,7 +220,7 @@ TELUS_WEEKLY_REPORT_TEMPLATE = Template("""
             {% endfor %}
         </div>
         <div style="margin-top: 10px; font-size: 13px;">
-            These devices have $0 pricing. <a href="/analytics/price-review" target="_blank">Open Price Review</a> to add them, then re-run this report.
+            These devices have $0 pricing. <a href="/analytics/price-review?project_tag={{ project_tag }}" target="_blank">Open Price Review for {{ project_tag }}</a> to add them, then re-run this report.
         </div>
     </div>
     {% endif %}
@@ -370,6 +370,17 @@ PRICE_REVIEW_TEMPLATE = Template("""
     .add-row { background: #f0fdf4; }
     .add-row input[type=text] { width: 180px; padding: 5px 6px; border: 1px solid #d1d5db;
                                  border-radius: 4px; font-size: 13px; }
+    .btn-outline { background: #fff; color: #2563eb; border: 1px solid #2563eb; text-decoration: none; }
+    .btn-outline:hover { background: #eff6ff; }
+    .new-model-row { background: #fefce8 !important; }
+    .new-model-row:hover { background: #fef9c3 !important; }
+    .new-badge { display: inline-block; background: #dc2626; color: #fff; padding: 1px 8px;
+                 border-radius: 10px; font-size: 10px; margin-left: 6px; vertical-align: middle; }
+    .device-count { font-size: 11px; color: #888; margin-left: 4px; }
+    .project-banner { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;
+                      padding: 16px 20px; margin-bottom: 16px; }
+    .section-divider td { padding: 12px; font-weight: bold; color: #92400e; font-size: 13px;
+                          border-top: 2px solid #eab308; background: #fefce8; }
 </style>
 </head>
 <body>
@@ -378,11 +389,44 @@ PRICE_REVIEW_TEMPLATE = Template("""
     <div><a href="/analytics/">&larr; Analytics</a></div>
 </div>
 <div class="container">
+    <div style="margin-bottom: 16px;">
+        <form method="GET" action="/analytics/price-review" style="display: flex; gap: 10px; align-items: center;">
+            <input type="text" name="project_tag" class="search" placeholder="Enter ProjectTag to load its models..."
+                   value="{{ project_tag or '' }}" style="width: 300px;">
+            <button type="submit" class="btn btn-primary" style="padding: 10px 20px;">Load Project</button>
+            {% if project_tag %}
+            <a href="/analytics/price-review" class="btn btn-outline" style="padding: 10px 20px;">Show All Models</a>
+            {% endif %}
+        </form>
+    </div>
+
+    {% if error %}
+    <div style="background: #fef2f2; color: #b91c1c; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 14px; border: 1px solid #fecaca;">{{ error }}</div>
+    {% endif %}
+
+    {% if project_tag %}
+    <div class="project-banner">
+        <div style="font-weight: bold; color: #1d4ed8; font-size: 16px; margin-bottom: 4px;">
+            ProjectTag: {{ project_tag }}
+        </div>
+        <div style="font-size: 14px; color: #555;">
+            {{ total_project_devices }} device(s) across {{ total_project_models }} unique model(s)
+            &mdash; {{ models | length }} already priced{% if new_models %},
+            <span style="color: #dc2626; font-weight: bold;">{{ new_models | length }} need pricing</span>
+            {% else %},
+            <span style="color: #16a34a; font-weight: bold;">all models priced</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <div class="toolbar">
         <input type="text" class="search" id="search" placeholder="Search models..." oninput="filterModels()">
-        <span class="count" id="count">{{ models | length }} models</span>
+        <span class="count" id="count">{{ models | length }}{% if new_models %} + {{ new_models | length }} new{% endif %} models</span>
         <div style="flex:1;"></div>
+        {% if not project_tag %}
         <button class="btn btn-green" onclick="toggleAddRow()">+ Add Model</button>
+        {% endif %}
         <button class="btn btn-primary" id="save-btn" onclick="saveAll()">Save Changes</button>
     </div>
 
@@ -420,7 +464,7 @@ PRICE_REVIEW_TEMPLATE = Template("""
                 </tr>
                 {% for m in models %}
                 <tr class="model-row" data-id="{{ m.ID }}" data-model="{{ m.Model | lower }}">
-                    <td class="model-name">{{ m.Model }}</td>
+                    <td class="model-name">{{ m.Model }}{% if project_tag %} <span class="device-count">({{ m.get('device_count', 0) }} device{{ 's' if m.get('device_count', 0) != 1 else '' }})</span>{% endif %}</td>
                     <td><input type="number" step="0.01" data-field="grade_a" value="{{ m.GradeA_Price }}" onchange="markChanged(this)"></td>
                     <td><input type="number" step="0.01" data-field="grade_b" value="{{ m.GradeB_Price }}" onchange="markChanged(this)"></td>
                     <td><input type="number" step="0.01" data-field="grade_c" value="{{ m.GradeC_Price }}" onchange="markChanged(this)"></td>
@@ -437,6 +481,34 @@ PRICE_REVIEW_TEMPLATE = Template("""
                     <td></td>
                 </tr>
                 {% endfor %}
+                {% if new_models %}
+                <tr class="section-divider">
+                    <td colspan="8">New Models (not yet in pricing master) &mdash; set prices below, then click Save Changes</td>
+                </tr>
+                {% for nm in new_models %}
+                <tr class="model-row new-model-row" data-new="true" data-model="{{ nm.Model | lower }}" data-name="{{ nm.Model }}">
+                    <td class="model-name">
+                        {{ nm.Model }}
+                        <span class="new-badge">NEW</span>
+                        <span class="device-count">({{ nm.count }} device{{ 's' if nm.count != 1 else '' }})</span>
+                    </td>
+                    <td><input type="number" step="0.01" data-field="grade_a" value="0"></td>
+                    <td><input type="number" step="0.01" data-field="grade_b" value="0"></td>
+                    <td><input type="number" step="0.01" data-field="grade_c" value="0"></td>
+                    <td><input type="number" step="0.01" data-field="defective" value="0"></td>
+                    <td><input type="number" step="0.01" data-field="frp" value="0"></td>
+                    <td>
+                        <select data-field="device_type">
+                            <option value="Phone">Phone</option>
+                            <option value="Tablet">Tablet</option>
+                            <option value="Watch">Watch</option>
+                            <option value="Modem">Modem</option>
+                        </select>
+                    </td>
+                    <td></td>
+                </tr>
+                {% endfor %}
+                {% endif %}
             </tbody>
         </table>
     </div>
@@ -457,11 +529,17 @@ function filterModels() {
     var q = document.getElementById('search').value.toLowerCase();
     var rows = document.querySelectorAll('.model-row');
     var visible = 0;
+    var newVisible = 0;
     rows.forEach(function(row) {
         var match = row.dataset.model.indexOf(q) !== -1;
         row.style.display = match ? '' : 'none';
-        if (match) visible++;
+        if (match) {
+            visible++;
+            if (row.dataset['new']) newVisible++;
+        }
     });
+    var divider = document.querySelector('.section-divider');
+    if (divider) divider.style.display = newVisible > 0 ? '' : 'none';
     document.getElementById('count').textContent = visible + ' models';
 }
 
@@ -503,9 +581,9 @@ function addModel() {
 }
 
 function saveAll() {
-    if (changedRows.size === 0) { showToast('No changes to save', 'error'); return; }
-
     var updates = [];
+    var newModels = [];
+
     changedRows.forEach(function(id) {
         var row = document.querySelector('tr[data-id="' + id + '"]');
         if (!row) return;
@@ -520,28 +598,68 @@ function saveAll() {
         });
     });
 
+    document.querySelectorAll('.new-model-row').forEach(function(row) {
+        newModels.push({
+            model: row.dataset.name,
+            grade_a: parseFloat(row.querySelector('[data-field=grade_a]').value) || 0,
+            grade_b: parseFloat(row.querySelector('[data-field=grade_b]').value) || 0,
+            grade_c: parseFloat(row.querySelector('[data-field=grade_c]').value) || 0,
+            defective: parseFloat(row.querySelector('[data-field=defective]').value) || 0,
+            frp: parseFloat(row.querySelector('[data-field=frp]').value) || 0,
+            device_type: row.querySelector('[data-field=device_type]').value
+        });
+    });
+
+    if (updates.length === 0 && newModels.length === 0) {
+        showToast('No changes to save', 'error');
+        return;
+    }
+
     var btn = document.getElementById('save-btn');
     btn.disabled = true;
     btn.textContent = 'Saving...';
 
-    fetch('/analytics/price-review/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates: updates })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+    var promises = [];
+    if (updates.length > 0) {
+        promises.push(
+            fetch('/analytics/price-review/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ updates: updates })
+            }).then(function(r) { return r.json(); })
+        );
+    }
+    if (newModels.length > 0) {
+        promises.push(
+            fetch('/analytics/price-review/bulk-add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ models: newModels })
+            }).then(function(r) { return r.json(); })
+        );
+    }
+
+    Promise.all(promises).then(function(results) {
         btn.disabled = false;
         btn.textContent = 'Save Changes';
-        if (data.ok) {
-            showToast(updates.length + ' model(s) updated', 'success');
-            changedRows.clear();
-            document.querySelectorAll('.changed').forEach(function(el) { el.classList.remove('changed'); });
+        var allOk = results.every(function(r) { return r.ok; });
+        if (allOk) {
+            var parts = [];
+            if (updates.length > 0) parts.push(updates.length + ' updated');
+            if (newModels.length > 0) parts.push(newModels.length + ' added');
+            showToast(parts.join(', '), 'success');
+            if (newModels.length > 0) {
+                setTimeout(function() { location.reload(); }, 1000);
+            } else {
+                changedRows.clear();
+                document.querySelectorAll('.changed').forEach(function(el) { el.classList.remove('changed'); });
+            }
         } else {
-            showToast(data.error || 'Save failed', 'error');
+            var errs = results.filter(function(r) { return !r.ok; })
+                              .map(function(r) { return r.error; }).join('; ');
+            showToast(errs || 'Save failed', 'error');
         }
-    })
-    .catch(function() {
+    }).catch(function() {
         btn.disabled = false;
         btn.textContent = 'Save Changes';
         showToast('Network error', 'error');
@@ -624,5 +742,13 @@ def render_telus_weekly_report(project_tag, client_name, devices, summary):
     )
 
 
-def render_price_review(models):
-    return PRICE_REVIEW_TEMPLATE.render(models=models)
+def render_price_review(models, project_tag=None, new_models=None,
+                        total_project_devices=0, total_project_models=0,
+                        error=None):
+    return PRICE_REVIEW_TEMPLATE.render(
+        models=models, project_tag=project_tag,
+        new_models=new_models or [],
+        total_project_devices=total_project_devices,
+        total_project_models=total_project_models,
+        error=error,
+    )

@@ -201,17 +201,62 @@ def telus_weekly_export():
 # Price Review
 # ---------------------------------------------------------------------------
 
-@analytics_bp.route('/price-review')
-def price_review():
-    redir = _require_login()
-    if redir:
-        return redir
-    models = db.get_all_pricing_models()
+def _float_prices(models):
     for m in models:
         for field in ('GradeA_Price', 'GradeB_Price', 'GradeC_Price',
                       'Defective_Price', 'FRP_Price'):
             if m.get(field) is not None:
                 m[field] = float(m[field])
+
+
+@analytics_bp.route('/price-review')
+def price_review():
+    redir = _require_login()
+    if redir:
+        return redir
+
+    project_tag = request.args.get('project_tag', '').strip()
+
+    if project_tag:
+        try:
+            model_counts = db.get_distinct_models_for_project(project_tag)
+        except Exception as e:
+            models = db.get_all_pricing_models()
+            _float_prices(models)
+            return templates.render_price_review(
+                models, error=f'Error loading project: {e}')
+
+        if not model_counts:
+            models = db.get_all_pricing_models()
+            _float_prices(models)
+            return templates.render_price_review(
+                models,
+                error=f'No devices found for ProjectTag "{project_tag}".')
+
+        existing = db.get_pricing_models_by_names(list(model_counts.keys()))
+        _float_prices(existing)
+
+        existing_lower = {m['Model'].strip().lower() for m in existing}
+        for m in existing:
+            key = m['Model'].strip().lower()
+            for k, v in model_counts.items():
+                if k.strip().lower() == key:
+                    m['device_count'] = v
+                    break
+
+        new_models = []
+        for name, count in sorted(model_counts.items()):
+            if name.strip().lower() not in existing_lower:
+                new_models.append({'Model': name, 'count': count})
+
+        total_devices = sum(model_counts.values())
+        return templates.render_price_review(
+            existing, project_tag=project_tag, new_models=new_models,
+            total_project_devices=total_devices,
+            total_project_models=len(model_counts))
+
+    models = db.get_all_pricing_models()
+    _float_prices(models)
     return templates.render_price_review(models)
 
 
@@ -229,6 +274,26 @@ def price_review_save():
         db.bulk_update_pricing(updates, updated_by=session.get('username'))
         return jsonify({'ok': True})
     except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+@analytics_bp.route('/price-review/bulk-add', methods=['POST'])
+def price_review_bulk_add():
+    if not session.get('logged_in'):
+        return jsonify({'ok': False, 'error': 'Not logged in'}), 401
+
+    data = request.get_json()
+    models = data.get('models', [])
+    if not models:
+        return jsonify({'ok': False, 'error': 'No models provided'})
+
+    try:
+        new_ids = db.bulk_insert_pricing_models(models)
+        return jsonify({'ok': True, 'count': len(new_ids)})
+    except Exception as e:
+        if 'UNIQUE' in str(e).upper() or 'duplicate' in str(e).lower():
+            return jsonify({'ok': False,
+                            'error': 'One or more models already exist'})
         return jsonify({'ok': False, 'error': str(e)})
 
 
