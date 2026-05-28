@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, session, redirect, url_for, jsonify
 from werkzeug.security import check_password_hash
 import json
+import os
 import time
 from urllib import error as urlerror, parse as urlparse, request as urlrequest
 import pyodbc
@@ -364,4 +365,4 @@ def admin_delete_user():
 app = chatbot_app
 
 if __name__ == '__main__':
-    chatbot_app.run(host='0.0.0.0', port=5000, debug=False)
+    chatbot_app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
