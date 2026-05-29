@@ -20,8 +20,10 @@ users_db.seed_admin_if_empty()
 # Register blueprints
 from ecommerce.approval import approval_bp
 from analytics.routes import analytics_bp
+from billing.routes import billing_bp
 chatbot_app.register_blueprint(approval_bp)
 chatbot_app.register_blueprint(analytics_bp)
+chatbot_app.register_blueprint(billing_bp)
 
 # --- Database connection ---
 def get_db_connection():
