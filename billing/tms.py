@@ -86,3 +86,56 @@ def _build_count_select(period_start, period_end):
         "SELECT\n  " + ",\n  ".join(exprs) + f"\nFROM {TABLE};"
     )
     return sql, params
+
+
+def _assemble_report(raw, period_start):
+    """Build the structured report from the aggregate row dict `raw`.
+
+    raw: {'item_0': int, ..., 'repair_fee_sum': float}
+    Returns: {period_label, sections:[{name, line_items:[...], section_total}],
+              grand_total_auto}
+    Manual items: units=None, charge=0 (filled in by the browser).
+    """
+    repair_sum = float(raw.get("repair_fee_sum") or 0)
+    sections_out = []
+    grand_total_auto = 0.0
+    count_idx = 0
+
+    for section in schedule.TMS_FEE_SCHEDULE:
+        line_items = []
+        section_total = 0.0
+        for item in section["items"]:
+            mode = item["mode"]
+            if mode == "count":
+                units = int(raw.get(f"item_{count_idx}") or 0)
+                count_idx += 1
+                charge = units * item["fee"]
+                line_items.append({
+                    "label": item["label"], "units": units,
+                    "fee": item["fee"], "charge": charge, "mode": mode,
+                })
+                section_total += charge
+                grand_total_auto += charge
+            elif mode == "sum_repair_fee":
+                line_items.append({
+                    "label": item["label"], "units": None,
+                    "fee": None, "charge": repair_sum, "mode": mode,
+                })
+                section_total += repair_sum
+                grand_total_auto += repair_sum
+            else:  # manual
+                line_items.append({
+                    "label": item["label"], "units": None,
+                    "fee": item["fee"], "charge": 0, "mode": mode,
+                })
+        sections_out.append({
+            "name": section["name"], "line_items": line_items,
+            "section_total": section_total,
+        })
+
+    label = f"{calendar.month_name[period_start.month]} {period_start.year}"
+    return {
+        "period_label": label,
+        "sections": sections_out,
+        "grand_total_auto": grand_total_auto,
+    }
