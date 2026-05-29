@@ -43,6 +43,11 @@ def render_tms_billing_page():
     input.manual {{ width: 80px; }}
     .err {{ color: #b91c1c; margin: 12px 0; }}
     .hint {{ color: #999; font-size: 12px; }}
+    .loader {{ display: flex; align-items: center; gap: 12px; color: #2563eb; font-size: 15px;
+              padding: 32px; background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }}
+    .spinner {{ width: 22px; height: 22px; border: 3px solid #dbeafe; border-top-color: #2563eb;
+               border-radius: 50%; animation: spin 0.8s linear infinite; }}
+    @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
   </style>
 </head>
 <body>
@@ -200,15 +205,35 @@ document.addEventListener('DOMContentLoaded', () => {{
     document.getElementById('error').textContent = '';
     const year = document.getElementById('year').value;
     const month = document.getElementById('month').value;
+    const btn = document.getElementById('generate');
+    const monthLabel = MONTHS[parseInt(month, 10) - 1] + ' ' + year;
+    // show loading state
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+    document.getElementById('copy').disabled = true;
+    document.getElementById('csv').disabled = true;
+    document.getElementById('result').innerHTML =
+      '<div class="loader"><div class="spinner"></div> Generating billing report for ' +
+      monthLabel + '...</div>';
     try {{
       const resp = await fetch('/billing/tms/generate', {{
         method: 'POST', headers: {{'Content-Type': 'application/json'}},
         body: JSON.stringify({{year: year, month: month}})
       }});
       const data = await resp.json();
-      if (!data.ok) {{ document.getElementById('error').textContent = data.error || 'Error'; return; }}
+      if (!data.ok) {{
+        document.getElementById('result').innerHTML = '';
+        document.getElementById('error').textContent = data.error || 'Error';
+        return;
+      }}
       renderReport(data.report);
-    }} catch (e) {{ document.getElementById('error').textContent = String(e); }}
+    }} catch (e) {{
+      document.getElementById('result').innerHTML = '';
+      document.getElementById('error').textContent = String(e);
+    }} finally {{
+      btn.disabled = false;
+      btn.textContent = 'Generate Billing Report';
+    }}
   }});
   document.getElementById('copy').addEventListener('click', () => {{
     const tsv = tableRows().map(r => r.join('\\t')).join('\\n');
