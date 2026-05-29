@@ -49,7 +49,8 @@ def test_buyers_remorse_value_has_no_apostrophe():
 
 def test_open_box_transfer_uses_in_list():
     item = _find("Open Box Transfer", "Package as per requirements")
-    assert item["receipt_type"] == ["Buyers Remorse", "Rejected"]
+    # Matches the Excel's "Rejected" wildcard, which also catches "Rejected RMA".
+    assert item["receipt_type"] == ["Buyers Remorse", "Rejected", "Rejected RMA"]
 
 
 def test_android_enrollment_split():

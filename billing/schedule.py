@@ -101,8 +101,9 @@ TMS_FEE_SCHEDULE = [
         _count("Transactions", "RQ4_SKU_Change_Created", 1.10),
     ]},
     {"name": "Open Box Transfer", "items": [
+        # Excel's "Rejected" criterion is a wildcard that also catches "Rejected RMA".
         _count("Package as per requirements", "Shipping_TMS_Created", 3.30,
-               receipt_type=["Buyers Remorse", "Rejected"]),
+               receipt_type=["Buyers Remorse", "Rejected", "Rejected RMA"]),
     ]},
     {"name": "RMA", "items": [
         _count("Receiving", "ReceiveDate", 3.85, receipt_type="RMA"),
