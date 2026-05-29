@@ -81,3 +81,43 @@ def _section(report, name):
         if s["name"] == name:
             return s
     raise AssertionError(f"section not found: {name}")
+
+
+class _FakeCursor:
+    def __init__(self, row, description):
+        self._row = row
+        self.description = description
+    def execute(self, sql, params=None):
+        return self
+    def fetchone(self):
+        return self._row
+    def close(self):
+        pass
+
+
+class _FakeConn:
+    def __init__(self, row, description):
+        self._row = row
+        self._description = description
+    def cursor(self):
+        return _FakeCursor(self._row, self._description)
+    def close(self):
+        pass
+
+
+def test_generate_report_maps_row_by_alias():
+    n = len(_count_items())
+    aliases = [f"item_{i}" for i in range(n)] + ["repair_fee_sum"]
+    row = tuple([3] * n + [50.0])
+    description = [(a,) for a in aliases]
+    conn = _FakeConn(row, description)
+
+    report = tms.generate_report(2026, 3, conn_factory=lambda: conn)
+
+    assert report["period_label"] == "March 2026"
+    inwarranty = _section(report, "In Warranty Rx")
+    receive = [li for li in inwarranty["line_items"] if li["label"] == "Receive"][0]
+    assert receive["units"] == 3
+    assert round(receive["charge"], 2) == round(3 * 2.75, 2)
+    oow = _section(report, "Out of Warranty")
+    assert round(oow["line_items"][0]["charge"], 2) == 50.0

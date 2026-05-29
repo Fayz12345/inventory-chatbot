@@ -139,3 +139,29 @@ def _assemble_report(raw, period_start):
         "sections": sections_out,
         "grand_total_auto": grand_total_auto,
     }
+
+
+def _period_bounds(year, month):
+    start = datetime.date(year, month, 1)
+    last_day = calendar.monthrange(year, month)[1]
+    end = datetime.date(year, month, last_day) + datetime.timedelta(days=1)
+    return start, end
+
+
+def generate_report(year, month, conn_factory=get_db_connection):
+    """Run the aggregate query for the given month and assemble the report.
+
+    conn_factory is injectable for testing. Read-only; closes the connection.
+    """
+    start, end = _period_bounds(int(year), int(month))
+    sql, params = _build_count_select(start, end)
+    conn = conn_factory()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql, params)
+        columns = [c[0] for c in cursor.description]
+        values = cursor.fetchone()
+        raw = dict(zip(columns, values))
+    finally:
+        conn.close()
+    return _assemble_report(raw, start)
