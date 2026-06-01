@@ -19,10 +19,16 @@ ANALYTICS_INDEX_TEMPLATE = Template("""
     .container { max-width: 900px; margin: 30px auto; padding: 0 20px; }
     .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
     .card { background: #fff; border-radius: 8px; padding: 28px; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-            text-decoration: none; color: #333; transition: box-shadow 0.2s; display: block; }
+            text-decoration: none; color: #333; transition: box-shadow 0.2s; display: block; position: relative; }
     .card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
     .card h3 { margin: 0 0 8px; color: #2563eb; font-size: 18px; }
     .card p { margin: 0; color: #666; font-size: 14px; line-height: 1.5; }
+    .card.disabled { opacity: 0.55; cursor: not-allowed; }
+    .card.disabled:hover { box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    .badge { position: absolute; top: 12px; right: 12px; background: #fde68a; color: #92400e;
+             font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: bold; letter-spacing: 0.4px; }
+    .section-label { grid-column: 1 / -1; margin: 8px 0 -4px; color: #6b7280; font-size: 12px;
+                     font-weight: bold; text-transform: uppercase; letter-spacing: 0.6px; }
 </style>
 </head>
 <body>
@@ -32,6 +38,7 @@ ANALYTICS_INDEX_TEMPLATE = Template("""
 </div>
 <div class="container">
     <div class="cards">
+        <div class="section-label">Reports</div>
         <a href="/analytics/telus-weekly" class="card">
             <h3>Telus Weekly Report</h3>
             <p>Run the repair assessment report for a ProjectTag. Generates pricing, repair ROI, and sell recommendations.</p>
@@ -40,6 +47,16 @@ ANALYTICS_INDEX_TEMPLATE = Template("""
             <h3>Price Review</h3>
             <p>View and edit the pricing master table used for Telus Weekly report calculations.</p>
         </a>
+        <div class="section-label">Monthly Billing</div>
+        <a href="/billing/tms" class="card">
+            <h3>TMS Billing</h3>
+            <p>Generate the monthly TMS billing summary from inventory data.</p>
+        </a>
+        <div class="card disabled">
+            <span class="badge">COMING SOON</span>
+            <h3>OSL Billing</h3>
+            <p>Monthly OSL billing summary by device category (Mobile Phones, Laptops, TVs, Tablets/Wearables/Buds, Accessories).</p>
+        </div>
     </div>
 </div>
 </body>
