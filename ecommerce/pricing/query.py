@@ -15,7 +15,16 @@ Examples:
 
 import re
 
-_SKU_CODE_PATTERN = re.compile(r"\b[A-Z]{1,4}\d+(?:-\d+)?[A-Z]?\b")
+# Two SKU regexes:
+# - _SKU_BEFORE_PAREN: permissive — catches Galaxy Book "NP960XHA-KG1CA" and
+#   old Tab "950XDB-KA1". Applied ONLY to tokens before the parens, where the
+#   manufacturer name + SKU live; safe because legitimate product names like
+#   "S25" never appear in that position.
+# - _SKU_FALLBACK: conservative — used when the Model has no parens at all, to
+#   avoid stripping legitimate names like "S25" or "iPhone 14" that look like
+#   SKUs in isolation.
+_SKU_BEFORE_PAREN = re.compile(r"^(?:[A-Z]{1,4}\d+|\d{3,4}[A-Z]+)[A-Z0-9-]*$")
+_SKU_FALLBACK = re.compile(r"\b[A-Z]{1,4}\d+(?:-\d+)?[A-Z]?\b")
 _OUTER_PAREN_PATTERN = re.compile(r"\(([^()]*(?:\([^()]*\)[^()]*)*)\)")
 _MM_PATTERN = re.compile(r"\b(\d+)\s*MM\b")
 _MULTI_WS = re.compile(r"\s+")
@@ -33,10 +42,10 @@ def clean_search_query(manufacturer: str, model: str) -> str:
         inside = re.sub(r"[()]", " ", paren_match.group(1))
         before = text[: paren_match.start()]
         after = text[paren_match.end():]
-        before_words = [w for w in before.split() if not _SKU_CODE_PATTERN.fullmatch(w)]
+        before_words = [w for w in before.split() if not _SKU_BEFORE_PAREN.fullmatch(w)]
         result = " ".join(before_words + [inside, after])
     else:
-        result = _SKU_CODE_PATTERN.sub("", text)
+        result = _SKU_FALLBACK.sub("", text)
 
     result = _MM_PATTERN.sub(lambda m: f"{m.group(1)}mm", result)
     result = _MULTI_WS.sub(" ", result).strip()
