@@ -52,11 +52,10 @@ ANALYTICS_INDEX_TEMPLATE = Template("""
             <h3>TMS Billing</h3>
             <p>Generate the monthly TMS billing summary from inventory data.</p>
         </a>
-        <div class="card disabled">
-            <span class="badge">COMING SOON</span>
+        <a href="/billing/osl" class="card">
             <h3>OSL Billing</h3>
             <p>Monthly OSL billing summary by device category (Mobile Phones, Laptops, TVs, Tablets/Wearables/Buds, Accessories).</p>
-        </div>
+        </a>
     </div>
 </div>
 </body>

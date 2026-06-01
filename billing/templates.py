@@ -1,20 +1,19 @@
-"""HTML for the TMS billing page. Single function returning a full page.
+"""HTML for the TMS and OSL billing pages.
 
-Schedule is embedded as JSON so the browser can render rows (including manual
-inputs) and recompute totals live. Generate fetches /billing/tms/generate.
+Both pages share a single parameterized template. Schedule is embedded as
+JSON so the browser can render rows (including manual inputs) and recompute
+totals live. Generate fetches the parameterized endpoint.
 """
 import json
 
-from billing import schedule
+from billing import osl_schedule, schedule
 
 
-def render_tms_billing_page():
-    schedule_json = json.dumps(schedule.TMS_FEE_SCHEDULE)
-    return f"""<!DOCTYPE html>
+_BILLING_PAGE_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>TMS Billing Report - Bridge Platform</title>
+  <title>{title} - Bridge Platform</title>
   <style>
     body {{ font-family: Arial, sans-serif; margin: 0; background: #f0f2f5; color: #333; }}
     .header {{ background: #2563eb; color: #fff; padding: 14px 24px; display: flex;
@@ -43,6 +42,8 @@ def render_tms_billing_page():
     input.manual {{ width: 80px; }}
     .err {{ color: #b91c1c; margin: 12px 0; }}
     .hint {{ color: #999; font-size: 12px; }}
+    .diag {{ margin-top: 12px; padding: 10px 14px; background: #fef3c7; border-left: 3px solid #f59e0b;
+            color: #78350f; font-size: 13px; border-radius: 4px; }}
     .loader {{ display: flex; align-items: center; gap: 12px; color: #2563eb; font-size: 15px;
               padding: 32px; background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }}
     .spinner {{ width: 22px; height: 22px; border: 3px solid #dbeafe; border-top-color: #2563eb;
@@ -52,8 +53,8 @@ def render_tms_billing_page():
 </head>
 <body>
   <div class="header">
-    <h1>TMS Billing Report</h1>
-    <div><a href="/home">Home</a> &nbsp; <a href="/logout">Sign out</a></div>
+    <h1>{title}</h1>
+    <div><a href="/analytics/">&larr; Analytics</a> &nbsp; <a href="/home">Home</a> &nbsp; <a href="/logout">Sign out</a></div>
   </div>
   <div class="container">
     <div class="controls">
@@ -71,12 +72,15 @@ def render_tms_billing_page():
     </div>
     <div id="error" class="err"></div>
     <div id="result"></div>
+    <div id="diagnostics"></div>
     <p class="hint">Manual line items are editable. The grand total updates as you type.
        Validate against the Excel report before invoicing.</p>
   </div>
 
 <script>
 const SCHEDULE = {schedule_json};
+const ENDPOINT = "{endpoint}";
+const CSV_PREFIX = "{csv_prefix}";
 const MONTHS = ["January","February","March","April","May","June","July","August",
                 "September","October","November","December"];
 
@@ -173,8 +177,24 @@ function renderReport(report) {{
     }}
   }}));
   recompute();
+  renderDiagnostics(report);
   document.getElementById('copy').disabled = false;
   document.getElementById('csv').disabled = false;
+}}
+
+function renderDiagnostics(report) {{
+  const slot = document.getElementById('diagnostics');
+  if (!slot) return;
+  const d = report.diagnostics || {{}};
+  const n = Number(d.unmapped_in_month || 0);
+  if (n > 0) {{
+    slot.innerHTML = '<div class="diag"><b>' + n + ' device(s)</b> touched this month ' +
+      "don't fall into any of the auto-categorized sections " +
+      '(Mobile Phones, Laptops, TVs, Tablets/Wearables/Buds). ' +
+      'Use the Accessories rows to bill them manually if applicable.</div>';
+  }} else {{
+    slot.innerHTML = '';
+  }}
 }}
 
 function tableRows() {{
@@ -215,8 +235,9 @@ document.addEventListener('DOMContentLoaded', () => {{
     document.getElementById('result').innerHTML =
       '<div class="loader"><div class="spinner"></div> Generating billing report for ' +
       monthLabel + '...</div>';
+    document.getElementById('diagnostics').innerHTML = '';
     try {{
-      const resp = await fetch('/billing/tms/generate', {{
+      const resp = await fetch(ENDPOINT, {{
         method: 'POST', headers: {{'Content-Type': 'application/json'}},
         body: JSON.stringify({{year: year, month: month}})
       }});
@@ -247,10 +268,28 @@ document.addEventListener('DOMContentLoaded', () => {{
     const blob = new Blob([csv], {{type: 'text/csv'}});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'TMS_Billing_' + lastReport.period_label.replace(' ', '_') + '.csv';
+    a.download = CSV_PREFIX + lastReport.period_label.replace(' ', '_') + '.csv';
     a.click();
   }});
 }});
 </script>
 </body>
 </html>"""
+
+
+def render_tms_billing_page():
+    return _BILLING_PAGE_TEMPLATE.format(
+        title="TMS Billing Report",
+        endpoint="/billing/tms/generate",
+        csv_prefix="TMS_Billing_",
+        schedule_json=json.dumps(schedule.TMS_FEE_SCHEDULE),
+    )
+
+
+def render_osl_billing_page():
+    return _BILLING_PAGE_TEMPLATE.format(
+        title="OSL Billing Report",
+        endpoint="/billing/osl/generate",
+        csv_prefix="OSL_Billing_",
+        schedule_json=json.dumps(osl_schedule.OSL_FEE_SCHEDULE),
+    )
