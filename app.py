@@ -1,3 +1,8 @@
+# Load `.env` BEFORE any other module imports — ecommerce.config reads from
+# os.environ at import time, so dotenv must populate it first.
+from dotenv import load_dotenv
+load_dotenv()
+
 from flask import Flask, render_template, request, session, redirect, url_for, jsonify
 from werkzeug.security import check_password_hash
 import json

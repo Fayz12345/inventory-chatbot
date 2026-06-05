@@ -1,4 +1,7 @@
-config.py
+# Root config.py holds real secrets (DB password, Anthropic key, etc.).
+# Module-level configs (ecommerce/config.py, analytics/config.py, billing/config.py)
+# are just re-exports / module constants and ARE committed.
+/config.py
 .env
 .mcp.json
 __pycache__/
