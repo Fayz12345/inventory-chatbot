@@ -87,6 +87,13 @@ DASHBOARD_TEMPLATE = Template("""
     .btn-reject { background: #f44336; color: #fff; }
     .btn-reject:hover { background: #c62828; }
     .btn-disabled { background: #bdbdbd; color: #fff; cursor: default; }
+    .modal-loader { display: flex; align-items: center; justify-content: center; gap: 14px;
+                    padding: 50px 20px; color: #555; font-size: 15px; }
+    .spinner { width: 26px; height: 26px; border: 3px solid #e3f2fd; border-top-color: #2196F3;
+               border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .modal-body { display: none; }
+    .modal-body.ready { display: block; }
     .summary { background: #e3f2fd; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
     .back { display: inline-block; margin-bottom: 15px; color: #1565c0; text-decoration: none; }
     .back:hover { text-decoration: underline; }
@@ -222,27 +229,37 @@ DASHBOARD_TEMPLATE = Template("""
     <div class="modal">
         <button class="modal-close" onclick="closeModal()">&times;</button>
         <h2>Generated Listing Preview</h2>
-        <div class="modal-meta" id="modal-meta"></div>
-        <div class="listing-field">
-            <label>Title</label>
-            <div class="value" id="listing-title"></div>
+
+        <div id="modal-loader" class="modal-loader">
+            <div class="spinner"></div>
+            <span id="modal-loader-text">Generating listing copy…</span>
         </div>
-        <div class="listing-field">
-            <label>Description</label>
-            <div class="value" id="listing-description"></div>
-        </div>
-        <div class="listing-field">
-            <label>Bullet Points</label>
-            <ul id="listing-bullets"></ul>
-        </div>
-        <div class="listing-field">
-            <label>Condition Note</label>
-            <div class="value" id="listing-condition"></div>
-        </div>
-        <div style="margin-top: 20px;">
-            <button class="btn-copy" onclick="copyAll()">Copy All to Clipboard</button>
-            <button class="btn-copy" onclick="copyField('listing-title')" style="background:#78909C;">Copy Title</button>
-            <button class="btn-copy" onclick="copyField('listing-description')" style="background:#78909C;">Copy Description</button>
+
+        <div id="modal-body" class="modal-body">
+            <div class="modal-meta" id="modal-meta"></div>
+            <div id="post-status" style="display:none; padding:10px 14px; margin:12px 0;
+                 border-radius:6px; font-size:14px; font-weight:bold;"></div>
+            <div class="listing-field">
+                <label>Title</label>
+                <div class="value" id="listing-title"></div>
+            </div>
+            <div class="listing-field">
+                <label>Description</label>
+                <div class="value" id="listing-description"></div>
+            </div>
+            <div class="listing-field">
+                <label>Bullet Points</label>
+                <ul id="listing-bullets"></ul>
+            </div>
+            <div class="listing-field">
+                <label>Condition Note</label>
+                <div class="value" id="listing-condition"></div>
+            </div>
+            <div style="margin-top: 20px;">
+                <button class="btn-copy" onclick="copyAll()">Copy All to Clipboard</button>
+                <button class="btn-copy" onclick="copyField('listing-title')" style="background:#78909C;">Copy Title</button>
+                <button class="btn-copy" onclick="copyField('listing-description')" style="background:#78909C;">Copy Description</button>
+            </div>
         </div>
     </div>
 </div>
@@ -251,7 +268,23 @@ DASHBOARD_TEMPLATE = Template("""
 function decide(recId, action) {
     var row = document.getElementById('rec-' + recId);
     var buttons = row.querySelectorAll('button');
-    buttons.forEach(function(btn) { btn.disabled = true; btn.className = 'btn btn-disabled'; });
+    var originalLabels = [];
+    buttons.forEach(function(btn) {
+        originalLabels.push(btn.textContent);
+        btn.disabled = true;
+        btn.className = 'btn btn-disabled';
+    });
+    // Show inline "Approving..." / "Rejecting..." text in the first button so
+    // the row gives feedback even if the modal is off-screen.
+    if (buttons[0]) {
+        buttons[0].textContent = action === 'approve' ? 'Approving…' : 'Rejecting…';
+    }
+
+    // Open the modal immediately on approve so the user sees a spinner
+    // instead of an idle page while Claude + the marketplace API runs.
+    if (action === 'approve') {
+        openModalWithLoader('Generating listing copy and posting…');
+    }
 
     fetch('/ecommerce/' + action + '?id=' + recId, { method: 'POST' })
         .then(function(resp) { return resp.json(); })
@@ -260,28 +293,101 @@ function decide(recId, action) {
             if (data.ok) {
                 var label = action === 'approve' ? 'Approved' : 'Rejected';
                 var cls = action === 'approve' ? 'decision-approved' : 'decision-rejected';
-                cell.innerHTML = '<span class="' + cls + '">' + label + '</span>';
+                cell.innerHTML = '';
+                var span = document.createElement('span');
+                span.className = cls;
+                span.textContent = label;
+                cell.appendChild(span);
                 showToast(data.message, 'success');
 
-                // Show listing preview modal on approve
                 if (action === 'approve' && data.listing) {
                     showListingPreview(data);
+                } else {
+                    closeModal();
                 }
             } else {
-                cell.innerHTML = '<span class="skip">' + (data.error || 'Error') + '</span>';
+                // Restore the buttons so the user can retry (per #138 AC:
+                // on API failure the recommendation is NOT marked approved).
+                closeModal();
+                buttons.forEach(function(btn, i) {
+                    btn.disabled = false;
+                    btn.className = btn.dataset.cls || (i === 0 ? 'btn btn-approve' : 'btn btn-reject');
+                    btn.textContent = originalLabels[i];
+                });
                 showToast(data.error || 'Action failed', 'error');
             }
         })
         .catch(function() {
+            closeModal();
             showToast('Network error', 'error');
-            buttons.forEach(function(btn) { btn.disabled = false; btn.className = btn.dataset.cls; });
+            buttons.forEach(function(btn, i) {
+                btn.disabled = false;
+                btn.className = btn.dataset.cls || (i === 0 ? 'btn btn-approve' : 'btn btn-reject');
+                btn.textContent = originalLabels[i];
+            });
         });
+}
+
+function openModalWithLoader(message) {
+    var modal = document.getElementById('listing-modal');
+    var loader = document.getElementById('modal-loader');
+    var body = document.getElementById('modal-body');
+    if (loader) {
+        loader.style.display = 'flex';
+        var txt = document.getElementById('modal-loader-text');
+        if (txt) txt.textContent = message || 'Loading…';
+    }
+    if (body) body.classList.remove('ready');
+    modal.classList.add('active');
 }
 
 function showListingPreview(data) {
     var listing = data.listing;
+    // Hide the spinner and reveal the populated body.
+    document.getElementById('modal-loader').style.display = 'none';
+    document.getElementById('modal-body').classList.add('ready');
+
     document.getElementById('modal-meta').textContent =
         data.product + ' \u2014 ' + data.marketplace + ' \u2014 $' + parseFloat(data.price).toFixed(2);
+
+    // 1D.6: green banner when auto-posted, yellow when preview-only.
+    // Build with createElement + textContent to avoid innerHTML interpolation
+    // of marketplace / env / listing_id values.
+    var status = document.getElementById('post-status');
+    status.textContent = '';
+    status.style.display = 'block';
+    if (data.posted) {
+        status.style.background = '#e8f5e9';
+        status.style.color = '#2e7d32';
+        status.style.border = '1px solid #a5d6a7';
+        status.appendChild(document.createTextNode('\u2705 Auto-posted to '));
+        var mp = document.createElement('b');
+        mp.textContent = data.marketplace;
+        status.appendChild(mp);
+        status.appendChild(document.createTextNode(' ('));
+        var envEl = document.createElement('b');
+        envEl.textContent = data.env || 'production';
+        status.appendChild(envEl);
+        status.appendChild(document.createTextNode(') \u2014 listing ID: '));
+        var idEl = document.createElement('code');
+        idEl.textContent = data.listing_id || '?';
+        status.appendChild(idEl);
+    } else {
+        status.style.background = '#fffde7';
+        status.style.color = '#f57f17';
+        status.style.border = '1px solid #fff59d';
+        status.appendChild(document.createTextNode('\U0001F4CB '));
+        var pv = document.createElement('b');
+        pv.textContent = 'Preview only';
+        status.appendChild(pv);
+        status.appendChild(document.createTextNode(' \u2014 no API for '));
+        var mp2 = document.createElement('b');
+        mp2.textContent = data.marketplace;
+        status.appendChild(mp2);
+        status.appendChild(document.createTextNode(
+            '. Copy the content below and paste it into the marketplace manually.'));
+    }
+
     document.getElementById('listing-title').textContent = listing.title || '';
     document.getElementById('listing-description').textContent = listing.description || '';
     document.getElementById('listing-condition').textContent = listing.condition_note || '';
