@@ -12,7 +12,7 @@ Section -> list of Device_Handset values:
   Laptops                  -> ['Laptop']
   TVs                      -> ['TV']
   Tablets, Wearables, Buds -> ['Tablet', 'Smart Watch', 'Earphones']
-  Accessories              -> manual (everything else; needs Fayzeen sign-off)
+  Accessories              -> manual (everything else; needs business sign-off)
 
 Item fields:
   label      : str — line item name shown in the report
@@ -81,6 +81,6 @@ OSL_FEE_SCHEDULE = [
     ]},
     {"name": "Accessories", "items": [
         _manual("Receive & Dispose", 1.50),
-        _manual("(secondary rate — confirm with Fayzeen)", 0.25),
+        _manual("(secondary rate — clarify before invoicing)", 0.25),
     ]},
 ]
