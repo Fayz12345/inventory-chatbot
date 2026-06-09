@@ -203,10 +203,7 @@ An HTML page (Jinja2 template or inline HTML served by the Blueprint) with:
 
 ### 5. Handle manual-entry line items
 
-Several line items have no formula in the spreadsheet (Accessories, Kitting, Fulfillment, Buffing, RMA Shipping). Options:
-- Make these editable fields on the report page so the user can fill them in manually
-- Or leave them as $0.00 with a note, to be filled in post-export
-- **Decision needed from user**
+Manual items (Accessories, Kitting, Fulfillment, Buffing, RMA Shipping to carriers, TMS Tasks, Buffing Services) render as editable unit-count inputs in the browser report. They default to 0 and the user fills them in before exporting. The export endpoint re-runs all auto queries and applies the entered manual values server-side when building the Excel file.
 
 ### 6. Deploy
 
@@ -229,9 +226,11 @@ Several line items have no formula in the spreadsheet (Accessories, Kitting, Ful
 
 ---
 
-## Open Questions
+## Decisions
 
-1. **Manual line items** — Should Accessories, Kitting, Fulfillment, Buffing, and RMA Shipping rows be editable on the web page, or handled outside this tool?
-2. **RMA "Shipping to store"** (Row 40) — No formula was provided. What is the logic for this count?
-3. **RMA "Shipping to carriers"** (Row 41) — No formula was provided. What is the logic for this count?
-4. **Fee updates** — How often do fees change? Should there be an admin UI for updating fees, or is a config file sufficient?
+1. **Manual line items** — Editable unit-count inputs in the browser; default 0, filled before export. No server-side storage.
+2. **RMA "Shipping to store"** — `COUNT(*) WHERE Shipping_TMS_Created in billing month AND Receipt_Type = 'RMA' AND TRY_CAST(ShipTo AS INT) IS NOT NULL`. Fee: $2.75.
+3. **RMA "Shipping to carriers"** — Manual entry. Fee: $1.65.
+4. **Export** — Excel download (mirrors Summary tab layout) plus browser view with clipboard copy (tab-separated for paste into Excel).
+5. **Module location** — Routes added to existing `analytics` Blueprint (`/analytics/tms-billing`).
+6. **Fee updates** — Config dict in `analytics/db.py`; no admin UI needed for now.

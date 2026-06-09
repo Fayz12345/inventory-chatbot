@@ -68,16 +68,30 @@ def _build_count_select(period_start, period_end):
         if item["manufacturer"] is not None:
             clauses.append(f"ManufacturerVerb {item['manufacturer_op']} ?")
             params.append(item["manufacturer"])
+        cf = item.get("carriers_filter")
+        if cf == "not_blank":
+            clauses.append(
+                "Shipping_to_carriers IS NOT NULL AND Shipping_to_carriers <> ''"
+            )
+        elif cf == "blank":
+            clauses.append(
+                "(Shipping_to_carriers IS NULL OR Shipping_to_carriers = '')"
+            )
         exprs.append(
             f"SUM(CASE WHEN {' AND '.join(clauses)} THEN 1 ELSE 0 END) AS item_{i}"
         )
 
-    # Out-of-warranty repair: SUM(Repair_Fee) where Lab_Billing_Created in period.
+    # Out-of-warranty repair: SUM(Repair_Fee) and COUNT where Lab_Billing_Created in period.
     repair = _repair_item()
     if repair is not None:
         exprs.append(
             "SUM(CASE WHEN Lab_Billing_Created >= ? AND Lab_Billing_Created < ? "
             "THEN Repair_Fee ELSE 0 END) AS repair_fee_sum"
+        )
+        params.extend([period_start, period_end])
+        exprs.append(
+            "SUM(CASE WHEN Lab_Billing_Created >= ? AND Lab_Billing_Created < ? "
+            "THEN 1 ELSE 0 END) AS repair_count"
         )
         params.extend([period_start, period_end])
 
@@ -117,8 +131,9 @@ def _assemble_report(raw, period_start):
                 section_total += charge
                 grand_total_auto += charge
             elif mode == "sum_repair_fee":
+                repair_count = int(raw.get("repair_count") or 0)
                 line_items.append({
-                    "label": item["label"], "units": None,
+                    "label": item["label"], "units": repair_count,
                     "fee": None, "charge": repair_sum, "mode": mode,
                 })
                 section_total += repair_sum
