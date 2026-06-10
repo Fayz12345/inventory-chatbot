@@ -61,8 +61,16 @@ def osl_generate():
     year, month, err = _parse_year_month(data)
     if err:
         return jsonify({'ok': False, 'error': err})
+    # `models` (cached breakdown) + `overrides` are optional. When models is
+    # provided the recompute is pure Python — no DB round-trip.
+    overrides = data.get('overrides') or []
+    models = data.get('models')
     try:
-        report = osl.generate_report(year, month)
-        return jsonify({'ok': True, 'report': report})
+        result = osl.generate(year, month, overrides=overrides, models=models)
+        return jsonify({
+            'ok': True,
+            'report': result['report'],
+            'models': result['models'],
+        })
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
