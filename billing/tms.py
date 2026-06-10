@@ -163,6 +163,36 @@ def _period_bounds(year, month):
     return start, end
 
 
+def get_raw_rows(year, month, conn_factory=get_db_connection):
+    """Return (columns, rows) of every flat-table row touching the period.
+
+    A row qualifies if any of the billing-relevant date columns
+    (schedule.COUNT_COLUMNS, which includes Lab_Billing_Created) falls in the
+    month. Column names come only from the allowlist; dates are parameterized.
+    Read-only.
+    """
+    start, end = _period_bounds(int(year), int(month))
+    cols = sorted(schedule.COUNT_COLUMNS)
+    where = " OR ".join(f"({c} >= ? AND {c} < ?)" for c in cols)
+    params = []
+    for _ in cols:
+        params.extend([start, end])
+    sql = (
+        "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n"
+        f"SELECT * FROM {TABLE}\n"
+        f"WHERE {where};"
+    )
+    conn = conn_factory()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql, params)
+        columns = [c[0] for c in cursor.description]
+        rows = [list(r) for r in cursor.fetchall()]
+        return columns, rows
+    finally:
+        conn.close()
+
+
 def generate_report(year, month, conn_factory=get_db_connection):
     """Run the aggregate query for the given month and assemble the report.
 

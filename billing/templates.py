@@ -69,6 +69,7 @@ _BILLING_PAGE_TEMPLATE = """<!DOCTYPE html>
       <button id="generate">Generate Billing Report</button>
       <button id="copy" class="secondary" disabled>Copy</button>
       <button id="csv" class="secondary" disabled>Download CSV</button>
+      <button id="raw" class="secondary">Download Raw Data</button>
     </div>
     <div id="error" class="err"></div>
     <div id="result"></div>
@@ -80,6 +81,7 @@ _BILLING_PAGE_TEMPLATE = """<!DOCTYPE html>
 <script>
 const SCHEDULE = {schedule_json};
 const ENDPOINT = "{endpoint}";
+const RAW_ENDPOINT = "{raw_endpoint}";
 const CSV_PREFIX = "{csv_prefix}";
 const MONTHS = ["January","February","March","April","May","June","July","August",
                 "September","October","November","December"];
@@ -256,6 +258,12 @@ document.addEventListener('DOMContentLoaded', () => {{
       btn.textContent = 'Generate Billing Report';
     }}
   }});
+  document.getElementById('raw').addEventListener('click', () => {{
+    const year = document.getElementById('year').value;
+    const month = document.getElementById('month').value;
+    window.location = RAW_ENDPOINT + '?year=' + year + '&month=' + month;
+  }});
+
   document.getElementById('copy').addEventListener('click', () => {{
     const tsv = tableRows().map(r => r.join('\\t')).join('\\n');
     navigator.clipboard.writeText(tsv);
@@ -347,6 +355,7 @@ _OSL_BILLING_PAGE_TEMPLATE = """<!DOCTYPE html>
       <button id="generate">Generate</button>
       <button id="copy" class="secondary" disabled>Copy</button>
       <button id="csv" class="secondary" disabled>Download CSV</button>
+      <button id="raw" class="secondary">Download Raw Data</button>
     </div>
     <div class="tab-nav">
       <button class="tab-btn active" data-tab="billing">Billing Report</button>
@@ -672,6 +681,12 @@ document.addEventListener('DOMContentLoaded', () => {{
     }}
   }});
 
+  document.getElementById('raw').addEventListener('click', () => {{
+    const year = document.getElementById('year').value;
+    const month = document.getElementById('month').value;
+    window.location = '/billing/osl/raw?year=' + year + '&month=' + month;
+  }});
+
   document.getElementById('copy').addEventListener('click', () => {{
     navigator.clipboard.writeText(tableRows().map(r => r.join('\\t')).join('\\n'));
   }});
@@ -697,6 +712,7 @@ def render_tms_billing_page():
     return _BILLING_PAGE_TEMPLATE.format(
         title="TMS Billing Report",
         endpoint="/billing/tms/generate",
+        raw_endpoint="/billing/tms/raw",
         csv_prefix="TMS_Billing_",
         schedule_json=json.dumps(schedule.TMS_FEE_SCHEDULE),
     )

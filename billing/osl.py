@@ -107,6 +107,41 @@ def get_model_breakdown(year, month, conn_factory=get_db_connection):
         conn.close()
 
 
+def get_raw_rows(year, month, conn_factory=get_db_connection):
+    """Return (columns, rows) of every flat-table device row touching the period.
+
+    A row qualifies if any of the three OSL timestamps falls in the month. The
+    resolved Device_Handset category (same OUTER APPLY as the billing query) is
+    appended as a final `Resolved_Category` column for audit. Read-only.
+    """
+    start, end = _period_bounds(int(year), int(month))
+    sql = (
+        "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n"
+        "SELECT f.*, mcl.Device_Handset AS Resolved_Category\n"
+        f"FROM {TABLE} f\n"
+        "OUTER APPLY (\n"
+        f"    SELECT TOP 1 LTRIM(RTRIM(m.Device_Handset)) AS Device_Handset\n"
+        f"    FROM {CATEGORY_LOOKUP} m\n"
+        "    WHERE m.Manufacturer = f.ManufacturerVerb\n"
+        "      AND m.Model        = f.Model\n"
+        "    ORDER BY m.LastUpdateDate DESC\n"
+        ") mcl\n"
+        "WHERE (f.Receive_OSL_Created >= ? AND f.Receive_OSL_Created < ?)\n"
+        "   OR (f.QC_Assessment_Created >= ? AND f.QC_Assessment_Created < ?)\n"
+        "   OR (f.Shipping_OSL_Created >= ? AND f.Shipping_OSL_Created < ?);"
+    )
+    params = [start, end] * 3
+    conn = conn_factory()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql, params)
+        columns = [c[0] for c in cursor.description]
+        rows = [list(r) for r in cursor.fetchall()]
+        return columns, rows
+    finally:
+        conn.close()
+
+
 def _category_to_section():
     """Reverse of OSL_SECTION_CATEGORIES: Device_Handset value -> section name."""
     mapping = {}

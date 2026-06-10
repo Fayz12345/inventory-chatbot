@@ -1,8 +1,30 @@
-from flask import Blueprint, request, jsonify, session, redirect, url_for
+import calendar
 
-from billing import osl, templates, tms
+from flask import Blueprint, request, jsonify, session, redirect, url_for, Response
+
+from billing import osl, templates, tms, export
 
 billing_bp = Blueprint('billing', __name__, url_prefix='/billing')
+
+XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+
+def _raw_download(engine, prefix, sheet_title):
+    redir = _require_login()
+    if redir:
+        return redir
+    year, month, err = _parse_year_month(request.args)
+    if err:
+        return err, 400
+    try:
+        columns, rows = engine.get_raw_rows(year, month)
+        data = export.rows_to_xlsx(columns, rows, sheet_title=sheet_title)
+    except Exception as e:
+        return f'Error generating raw data: {e}', 500
+    label = f'{calendar.month_name[month]}_{year}'
+    resp = Response(data, mimetype=XLSX_MIME)
+    resp.headers['Content-Disposition'] = f'attachment; filename="{prefix}_{label}.xlsx"'
+    return resp
 
 
 def _require_login():
@@ -45,6 +67,11 @@ def tms_generate():
         return jsonify({'ok': False, 'error': str(e)})
 
 
+@billing_bp.route('/tms/raw')
+def tms_raw():
+    return _raw_download(tms, 'TMS_Raw', 'TMS Raw Data')
+
+
 @billing_bp.route('/osl')
 def osl_page():
     redir = _require_login()
@@ -74,3 +101,8 @@ def osl_generate():
         })
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
+
+
+@billing_bp.route('/osl/raw')
+def osl_raw():
+    return _raw_download(osl, 'OSL_Raw', 'OSL Raw Data')
