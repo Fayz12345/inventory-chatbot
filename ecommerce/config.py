@@ -62,6 +62,12 @@ EBAY_APP_ID           = _resolve("EBAY_ENV", "EBAY_APP_ID",         "EBAY_APP_ID
 EBAY_CERT_ID          = _resolve("EBAY_ENV", "EBAY_CERT_ID",        "EBAY_CERT_ID_SANDBOX")
 EBAY_REFRESH_TOKEN    = _resolve("EBAY_ENV", "EBAY_REFRESH_TOKEN",  "EBAY_REFRESH_TOKEN_SANDBOX")
 EBAY_SANDBOX          = (EBAY_ENV != "production")
+# Inventory API publishOffer prerequisites: a merchant inventory location and the
+# three business policies (their IDs differ per sandbox/prod account).
+EBAY_MERCHANT_LOCATION_KEY = _resolve("EBAY_ENV", "EBAY_MERCHANT_LOCATION_KEY", "EBAY_MERCHANT_LOCATION_KEY_SANDBOX")
+EBAY_FULFILLMENT_POLICY_ID = _resolve("EBAY_ENV", "EBAY_FULFILLMENT_POLICY_ID", "EBAY_FULFILLMENT_POLICY_ID_SANDBOX")
+EBAY_PAYMENT_POLICY_ID     = _resolve("EBAY_ENV", "EBAY_PAYMENT_POLICY_ID",     "EBAY_PAYMENT_POLICY_ID_SANDBOX")
+EBAY_RETURN_POLICY_ID      = _resolve("EBAY_ENV", "EBAY_RETURN_POLICY_ID",      "EBAY_RETURN_POLICY_ID_SANDBOX")
 
 # Reebelo (creds parked; auto-post NOT wired yet per ADO #138)
 REEBELO_ENV       = _env("REEBELO_ENV", "sandbox").lower()

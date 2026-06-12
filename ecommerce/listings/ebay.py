@@ -49,6 +49,16 @@ def _condition_id(grade):
             "B": "3000", "C": "4000"}.get(grade, "4000")
 
 
+def _listing_policies():
+    """The three business-policy IDs for the offer, omitting any not configured."""
+    ids = {
+        "fulfillmentPolicyId": config.EBAY_FULFILLMENT_POLICY_ID,
+        "paymentPolicyId":     config.EBAY_PAYMENT_POLICY_ID,
+        "returnPolicyId":      config.EBAY_RETURN_POLICY_ID,
+    }
+    return {k: v for k, v in ids.items() if v}
+
+
 def _get_access_token():
     """Exchange refresh token for a short-lived access token (sell scope)."""
     resp = requests.post(
@@ -161,6 +171,21 @@ def create_listing(product, price, listing_copy, catalog_info=None):
             "conditionId": _condition_id(product["Grade"]),
             "quantityLimitPerBuyer": 1,
         }
+        # publishOffer requires a merchant location + the three business policies.
+        # They're omitted if unconfigured so createOffer still succeeds; publish
+        # then fails with eBay's own (clear) error rather than a silent 400 here.
+        if config.EBAY_MERCHANT_LOCATION_KEY:
+            offer_body["merchantLocationKey"] = config.EBAY_MERCHANT_LOCATION_KEY
+        policies = _listing_policies()
+        if policies:
+            offer_body["listingPolicies"] = policies
+        if not (config.EBAY_MERCHANT_LOCATION_KEY and len(policies) == 3):
+            log.warning(
+                "eBay offer missing publish prerequisites "
+                "(merchantLocationKey=%s, policies=%d/3) — publishOffer will fail "
+                "until EBAY_MERCHANT_LOCATION_KEY + the 3 EBAY_*_POLICY_ID vars are set.",
+                bool(config.EBAY_MERCHANT_LOCATION_KEY), len(policies),
+            )
         resp = requests.post(
             f"{inv_url}/offer", headers=headers, json=offer_body, timeout=30,
         )
