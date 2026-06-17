@@ -55,6 +55,17 @@ def _condition_type(grade):
     return config.GRADE_CONDITION_MAP.get(grade, {}).get("amazon", "UsedGood")
 
 
+def _product_type(device_category):
+    """Map a device category to the Amazon productType, defaulting to phone
+    (#198 #3). Replaces the old hardcoded WIRELESS_PHONE so tablets/laptops/
+    watches aren't rejected by Amazon."""
+    if not device_category:
+        return config.AMAZON_DEFAULT_PRODUCT_TYPE
+    return config.AMAZON_PRODUCT_TYPE_BY_CATEGORY.get(
+        device_category, config.AMAZON_DEFAULT_PRODUCT_TYPE,
+    )
+
+
 def _have_creds():
     """All four cred fields must be present for the current env."""
     return all([
@@ -65,7 +76,8 @@ def _have_creds():
     ])
 
 
-def create_listing(product, asin, price, listing_copy, seller_sku=None):
+def create_listing(product, asin, price, listing_copy, seller_sku=None,
+                   device_category=None):
     """Create or replace a used-device listing on Amazon.
 
     Args:
@@ -76,6 +88,8 @@ def create_listing(product, asin, price, listing_copy, seller_sku=None):
         listing_copy: dict with at least `condition_note`; `title`/`description`
             are ignored on Amazon (the ASIN owns those).
         seller_sku: optional custom SKU; auto-generated if not provided.
+        device_category: source category (Handset/Tablet/...) used to pick the
+            Amazon productType; defaults to phone when unknown (#198 #3).
 
     Returns:
         dict {'ok': True, 'listing_id': seller_sku, 'env': 'sandbox'|'production'}
@@ -101,7 +115,7 @@ def create_listing(product, asin, price, listing_copy, seller_sku=None):
     condition_note = (listing_copy or {}).get("condition_note", "")
 
     body = {
-        "productType": "WIRELESS_PHONE",
+        "productType": _product_type(device_category),
         "requirements": "LISTING",
         "attributes": {
             "condition_type": [{"value": condition}],
@@ -144,14 +158,14 @@ def create_listing(product, asin, price, listing_copy, seller_sku=None):
         return {"ok": False, "error": f"Unexpected error: {e}"}
 
 
-def delist(seller_sku):
+def delist(seller_sku, device_category=None):
     """Set quantity to 0 to end the listing. Returns bool."""
     if not _have_creds():
         log.warning("Amazon creds missing — skipping delist")
         return False
 
     body = {
-        "productType": "WIRELESS_PHONE",
+        "productType": _product_type(device_category),
         "patches": [{
             "op": "replace",
             "path": "/attributes/fulfillment_availability",

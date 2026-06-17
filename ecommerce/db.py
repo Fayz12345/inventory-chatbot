@@ -47,6 +47,18 @@ def fetch_device_cost(manufacturer, model, grade):
 # Product catalog lookup
 # ---------------------------------------------------------------------------
 
+def lookup_device_category(model):
+    """Return a model's device category (e.g. 'Handset', 'Tablet', 'Smart Watch')
+    from TelusWeeklyPricingMaster, or None if the model isn't listed there."""
+    sql = qrery.lookup_device_category_query
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql, (model,))
+    row = cursor.fetchone()
+    conn.close()
+    return row.DeviceType if row else None
+
+
 def lookup_product_catalog(manufacturer, model, colour):
     """Look up ASIN, UPC, and eBay EPID from EcommerceProductCatalog."""
     sql = qrery.lookup_product_catalog_query

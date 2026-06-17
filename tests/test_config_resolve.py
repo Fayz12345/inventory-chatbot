@@ -75,3 +75,19 @@ def test_amazon_have_creds_true_when_all_present(monkeypatch):
     monkeypatch.setattr(config, "AMAZON_LWA_APP_ID", "lwa")
     monkeypatch.setattr(config, "AMAZON_LWA_CLIENT_SECRET", "secret")
     assert amazon_listings._have_creds() is True
+
+
+# ---------------------------------------------------------------------------
+# Amazon productType mapping (#198 / 1D.10 #3)
+# ---------------------------------------------------------------------------
+
+def test_product_type_defaults_to_phone_when_unknown():
+    assert amazon_listings._product_type(None) == "WIRELESS_PHONE"
+    assert amazon_listings._product_type("Wearable Gizmo") == "WIRELESS_PHONE"
+
+
+def test_product_type_maps_known_categories():
+    assert amazon_listings._product_type("Handset") == "WIRELESS_PHONE"
+    assert amazon_listings._product_type("Tablet") == "TABLET_COMPUTER"
+    assert amazon_listings._product_type("Laptop") == "NOTEBOOK_COMPUTER"
+    assert amazon_listings._product_type("Smart Watch") == "WATCH"

@@ -54,6 +54,7 @@ def _copy():
 # Auto-post success / failure
 # ---------------------------------------------------------------------------
 
+@patch("ecommerce.approval.db.lookup_device_category", return_value="Handset")
 @patch("ecommerce.approval.db.create_listing_record", return_value=42)
 @patch("ecommerce.approval.db.update_recommendation_decision")
 @patch("ecommerce.approval.db.claim_recommendation", return_value=True)
@@ -64,7 +65,7 @@ def _copy():
 @patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
 @patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Amazon CA"))
 def test_amazon_success_claims_posts_logs_and_approves(
-        _get, _copy_, mock_amazon, _catalog, mock_claim, mock_decision, mock_log, client):
+        _get, _copy_, mock_amazon, _catalog, mock_claim, mock_decision, mock_log, _devcat, client):
     resp = client.post("/ecommerce/approve?id=1")
     assert resp.status_code == 200
     body = resp.get_json()
@@ -72,12 +73,15 @@ def test_amazon_success_claims_posts_logs_and_approves(
     assert body["listing_id"] == "SAMSUNG-S25-A-BLACK"
     assert body["env"] == "sandbox"
     mock_amazon.assert_called_once()
+    # device category is resolved and passed to the Amazon listing call (#3).
+    assert mock_amazon.call_args.kwargs["device_category"] == "Handset"
     mock_claim.assert_called_once_with(1, "processing")   # claimed before posting
     mock_log.assert_called_once()
     mock_decision.assert_called_once_with(1, "approved")  # finalized after log
     assert mock_log.call_args.kwargs["floor_price"] == 850.0
 
 
+@patch("ecommerce.approval.db.lookup_device_category", return_value="Handset")
 @patch("ecommerce.approval.db.create_listing_record")
 @patch("ecommerce.approval.db.update_recommendation_decision")
 @patch("ecommerce.approval.db.release_recommendation")
@@ -89,7 +93,7 @@ def test_amazon_success_claims_posts_logs_and_approves(
 @patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
 @patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Amazon CA"))
 def test_amazon_failure_releases_claim_and_returns_502(
-        _get, _copy_, mock_amazon, _catalog, mock_claim, mock_release, mock_decision, mock_log, client):
+        _get, _copy_, mock_amazon, _catalog, mock_claim, mock_release, mock_decision, mock_log, _devcat, client):
     resp = client.post("/ecommerce/approve?id=1")
     assert resp.status_code == 502
     body = resp.get_json()
@@ -125,6 +129,7 @@ def test_ebay_success_claims_posts_logs_and_approves(
 # Atomicity: post succeeds but logging fails -> rollback (delist) + release
 # ---------------------------------------------------------------------------
 
+@patch("ecommerce.approval.db.lookup_device_category", return_value="Tablet")
 @patch("ecommerce.approval.amazon_listings.delist", return_value=True)
 @patch("ecommerce.approval.db.release_recommendation")
 @patch("ecommerce.approval.db.update_recommendation_decision")
@@ -137,11 +142,12 @@ def test_ebay_success_claims_posts_logs_and_approves(
 @patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Amazon CA"))
 def test_log_failure_rolls_back_post_and_releases(
         _get, _copy_, _amazon, _catalog, _claim, mock_create, mock_decision,
-        mock_release, mock_delist, client):
+        mock_release, mock_delist, _devcat, client):
     resp = client.post("/ecommerce/approve?id=1")
     assert resp.status_code == 500
     assert resp.get_json()["ok"] is False
-    mock_delist.assert_called_once_with("SKU-1")   # listing rolled back
+    # rolled back with the resolved device category for the productType (#3).
+    mock_delist.assert_called_once_with("SKU-1", device_category="Tablet")
     mock_release.assert_called_once_with(1)
     mock_decision.assert_not_called()              # never finalized to approved
 

@@ -101,6 +101,7 @@ def _post_to_marketplace(marketplace, product, price, listing_copy):
             asin=catalog.get("asin"),
             price=price,
             listing_copy=listing_copy,
+            device_category=db.lookup_device_category(product["Model"]),
         )
 
     return ebay_listings.create_listing(
@@ -111,13 +112,14 @@ def _post_to_marketplace(marketplace, product, price, listing_copy):
     )
 
 
-def _delist_from_marketplace(marketplace, listing_id):
+def _delist_from_marketplace(marketplace, listing_id, product=None):
     """Best-effort rollback of a just-created listing (#198 atomicity). Returns
     True if the marketplace confirmed the delist."""
     mp = (marketplace or "").lower()
     try:
         if mp in ("amazon ca", "amazon"):
-            return amazon_listings.delist(listing_id)
+            category = db.lookup_device_category(product["Model"]) if product else None
+            return amazon_listings.delist(listing_id, device_category=category)
         if mp in ("ebay ca", "ebay"):
             return ebay_listings.delist(listing_id)
     except Exception:
@@ -217,7 +219,7 @@ def approve():
         except Exception:
             log.exception("Posted to %s (listing %s) but failed to log — rolling back.",
                           marketplace, listing_id)
-            rolled_back = _delist_from_marketplace(marketplace, listing_id)
+            rolled_back = _delist_from_marketplace(marketplace, listing_id, product)
             db.release_recommendation(rec_id)
             if rolled_back:
                 return jsonify({"ok": False, "error": (

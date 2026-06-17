@@ -34,6 +34,18 @@ class Queries:
         """
 
     @property
+    def lookup_device_category_query(self):
+        """Look up a model's device category (Handset/Tablet/Smart Watch/Laptop/
+        Modem/Phone) from the Telus pricing master — used to pick the Amazon
+        productType (#198/1D.10 #3). Keyed by Model; ~half of storefront models
+        have no row, so callers must default."""
+        return """
+            SELECT TOP 1 DeviceType
+            FROM TelusWeeklyPricingMaster
+            WHERE Model = ?
+        """
+
+    @property
     def lookup_product_catalog_query(self):
         """Look up ASIN, UPC, and eBay EPID from EcommerceProductCatalog."""
         return """

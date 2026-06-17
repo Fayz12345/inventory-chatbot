@@ -96,3 +96,23 @@ GRADE_CONDITION_MAP = {
     "B":   {"amazon": "UsedVeryGood","ebay": "USED_VERY_GOOD", "ebay_id": "3000"},
     "C":   {"amazon": "UsedGood",    "ebay": "USED_GOOD",      "ebay_id": "4000"},
 }
+
+
+# ---------------------------------------------------------------------------
+# Device category -> Amazon productType (#198 / 1D.10 #3)
+# ---------------------------------------------------------------------------
+
+# Keys are TelusWeeklyPricingMaster.DeviceType values (the category source).
+# Phones keep the existing WIRELESS_PHONE (no regression to the proven path);
+# the NON-phone values are best-effort and MUST be validated against Amazon's
+# getDefinitionsProductType API for the CA marketplace before production —
+# tracked under #198 #3 (blocked on Amazon SP-API access).
+AMAZON_DEFAULT_PRODUCT_TYPE = "WIRELESS_PHONE"
+AMAZON_PRODUCT_TYPE_BY_CATEGORY = {
+    "Handset":     "WIRELESS_PHONE",
+    "Phone":       "WIRELESS_PHONE",
+    "Tablet":      "TABLET_COMPUTER",      # TODO: verify vs Amazon definitions
+    "Laptop":      "NOTEBOOK_COMPUTER",    # TODO: verify
+    "Smart Watch": "WATCH",                # TODO: verify
+    "Modem":       "ROUTER",               # TODO: verify
+}
