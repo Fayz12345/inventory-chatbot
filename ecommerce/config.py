@@ -82,6 +82,8 @@ BESTBUY_STATE_CODE       = _env("BESTBUY_STATE_CODE", "11")
 BESTBUY_LOGISTIC_CLASS   = _env("BESTBUY_LOGISTIC_CLASS", "SMALL")
 BESTBUY_PRODUCT_ID_TYPE  = _env("BESTBUY_PRODUCT_ID_TYPE", "UPC-A")
 BESTBUY_LEADTIME_TO_SHIP = int(_env("BESTBUY_LEADTIME_TO_SHIP", "4") or "4")
+# Mirakl requires the additional offer field "manufacturer-warranty" (days).
+BESTBUY_MANUFACTURER_WARRANTY = _env("BESTBUY_MANUFACTURER_WARRANTY", "365")
 
 # Reebelo (creds parked; auto-post NOT wired yet per ADO #138)
 REEBELO_ENV       = _env("REEBELO_ENV", "sandbox").lower()

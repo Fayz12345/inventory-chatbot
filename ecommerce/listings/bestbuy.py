@@ -109,6 +109,11 @@ def create_listing(product, price, listing_copy, catalog_info=None):
         "logistic_class":   config.BESTBUY_LOGISTIC_CLASS,
         "leadtime_to_ship": config.BESTBUY_LEADTIME_TO_SHIP,
         "update_delete":    "update",
+        # Mirakl requires this additional field (warranty in days).
+        "offer_additional_fields": [
+            {"code": "manufacturer-warranty",
+             "value": config.BESTBUY_MANUFACTURER_WARRANTY},
+        ],
     }
 
     try:

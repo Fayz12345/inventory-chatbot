@@ -33,6 +33,7 @@ def _creds(monkeypatch):
     monkeypatch.setattr(config, "BESTBUY_LOGISTIC_CLASS", "SMALL")
     monkeypatch.setattr(config, "BESTBUY_PRODUCT_ID_TYPE", "UPC-A")
     monkeypatch.setattr(config, "BESTBUY_LEADTIME_TO_SHIP", 4)
+    monkeypatch.setattr(config, "BESTBUY_MANUFACTURER_WARRANTY", "365")
 
 
 def test_no_creds_returns_error(monkeypatch):
@@ -70,6 +71,9 @@ def test_create_listing_happy_path_builds_offer_and_confirms(mock_requests, monk
     assert offer["quantity"] == 2
     assert offer["price"] == 299.99
     assert offer["logistic_class"] == "SMALL"
+    # Mirakl-required additional field (live-verified rejection without it).
+    assert offer["offer_additional_fields"] == [
+        {"code": "manufacturer-warranty", "value": "365"}]
 
 
 @patch("ecommerce.listings.bestbuy.requests")
