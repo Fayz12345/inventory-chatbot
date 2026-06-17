@@ -147,6 +147,25 @@ class Queries:
             SET Decision = ?, DecidedAt = GETDATE()
             WHERE ID = ?
         """
+
+    @property
+    def claim_recommendation_query(self):
+        """Atomically claim an undecided recommendation (race guard, #198/1D.10).
+        Only succeeds if Decision IS NULL — caller checks rowcount == 1."""
+        return """
+            UPDATE EcommercePricingRecommendation
+            SET Decision = ?, DecidedAt = GETDATE()
+            WHERE ID = ? AND Decision IS NULL
+        """
+
+    @property
+    def release_recommendation_query(self):
+        """Release a claimed recommendation back to undecided (rollback path)."""
+        return """
+            UPDATE EcommercePricingRecommendation
+            SET Decision = NULL, DecidedAt = NULL
+            WHERE ID = ?
+        """
         
     @property
     def get_all_batches_query(self):

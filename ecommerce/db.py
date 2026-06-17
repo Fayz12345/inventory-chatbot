@@ -231,6 +231,30 @@ def update_recommendation_decision(rec_id, decision):
     conn.close()
 
 
+def claim_recommendation(rec_id, decision):
+    """Atomically claim an undecided recommendation, setting it to `decision`
+    (e.g. 'processing' or 'rejected'). Returns True iff this call won the row
+    (Decision was NULL). Prevents double-post on concurrent approves (#198)."""
+    sql = qrery.claim_recommendation_query
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql, (decision, rec_id))
+    claimed = cursor.rowcount == 1
+    conn.commit()
+    conn.close()
+    return claimed
+
+
+def release_recommendation(rec_id):
+    """Release a claimed recommendation back to undecided (rollback path)."""
+    sql = qrery.release_recommendation_query
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql, (rec_id,))
+    conn.commit()
+    conn.close()
+
+
 def get_all_batches():
     """Return all pricing batches, newest first."""
     sql = qrery.get_all_batches_query

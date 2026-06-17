@@ -49,6 +49,15 @@ def _floor_price_for(marketplace, rec):
     return float(val) if val is not None else None
 
 
+def _require_login_json():
+    """Auth guard for the mutating AJAX endpoints (#198 / 1D.10). Returns a
+    401 JSON response if there's no authenticated user, else None. Mirrors the
+    JSON-401 pattern in analytics/routes.py."""
+    if not session.get("logged_in") or not session.get("username"):
+        return jsonify({"ok": False, "error": "Authentication required."}), 401
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Dashboard pages
 # ---------------------------------------------------------------------------
@@ -77,11 +86,16 @@ def _post_to_marketplace(marketplace, product, price, listing_copy):
     each module's create_listing() returns. Returns None for preview-only
     marketplaces (caller should treat that as "not auto-posted")."""
     mp = (marketplace or "").lower()
+    if mp not in ("amazon ca", "amazon", "ebay ca", "ebay"):
+        # Best Buy CA, Reebelo CA, etc. — preview-only per #138 AC.
+        return None
+
+    # Single catalog lookup shared by both branches (#198 cleanup).
+    catalog = db.lookup_product_catalog(
+        product["Manufacturer"], product["Model"], product["Colour"],
+    ) or {}
 
     if mp in ("amazon ca", "amazon"):
-        catalog = db.lookup_product_catalog(
-            product["Manufacturer"], product["Model"], product["Colour"],
-        ) or {}
         return amazon_listings.create_listing(
             product=product,
             asin=catalog.get("asin"),
@@ -89,24 +103,42 @@ def _post_to_marketplace(marketplace, product, price, listing_copy):
             listing_copy=listing_copy,
         )
 
-    if mp in ("ebay ca", "ebay"):
-        catalog = db.lookup_product_catalog(
-            product["Manufacturer"], product["Model"], product["Colour"],
-        ) or {}
-        return ebay_listings.create_listing(
-            product=product,
-            price=price,
-            listing_copy=listing_copy,
-            catalog_info=catalog,
-        )
+    return ebay_listings.create_listing(
+        product=product,
+        price=price,
+        listing_copy=listing_copy,
+        catalog_info=catalog,
+    )
 
-    # Best Buy CA, Reebelo CA, etc. — preview-only per #138 AC.
-    return None
+
+def _delist_from_marketplace(marketplace, listing_id):
+    """Best-effort rollback of a just-created listing (#198 atomicity). Returns
+    True if the marketplace confirmed the delist."""
+    mp = (marketplace or "").lower()
+    try:
+        if mp in ("amazon ca", "amazon"):
+            return amazon_listings.delist(listing_id)
+        if mp in ("ebay ca", "ebay"):
+            return ebay_listings.delist(listing_id)
+    except Exception:
+        log.exception("Delist failed for %s listing %s", marketplace, listing_id)
+    return False
 
 
 @approval_bp.route("/approve", methods=["POST"])
 def approve():
-    """Generate listing copy, auto-post to Amazon/eBay if applicable, log it."""
+    """Generate listing copy, auto-post to Amazon/eBay if applicable, log it.
+
+    Auth-guarded and race-safe (#198): the recommendation is atomically claimed
+    before any marketplace call, so two near-simultaneous approves can't both
+    post. A claim is released back to undecided on any post/log failure, and a
+    post that can't be logged is rolled back (delisted) so a live listing never
+    exists without a DB record.
+    """
+    guard = _require_login_json()
+    if guard:
+        return guard
+
     rec_id = request.args.get("id", type=int)
     if not rec_id:
         return jsonify({"ok": False, "error": "Missing recommendation ID."}), 400
@@ -126,6 +158,7 @@ def approve():
         "Grade":        rec["Grade"],
         "Quantity":     rec["Quantity"],
     }
+    approved_by = session.get("username")
 
     # Step 1: generate the listing copy (always — preview modal needs it).
     try:
@@ -134,19 +167,31 @@ def approve():
         log.error("Listing copy generation failed for rec %s: %s", rec_id, e)
         return jsonify({"ok": False, "error": f"Listing copy generation failed: {e}"}), 500
 
-    # Step 2: auto-post to marketplace if it's in the auto-post set.
+    auto_post = marketplace in AUTO_POST_MARKETPLACES
+
+    # Step 2: atomically claim the row BEFORE any marketplace call (race guard).
+    # Auto-post rows are claimed as 'processing' and only become 'approved' once
+    # the post is confirmed (released to NULL on failure, per #138). Preview-only
+    # rows are claimed straight to 'approved'.
+    claim_state = "processing" if auto_post else "approved"
+    if not db.claim_recommendation(rec_id, claim_state):
+        return jsonify({"ok": False, "error": "Already being processed or decided."}), 409
+
+    # Step 3: auto-post to marketplace if applicable.
     posted     = False
     listing_id = None
     env        = None
-    if marketplace in AUTO_POST_MARKETPLACES:
+    if auto_post:
         result = _post_to_marketplace(marketplace, product, price, listing_copy)
         if result is None:
             # Defensive — marketplace was in AUTO_POST set but dispatch returned
-            # None. Treat as preview-only rather than silently dropping the post.
+            # None. Treat as preview-only: finalize the claim to 'approved'.
             log.warning("Marketplace %r in auto-post set but dispatch returned None.", marketplace)
+            db.update_recommendation_decision(rec_id, "approved")
         elif not result.get("ok"):
-            # Per #138 AC: API post failed -> recommendation is NOT marked as
-            # approved -> error shown in toast.
+            # Per #138 AC: post failed -> NOT approved. Release the claim so the
+            # row isn't stuck in 'processing' and the user can retry.
+            db.release_recommendation(rec_id)
             return jsonify({
                 "ok":    False,
                 "error": result.get("error") or "Marketplace API post failed.",
@@ -156,10 +201,11 @@ def approve():
             listing_id = result.get("listing_id")
             env        = result.get("env")
 
-    # Step 3: log the listing to EcommerceListingsLog if we auto-posted.
-    approved_by = session.get("username") or "unknown"
-    try:
-        if posted and listing_id:
+    # Step 4: if we posted, log it then finalize. If logging fails after a real
+    # post, roll the post back (delist) and release the claim so we never leave
+    # a live listing with no DB row.
+    if posted and listing_id:
+        try:
             db.create_listing_record(
                 product=product,
                 platform=marketplace,
@@ -168,16 +214,22 @@ def approve():
                 platform_listing_id=listing_id,
                 approved_by=approved_by,
             )
-    except Exception as e:
-        # Listing already posted to the marketplace at this point; failing to
-        # log is bad but shouldn't roll back the post. Log loudly so it's
-        # caught in ops.
-        log.exception("Posted to %s as %s but failed to log to EcommerceListingsLog: %s",
-                      marketplace, listing_id, e)
-
-    # Step 4: mark approved (only reached if auto-post succeeded OR marketplace
-    # is preview-only).
-    db.update_recommendation_decision(rec_id, "approved")
+        except Exception:
+            log.exception("Posted to %s (listing %s) but failed to log — rolling back.",
+                          marketplace, listing_id)
+            rolled_back = _delist_from_marketplace(marketplace, listing_id)
+            db.release_recommendation(rec_id)
+            if rolled_back:
+                return jsonify({"ok": False, "error": (
+                    "Posted but could not record the listing; it was rolled back. "
+                    "Please retry."
+                )}), 500
+            return jsonify({"ok": False, "error": (
+                f"Posted to {marketplace} (listing {listing_id}) but could not record it "
+                f"and rollback failed — needs manual reconciliation."
+            )}), 500
+        # Post + log both succeeded -> finalize the claim.
+        db.update_recommendation_decision(rec_id, "approved")
 
     product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
     if posted:
@@ -199,6 +251,10 @@ def approve():
 
 @approval_bp.route("/reject", methods=["POST"])
 def reject():
+    guard = _require_login_json()
+    if guard:
+        return guard
+
     rec_id = request.args.get("id", type=int)
     if not rec_id:
         return jsonify({"ok": False, "error": "Missing recommendation ID."}), 400
@@ -209,6 +265,9 @@ def reject():
     if rec.get("Decision"):
         return jsonify({"ok": False, "error": f'Already {rec["Decision"]}.'}), 409
 
-    db.update_recommendation_decision(rec_id, "rejected")
+    # Atomically claim as 'rejected'; loses gracefully to a concurrent decision.
+    if not db.claim_recommendation(rec_id, "rejected"):
+        return jsonify({"ok": False, "error": "Already being processed or decided."}), 409
+
     product_name = f"{rec['Manufacturer']} {rec['Model']} Grade {rec['Grade']}"
     return jsonify({"ok": True, "message": f"{product_name} rejected."})
