@@ -19,8 +19,9 @@ def test_build_select_one_alias_per_count_item_plus_repair():
     # one alias per count item ...
     for i in range(n_count):
         assert f"AS item_{i}" in sql
-    # ... plus the repair-fee sum alias
+    # ... plus the repair-fee sum and count aliases
     assert "AS repair_fee_sum" in sql
+    assert "AS repair_count" in sql
     assert "ReportingInventoryFlat_TMS" in sql
     assert "READ UNCOMMITTED" in sql
 
@@ -45,6 +46,7 @@ def test_assemble_report_computes_charges_and_totals():
     n = len(_count_items())
     raw = {f"item_{i}": 2 for i in range(n)}
     raw["repair_fee_sum"] = 100.0
+    raw["repair_count"] = 4
 
     report = tms._assemble_report(raw, datetime.date(2026, 3, 1))
 
@@ -56,10 +58,11 @@ def test_assemble_report_computes_charges_and_totals():
     assert receive["fee"] == 2.75
     assert round(receive["charge"], 2) == 5.50
 
-    # repair line uses the summed fee as its charge, units omitted
+    # repair line: charge = sum of Repair_Fee, units = device count
     oow = _section(report, "Out of Warranty")
     repair = oow["line_items"][0]
     assert round(repair["charge"], 2) == 100.0
+    assert repair["units"] == 4
 
     # manual items come back with units None and charge 0
     acc = _section(report, "Accessories")["line_items"][0]
@@ -107,8 +110,8 @@ class _FakeConn:
 
 def test_generate_report_maps_row_by_alias():
     n = len(_count_items())
-    aliases = [f"item_{i}" for i in range(n)] + ["repair_fee_sum"]
-    row = tuple([3] * n + [50.0])
+    aliases = [f"item_{i}" for i in range(n)] + ["repair_fee_sum", "repair_count"]
+    row = tuple([3] * n + [50.0, 2])
     description = [(a,) for a in aliases]
     conn = _FakeConn(row, description)
 

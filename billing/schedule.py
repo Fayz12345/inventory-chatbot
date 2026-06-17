@@ -30,10 +30,11 @@ COUNT_COLUMNS = {
 
 
 def _count(label, column, fee, receipt_type=None, manufacturer=None,
-           manufacturer_op="="):
+           manufacturer_op="=", carriers_filter=None):
     return {
         "label": label, "column": column, "receipt_type": receipt_type,
         "manufacturer": manufacturer, "manufacturer_op": manufacturer_op,
+        "carriers_filter": carriers_filter,  # None | 'not_blank' | 'blank'
         "fee": float(fee), "mode": "count",
     }
 
@@ -107,8 +108,10 @@ TMS_FEE_SCHEDULE = [
     ]},
     {"name": "RMA", "items": [
         _count("Receiving", "ReceiveDate", 3.85, receipt_type="RMA"),
-        _manual("Shipping to store", 2.75),
-        _manual("Shipping to carriers", 1.65),
+        _count("Shipping to store", "Shipping_TMS_Created", 2.75,
+               receipt_type="RMA", carriers_filter="not_blank"),
+        _count("Shipping to carriers", "Shipping_TMS_Created", 1.65,
+               receipt_type="RMA", carriers_filter="blank"),
     ]},
     {"name": "Kitting", "items": [
         _manual("Accessories Added", 11.00),
@@ -128,7 +131,7 @@ TMS_FEE_SCHEDULE = [
     {"name": "Android Device Enrollment", "items": [
         _count("Other (non-Samsung)", "Device_Enrollment_Created", 6.60,
                manufacturer="Samsung", manufacturer_op="<>"),
-        _count("Samsung", "Subsidy_Created", 7.70,
+        _count("Samsung", "Device_Enrollment_Created", 7.70,
                manufacturer="Samsung", manufacturer_op="="),
     ]},
     {"name": "TMS Inventory Tasks Management", "items": [
