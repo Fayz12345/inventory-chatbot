@@ -23,6 +23,10 @@ from config import (
 
 MINIMUM_MARGIN = ECOMMERCE_MINIMUM_MARGIN
 
+# Single source of truth for listing currency (was hardcoded "CAD" in each
+# listing module).
+DEFAULT_CURRENCY = "CAD"
+
 
 # ---------------------------------------------------------------------------
 # Marketplace credential resolution
@@ -81,13 +85,14 @@ REEBELO_SANDBOX   = (REEBELO_ENV != "production")
 # Marketplace condition mapping (Grade -> per-marketplace enum)
 # ---------------------------------------------------------------------------
 
-# Used by listings/amazon.py (`condition_type` attribute) and listings/ebay.py
-# (`conditionEnum` + `conditionId` via separate map). Adjust values once we
-# have real marketplace sign-off on which condition codes to use.
+# Used by listings/amazon.py (`condition_type`) and listings/ebay.py
+# (`conditionEnum` + the legacy numeric `conditionId`, now consolidated here as
+# `ebay_id` instead of a duplicate dict in ebay.py). Adjust once we have real
+# marketplace sign-off on which condition codes to use.
 GRADE_CONDITION_MAP = {
-    "NEW": {"amazon": "New",        "ebay": "NEW"},
-    "A+":  {"amazon": "UsedLikeNew","ebay": "USED_EXCELLENT"},
-    "A":   {"amazon": "UsedLikeNew","ebay": "USED_EXCELLENT"},
-    "B":   {"amazon": "UsedVeryGood","ebay": "USED_VERY_GOOD"},
-    "C":   {"amazon": "UsedGood",   "ebay": "USED_GOOD"},
+    "NEW": {"amazon": "New",         "ebay": "NEW",            "ebay_id": "1000"},
+    "A+":  {"amazon": "UsedLikeNew", "ebay": "USED_EXCELLENT", "ebay_id": "2500"},
+    "A":   {"amazon": "UsedLikeNew", "ebay": "USED_EXCELLENT", "ebay_id": "2500"},
+    "B":   {"amazon": "UsedVeryGood","ebay": "USED_VERY_GOOD", "ebay_id": "3000"},
+    "C":   {"amazon": "UsedGood",    "ebay": "USED_GOOD",      "ebay_id": "4000"},
 }

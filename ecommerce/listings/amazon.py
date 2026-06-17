@@ -107,7 +107,7 @@ def create_listing(product, asin, price, listing_copy, seller_sku=None):
             "condition_type": [{"value": condition}],
             "condition_note": [{"value": condition_note}],
             "purchasable_offer": [{
-                "currency": "CAD",
+                "currency": config.DEFAULT_CURRENCY,
                 "our_price": [{"schedule": [{"value_with_tax": price}]}],
             }],
             "fulfillment_availability": [{

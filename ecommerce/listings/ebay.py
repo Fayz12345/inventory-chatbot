@@ -10,12 +10,18 @@ Flow: createOrReplaceInventoryItem -> createOffer -> publishOffer.
 """
 
 import logging
+import time
 
 import requests
 
 from ecommerce import config
 
 log = logging.getLogger(__name__)
+
+# Short-lived in-memory cache for the OAuth access token. eBay tokens last
+# ~2h; caching avoids a token round-trip per listing in a batch approve session.
+# Keyed on env so a sandbox<->production toggle forces a refresh.
+_token_cache = {"token": None, "expires_at": 0.0, "env": None}
 
 _PROD_AUTH      = "https://api.ebay.com/identity/v1/oauth2/token"
 _PROD_INVENTORY = "https://api.ebay.com/sell/inventory/v1"
@@ -44,9 +50,8 @@ def _condition_enum(grade):
 
 
 def _condition_id(grade):
-    """eBay legacy numeric condition ID for the offer-level field."""
-    return {"NEW": "1000", "A+": "2500", "A": "2500",
-            "B": "3000", "C": "4000"}.get(grade, "4000")
+    """eBay legacy numeric condition ID (offer-level), from GRADE_CONDITION_MAP."""
+    return config.GRADE_CONDITION_MAP.get(grade, {}).get("ebay_id", "4000")
 
 
 def _listing_policies():
@@ -60,7 +65,17 @@ def _listing_policies():
 
 
 def _get_access_token():
-    """Exchange refresh token for a short-lived access token (sell scope)."""
+    """Exchange refresh token for a short-lived access token (sell scope).
+
+    Cached in-memory until shortly before expiry (capped) so a batch of
+    approves doesn't re-fetch on every listing.
+    """
+    now = time.monotonic()
+    if (_token_cache["token"]
+            and _token_cache["env"] == config.EBAY_ENV
+            and now < _token_cache["expires_at"]):
+        return _token_cache["token"]
+
     resp = requests.post(
         _auth_url(),
         headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -76,7 +91,12 @@ def _get_access_token():
         timeout=30,
     )
     resp.raise_for_status()
-    return resp.json()["access_token"]
+    data = resp.json()
+    token = data["access_token"]
+    # Cache until 60s before the token's stated expiry, capped at 30 min.
+    ttl = max(min(int(data.get("expires_in", 7200)) - 60, 1800), 0)
+    _token_cache.update(token=token, expires_at=now + ttl, env=config.EBAY_ENV)
+    return token
 
 
 def _item_specifics(product):
@@ -165,7 +185,7 @@ def create_listing(product, price, listing_copy, catalog_info=None):
             "format":            "FIXED_PRICE",
             "listingDescription": description_html,
             "pricingSummary": {
-                "price": {"value": str(price), "currency": "CAD"},
+                "price": {"value": str(price), "currency": config.DEFAULT_CURRENCY},
             },
             "categoryId":  config.EBAY_CATEGORY_ID,
             "conditionId": _condition_id(product["Grade"]),
