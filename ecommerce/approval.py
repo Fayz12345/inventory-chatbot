@@ -15,6 +15,7 @@ from flask import Blueprint, jsonify, request, session
 
 from ecommerce import db
 from ecommerce.listings import amazon as amazon_listings
+from ecommerce.listings import bestbuy as bestbuy_listings
 from ecommerce.listings import copy_generator
 from ecommerce.listings import ebay as ebay_listings
 from ecommerce.notifications.email_digest import render_batch_list, render_dashboard
@@ -23,9 +24,12 @@ log = logging.getLogger(__name__)
 
 approval_bp = Blueprint("ecommerce", __name__, url_prefix="/ecommerce")
 
-# Marketplaces that auto-post on approve (per #138). Anything else stays
+# Marketplaces that auto-post on approve. Best Buy CA (Mirakl) added in 1D.11;
+# it only posts when a catalog UPC match exists, else falls back to preview-only.
+# Reebelo CA stays preview-only (no listing API wired). Anything else is
 # preview-only — the modal still shows the generated copy for manual paste.
-AUTO_POST_MARKETPLACES = {"Amazon CA", "eBay CA", "Amazon", "eBay"}
+AUTO_POST_MARKETPLACES = {"Amazon CA", "eBay CA", "Amazon", "eBay",
+                          "Best Buy CA", "Best Buy"}
 
 # Map RecommendedMarketplace -> the per-marketplace floor column on
 # EcommercePricingRecommendation (for the EcommerceListingsLog audit row).
@@ -86,11 +90,11 @@ def _post_to_marketplace(marketplace, product, price, listing_copy):
     each module's create_listing() returns. Returns None for preview-only
     marketplaces (caller should treat that as "not auto-posted")."""
     mp = (marketplace or "").lower()
-    if mp not in ("amazon ca", "amazon", "ebay ca", "ebay"):
-        # Best Buy CA, Reebelo CA, etc. — preview-only per #138 AC.
+    if mp not in ("amazon ca", "amazon", "ebay ca", "ebay", "best buy ca", "best buy"):
+        # Reebelo CA, etc. — preview-only (no listing API wired).
         return None
 
-    # Single catalog lookup shared by both branches (#198 cleanup).
+    # Single catalog lookup shared by all branches (#198 cleanup).
     catalog = db.lookup_product_catalog(
         product["Manufacturer"], product["Model"], product["Colour"],
     ) or {}
@@ -104,7 +108,19 @@ def _post_to_marketplace(marketplace, product, price, listing_copy):
             device_category=db.lookup_device_category(product["Model"]),
         )
 
-    return ebay_listings.create_listing(
+    if mp in ("ebay ca", "ebay"):
+        return ebay_listings.create_listing(
+            product=product,
+            price=price,
+            listing_copy=listing_copy,
+            catalog_info=catalog,
+        )
+
+    # Best Buy (Mirakl, 1D.11): an offer must match a catalog product by UPC.
+    # Without one we can't list, so stay preview-only rather than fail approve.
+    if not catalog.get("upc"):
+        return None
+    return bestbuy_listings.create_listing(
         product=product,
         price=price,
         listing_copy=listing_copy,
@@ -122,6 +138,8 @@ def _delist_from_marketplace(marketplace, listing_id, product=None):
             return amazon_listings.delist(listing_id, device_category=category)
         if mp in ("ebay ca", "ebay"):
             return ebay_listings.delist(listing_id)
+        if mp in ("best buy ca", "best buy"):
+            return bestbuy_listings.delist(listing_id)
     except Exception:
         log.exception("Delist failed for %s listing %s", marketplace, listing_id)
     return False

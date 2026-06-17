@@ -159,21 +159,47 @@ def test_log_failure_rolls_back_post_and_releases(
 @patch("ecommerce.approval.db.update_recommendation_decision")
 @patch("ecommerce.approval.db.claim_recommendation", return_value=True)
 @patch("ecommerce.approval.db.create_listing_record")
+@patch("ecommerce.approval.db.lookup_product_catalog", return_value={})   # no UPC match
+@patch("ecommerce.approval.bestbuy_listings.create_listing")
 @patch("ecommerce.approval.amazon_listings.create_listing")
 @patch("ecommerce.approval.ebay_listings.create_listing")
 @patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
 @patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Best Buy CA"))
-def test_best_buy_is_preview_only_claims_approved(
-        _get, _copy_, mock_ebay, mock_amazon, mock_log, mock_claim, mock_decision, client):
+def test_best_buy_without_upc_stays_preview(
+        _get, _copy_, mock_ebay, mock_amazon, mock_bb, _catalog, mock_log, mock_claim, mock_decision, client):
+    """1D.11: Best Buy is auto-post-capable, but with no catalog UPC it can't be
+    matched, so it falls back to preview-only instead of failing approve."""
     resp = client.post("/ecommerce/approve?id=1")
     body = resp.get_json()
-    assert resp.status_code == 200 and body["ok"] is True
-    assert body["posted"] is False and body["listing_id"] is None
+    assert resp.status_code == 200 and body["posted"] is False
+    mock_bb.assert_not_called()                           # no UPC -> no Mirakl call
     mock_amazon.assert_not_called()
     mock_ebay.assert_not_called()
-    mock_log.assert_not_called()                       # preview-only -> no log row
-    mock_claim.assert_called_once_with(1, "approved")  # claimed straight to approved
-    mock_decision.assert_not_called()
+    mock_log.assert_not_called()
+    mock_decision.assert_called_once_with(1, "approved")  # finalized as preview
+
+
+@patch("ecommerce.approval.db.create_listing_record", return_value=99)
+@patch("ecommerce.approval.db.update_recommendation_decision")
+@patch("ecommerce.approval.db.claim_recommendation", return_value=True)
+@patch("ecommerce.approval.db.lookup_product_catalog",
+       return_value={"asin": None, "upc": "999002534166", "epid": None})
+@patch("ecommerce.approval.bestbuy_listings.create_listing",
+       return_value={"ok": True, "listing_id": "SAMSUNG-S25-A-BLACK", "env": "production"})
+@patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
+@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Best Buy CA"))
+def test_best_buy_with_upc_posts_via_mirakl(
+        _get, _copy_, mock_bb, _catalog, mock_claim, mock_decision, mock_log, client):
+    """1D.11: a UPC match routes Best Buy through the Mirakl listing module."""
+    resp = client.post("/ecommerce/approve?id=1")
+    body = resp.get_json()
+    assert resp.status_code == 200 and body["posted"] is True
+    assert body["env"] == "production"
+    mock_bb.assert_called_once()
+    mock_claim.assert_called_once_with(1, "processing")
+    mock_log.assert_called_once()
+    assert mock_log.call_args.kwargs["floor_price"] == 900.0   # BestBuyFloor
+    mock_decision.assert_called_once_with(1, "approved")
 
 
 @patch("ecommerce.approval.db.update_recommendation_decision")

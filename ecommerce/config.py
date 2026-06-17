@@ -73,6 +73,16 @@ EBAY_FULFILLMENT_POLICY_ID = _resolve("EBAY_ENV", "EBAY_FULFILLMENT_POLICY_ID", 
 EBAY_PAYMENT_POLICY_ID     = _resolve("EBAY_ENV", "EBAY_PAYMENT_POLICY_ID",     "EBAY_PAYMENT_POLICY_ID_SANDBOX")
 EBAY_RETURN_POLICY_ID      = _resolve("EBAY_ENV", "EBAY_RETURN_POLICY_ID",      "EBAY_RETURN_POLICY_ID_SANDBOX")
 
+# Best Buy Canada Marketplace (Mirakl) — ticket 1D.11. Single PRODUCTION
+# instance (no sandbox); creating an offer posts a REAL listing. Only state
+# "11" (New) is offered, so grade is carried in the offer description.
+BESTBUY_API_BASE         = _env("BESTBUY_API_BASE", "https://marketplace.bestbuy.ca/api")
+BESTBUY_API_KEY          = _env("BESTBUY_API_KEY", "")
+BESTBUY_STATE_CODE       = _env("BESTBUY_STATE_CODE", "11")
+BESTBUY_LOGISTIC_CLASS   = _env("BESTBUY_LOGISTIC_CLASS", "SMALL")
+BESTBUY_PRODUCT_ID_TYPE  = _env("BESTBUY_PRODUCT_ID_TYPE", "UPC-A")
+BESTBUY_LEADTIME_TO_SHIP = int(_env("BESTBUY_LEADTIME_TO_SHIP", "4") or "4")
+
 # Reebelo (creds parked; auto-post NOT wired yet per ADO #138)
 REEBELO_ENV       = _env("REEBELO_ENV", "sandbox").lower()
 REEBELO_USERNAME  = _resolve("REEBELO_ENV", "REEBELO_USERNAME",  "REEBELO_USERNAME_SANDBOX")
