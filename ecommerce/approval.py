@@ -18,18 +18,19 @@ from ecommerce.listings import amazon as amazon_listings
 from ecommerce.listings import bestbuy as bestbuy_listings
 from ecommerce.listings import copy_generator
 from ecommerce.listings import ebay as ebay_listings
+from ecommerce.listings import reebelo as reebelo_listings
 from ecommerce.notifications.email_digest import render_batch_list, render_dashboard
 
 log = logging.getLogger(__name__)
 
 approval_bp = Blueprint("ecommerce", __name__, url_prefix="/ecommerce")
 
-# Marketplaces that auto-post on approve. Best Buy CA (Mirakl) added in 1D.11;
-# it only posts when a catalog UPC match exists, else falls back to preview-only.
-# Reebelo CA stays preview-only (no listing API wired). Anything else is
-# preview-only — the modal still shows the generated copy for manual paste.
+# Marketplaces that auto-post on approve. Best Buy CA (Mirakl, 1D.11) posts only
+# when a catalog UPC match exists; Reebelo CA (Cobalt, 1D.12) posts only when its
+# API key is configured — both fall back to preview-only otherwise. Anything else
+# is preview-only — the modal still shows the generated copy for manual paste.
 AUTO_POST_MARKETPLACES = {"Amazon CA", "eBay CA", "Amazon", "eBay",
-                          "Best Buy CA", "Best Buy"}
+                          "Best Buy CA", "Best Buy", "Reebelo CA", "Reebelo"}
 
 # Map RecommendedMarketplace -> the per-marketplace floor column on
 # EcommercePricingRecommendation (for the EcommerceListingsLog audit row).
@@ -90,9 +91,18 @@ def _post_to_marketplace(marketplace, product, price, listing_copy):
     each module's create_listing() returns. Returns None for preview-only
     marketplaces (caller should treat that as "not auto-posted")."""
     mp = (marketplace or "").lower()
-    if mp not in ("amazon ca", "amazon", "ebay ca", "ebay", "best buy ca", "best buy"):
-        # Reebelo CA, etc. — preview-only (no listing API wired).
-        return None
+    if mp not in ("amazon ca", "amazon", "ebay ca", "ebay",
+                  "best buy ca", "best buy", "reebelo ca", "reebelo"):
+        return None  # preview-only
+
+    # Reebelo (Cobalt, 1D.12): lists by our own SKU (no catalog match needed),
+    # but stays preview-only until its API key is configured.
+    if mp in ("reebelo ca", "reebelo"):
+        if not reebelo_listings._have_creds():
+            return None
+        return reebelo_listings.create_listing(
+            product=product, price=price, listing_copy=listing_copy,
+        )
 
     # Single catalog lookup shared by all branches (#198 cleanup).
     catalog = db.lookup_product_catalog(
@@ -140,6 +150,8 @@ def _delist_from_marketplace(marketplace, listing_id, product=None):
             return ebay_listings.delist(listing_id)
         if mp in ("best buy ca", "best buy"):
             return bestbuy_listings.delist(listing_id)
+        if mp in ("reebelo ca", "reebelo"):
+            return reebelo_listings.delist(listing_id)
     except Exception:
         log.exception("Delist failed for %s listing %s", marketplace, listing_id)
     return False

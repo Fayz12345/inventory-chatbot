@@ -205,18 +205,40 @@ def test_best_buy_with_upc_posts_via_mirakl(
 @patch("ecommerce.approval.db.update_recommendation_decision")
 @patch("ecommerce.approval.db.claim_recommendation", return_value=True)
 @patch("ecommerce.approval.db.create_listing_record")
-@patch("ecommerce.approval.amazon_listings.create_listing")
-@patch("ecommerce.approval.ebay_listings.create_listing")
+@patch("ecommerce.approval.reebelo_listings._have_creds", return_value=False)
+@patch("ecommerce.approval.reebelo_listings.create_listing")
 @patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
 @patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Reebelo CA"))
-def test_reebelo_is_preview_only_per_138_ac(
-        _get, _copy_, mock_ebay, mock_amazon, _log, mock_claim, _decision, client):
-    """ADO #138 explicitly says Reebelo CA stays preview-only — locked here."""
+def test_reebelo_without_creds_stays_preview(
+        _get, _copy_, mock_reebelo, _havecreds, mock_log, mock_claim, mock_decision, client):
+    """1D.12: Reebelo auto-posts only when its key is configured; without it,
+    preview-only (no failed approve)."""
     resp = client.post("/ecommerce/approve?id=1")
-    assert resp.get_json()["posted"] is False
-    mock_amazon.assert_not_called()
-    mock_ebay.assert_not_called()
-    mock_claim.assert_called_once_with(1, "approved")
+    assert resp.status_code == 200 and resp.get_json()["posted"] is False
+    mock_reebelo.assert_not_called()
+    mock_log.assert_not_called()
+    mock_decision.assert_called_once_with(1, "approved")
+
+
+@patch("ecommerce.approval.db.create_listing_record", return_value=77)
+@patch("ecommerce.approval.db.update_recommendation_decision")
+@patch("ecommerce.approval.db.claim_recommendation", return_value=True)
+@patch("ecommerce.approval.reebelo_listings._have_creds", return_value=True)
+@patch("ecommerce.approval.reebelo_listings.create_listing",
+       return_value={"ok": True, "listing_id": "SAMSUNG-S25-A-BLACK", "env": "sandbox"})
+@patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
+@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Reebelo CA"))
+def test_reebelo_with_creds_posts(
+        _get, _copy_, mock_reebelo, _havecreds, mock_claim, mock_decision, mock_log, client):
+    """1D.12: with a key configured, Reebelo routes through the Cobalt module."""
+    resp = client.post("/ecommerce/approve?id=1")
+    body = resp.get_json()
+    assert resp.status_code == 200 and body["posted"] is True
+    mock_reebelo.assert_called_once()
+    mock_claim.assert_called_once_with(1, "processing")
+    mock_log.assert_called_once()
+    assert mock_log.call_args.kwargs["floor_price"] == 760.0   # ReebeloFloor
+    mock_decision.assert_called_once_with(1, "approved")
 
 
 # ---------------------------------------------------------------------------
