@@ -19,10 +19,18 @@ import logging
 import re
 
 from ecommerce.pricing import apify_client
+from ecommerce.pricing.filters import is_accessory
 
 log = logging.getLogger(__name__)
 
 ACTOR_ID = 'automation-lab/google-shopping-scraper'
+
+# The actor's `maxResults` is a per-RUN total cap (not per-query). Cramming every
+# keyword into one run therefore starves all but the first few keywords. Send the
+# keywords in small chunks and scale maxResults by the chunk size so each keyword
+# still gets ~RESULTS_PER_KEYWORD products to attribute a Best Buy price from.
+CHUNK_SIZE = 12
+RESULTS_PER_KEYWORD = 20
 
 # Seller name patterns for Best Buy attribution (case-insensitive)
 BESTBUY_PATTERNS = [
@@ -72,9 +80,12 @@ def _is_carrier_financing(title, price):
     return any(carrier in title_lower for carrier in CARRIER_NAMES)
 
 
-def scrape_prices(keywords_list):
+def scrape_prices(keywords_list, chunk_size=CHUNK_SIZE):
     """
     Scrape Google Shopping (country=ca) for Best Buy Canada prices.
+
+    Runs the actor in small keyword chunks (see CHUNK_SIZE) so the per-run
+    maxResults cap doesn't starve later keywords.
 
     Returns:
         dict mapping keyword -> lowest Best Buy CA price (float) or None.
@@ -82,17 +93,23 @@ def scrape_prices(keywords_list):
     if not keywords_list:
         return {}
 
-    log.info("Scraping Google Shopping (CA) for %d keywords (Best Buy)...",
-             len(keywords_list))
+    keywords = list(keywords_list)
+    chunks = [keywords[i:i + chunk_size] for i in range(0, len(keywords), chunk_size)]
+    log.info("Scraping Google Shopping (CA) for %d keywords (Best Buy) in %d chunk(s)...",
+             len(keywords), len(chunks))
 
-    run_input = {
-        'queries': list(keywords_list),
-        'country': 'ca',
-        'maxResults': 20,
-    }
+    all_rows = []
+    for idx, chunk in enumerate(chunks, 1):
+        run_input = {
+            'queries': chunk,
+            'country': 'ca',
+            'maxResults': RESULTS_PER_KEYWORD * len(chunk),
+        }
+        log.info("  Best Buy chunk %d/%d (%d keywords)...", idx, len(chunks), len(chunk))
+        rows = apify_client.run_actor(ACTOR_ID, run_input, timeout_secs=900)
+        all_rows.extend(rows)
 
-    rows = apify_client.run_actor(ACTOR_ID, run_input, timeout_secs=900)
-    return _parse_results(rows, keywords_list)
+    return _parse_results(all_rows, keywords)
 
 
 def _parse_results(rows, original_keywords):
@@ -120,6 +137,11 @@ def _parse_results(rows, original_keywords):
 
         seller = str(row.get('merchant', '')).strip()
         if not _match_seller(seller, BESTBUY_PATTERNS):
+            continue
+
+        # Drop accessories/parts (bands, straps, protectors, cases) so a $17.50
+        # watch band never becomes the Best Buy device floor.
+        if is_accessory(row.get('title', '')):
             continue
 
         price = _parse_price(row.get('priceNumeric') or row.get('price'))

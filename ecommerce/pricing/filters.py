@@ -48,6 +48,15 @@ ACCESSORY_PHRASES = (
     "speaker",
     "airpods",
     "galaxy buds",
+    # Smartwatch accessories — bands/straps/protectors/cases dominate watch
+    # queries and were becoming the Best Buy/Reebelo "floor" (e.g. a $17.50 band).
+    "watch band",
+    "watch strap",
+    "smartwatch band",
+    "protective film",
+    "screen guard",
+    "watch case",
+    "bumper case",
 )
 
 # Title prefixes that mark "compatible accessory" listings ("For Motorola ...",
