@@ -10,6 +10,7 @@ Flow: createOrReplaceInventoryItem -> createOffer -> publishOffer.
 """
 
 import logging
+import re
 import time
 
 import requests
@@ -17,6 +18,9 @@ import requests
 from ecommerce import config
 
 log = logging.getLogger(__name__)
+
+# Pulls "128GB" / "1 TB" out of a Model string for the Storage Capacity aspect.
+_STORAGE_RE = re.compile(r"(\d+)\s*(TB|GB)", re.IGNORECASE)
 
 # Short-lived in-memory cache for the OAuth access token. eBay tokens last
 # ~2h; caching avoids a token round-trip per listing in a batch approve session.
@@ -100,11 +104,26 @@ def _get_access_token():
 
 
 def _item_specifics(product):
-    return [
-        {"name": "Brand",  "values": [product["Manufacturer"]]},
-        {"name": "Model",  "values": [product["Model"]]},
-        {"name": "Colour", "values": [product["Colour"]]},
+    """Item specifics (aspects) for the listing.
+
+    eBay categories require more than brand/model to publish — e.g. Cell Phones
+    (9355) mandates Storage Capacity — so we include the commonly-required
+    aspects, parsing storage out of the Model string when present.
+    """
+    mfr = product.get("Manufacturer", "")
+    specs = [
+        {"name": "Brand", "values": [mfr]},
+        {"name": "Model", "values": [product.get("Model", "")]},
+        {"name": "Color", "values": [product.get("Colour", "")]},
+        {"name": "Network", "values": ["Unlocked"]},
+        {"name": "Operating System",
+         "values": ["iOS" if mfr.strip().lower() == "apple" else "Android"]},
     ]
+    m = _STORAGE_RE.search(product.get("Model", "") or "")
+    if m:
+        specs.append({"name": "Storage Capacity",
+                      "values": ["%s %s" % (m.group(1), m.group(2).upper())]})
+    return specs
 
 
 def create_listing(product, price, listing_copy, catalog_info=None):
@@ -224,12 +243,14 @@ def create_listing(product, price, listing_copy, catalog_info=None):
                 f"eBay publish offer failed: {resp.status_code} {resp.text}"
             )}
 
-        listing_id = resp.json().get("listingId", offer_id)
+        public_listing_id = resp.json().get("listingId", offer_id)
         log.info(
-            "eBay listing published (%s): SKU=%s listingId=%s",
-            config.EBAY_ENV, sku, listing_id,
+            "eBay listing published (%s): SKU=%s offerId=%s listingId=%s",
+            config.EBAY_ENV, sku, offer_id, public_listing_id,
         )
-        return {"ok": True, "listing_id": str(listing_id), "env": config.EBAY_ENV}
+        # Return the offerId as the managed listing id: withdraw/delist operate
+        # on the offer, not the public listingId (which can't be withdrawn).
+        return {"ok": True, "listing_id": str(offer_id), "env": config.EBAY_ENV}
 
     except requests.RequestException as e:
         log.error("eBay API error creating listing for %s: %s", sku, e)

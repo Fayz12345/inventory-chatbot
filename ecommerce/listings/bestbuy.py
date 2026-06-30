@@ -98,12 +98,16 @@ def create_listing(product, price, listing_copy, catalog_info=None):
                                       "EcommerceProductCatalog (1D.1) before auto-posting."}
 
     shop_sku = _shop_sku(product)
+    # BESTBUY_FORCE_QUANTITY (e.g. "0" for a demo) overrides real stock when set.
+    qty = product["Quantity"]
+    if str(config.BESTBUY_FORCE_QUANTITY).strip() != "":
+        qty = int(config.BESTBUY_FORCE_QUANTITY)
     offer = {
         "shop_sku":         shop_sku,
         "product_id":       upc,
         "product_id_type":  config.BESTBUY_PRODUCT_ID_TYPE,
         "price":            float(price),
-        "quantity":         product["Quantity"],
+        "quantity":         qty,
         "state_code":       config.BESTBUY_STATE_CODE,
         "description":      _description(product, listing_copy),
         "logistic_class":   config.BESTBUY_LOGISTIC_CLASS,

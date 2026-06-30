@@ -51,7 +51,9 @@ def test_offer_body_includes_location_and_policies(mock_requests, _tok, monkeypa
 
     result = ebay.create_listing(_product(), 299.99, _copy())
 
-    assert result == {"ok": True, "listing_id": "LST1", "env": config.EBAY_ENV}
+    # listing_id is the offerId (what withdraw/delist operate on), not the
+    # public listingId.
+    assert result == {"ok": True, "listing_id": "OF1", "env": config.EBAY_ENV}
     offer_body = mock_requests.post.call_args_list[0].kwargs["json"]
     assert offer_body["merchantLocationKey"] == "BRIDGE-CA-01"
     assert offer_body["listingPolicies"] == {
