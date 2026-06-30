@@ -14,11 +14,12 @@
 
   <div class="composer-wrap">
     <div id="input-area">
-      <input type="text" id="question" placeholder="Ask a question about your inventory…" autofocus>
+      <textarea id="question" rows="1" placeholder="Ask a question about your inventory…" autofocus></textarea>
       <button id="send-btn" onclick="sendQuestion()" aria-label="Send">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 19V5M12 5l-6 6M12 5l6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
+    <div class="composer-hint" id="composer-hint">Press <kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</div>
     <div class="chat-suggestions" id="chat-suggestions">
       <button type="button" onclick="useSuggestion(this)">How many iPhone 14 Pros are in the Product Room?</button>
       <button type="button" onclick="useSuggestion(this)">Total device cost received in February 2026</button>
@@ -30,13 +31,25 @@
 {% block scripts %}
 <script>
     const chatEl = document.getElementById('chat');
+    const questionEl = document.getElementById('question');
 
-    document.getElementById('question').addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') sendQuestion();
+    // Enter sends; Shift+Enter inserts a newline (multi-line questions).
+    questionEl.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendQuestion();
+        }
     });
+    // Auto-grow the textarea up to a max height as the user types.
+    questionEl.addEventListener('input', autogrow);
+    function autogrow() {
+        questionEl.style.height = 'auto';
+        questionEl.style.height = Math.min(questionEl.scrollHeight, 200) + 'px';
+    }
 
     function useSuggestion(btn) {
-        document.getElementById('question').value = btn.textContent.trim();
+        questionEl.value = btn.textContent.trim();
+        autogrow();
         sendQuestion();
     }
 
@@ -48,15 +61,24 @@
         }
     }
 
+    // Minimal, safe formatting for the assistant's text: escape HTML, then
+    // render **bold** and newlines. (The model returns light markdown.)
+    function formatAnswer(text) {
+        return String(text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\n/g, '<br>');
+    }
+
     function sendQuestion() {
-        const input = document.getElementById('question');
-        const question = input.value.trim();
+        const question = questionEl.value.trim();
         if (!question) return;
 
         activateConversation();
 
         appendMessage(question, 'user');
-        input.value = '';
+        questionEl.value = '';
+        questionEl.style.height = 'auto';
         document.getElementById('send-btn').disabled = true;
 
         const thinking = appendMessage('Thinking…', 'bot thinking');
@@ -69,7 +91,7 @@
         .then(r => r.json())
         .then(data => {
             thinking.remove();
-            let html = `<div>${data.answer}</div>`;
+            let html = `<div>${formatAnswer(data.answer)}</div>`;
             if (data.sql) {
                 html += `<div class="sql">${data.sql}</div>`;
             }
@@ -88,7 +110,7 @@
         })
         .finally(() => {
             document.getElementById('send-btn').disabled = false;
-            document.getElementById('question').focus();
+            questionEl.focus();
         });
     }
 
