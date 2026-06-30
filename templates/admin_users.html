@@ -1,154 +1,88 @@
-<!DOCTYPE html>
-<html>
-<head>
-<title>User Management — Bridge Platform</title>
-<style>
-    body { font-family: Arial, sans-serif; margin: 0; background: #f0f2f5; }
-    .header { background: #2563eb; color: #fff; padding: 14px 24px; display: flex;
-              justify-content: space-between; align-items: center; }
-    .header h1 { margin: 0; font-size: 20px; }
-    .header a { color: #fff; text-decoration: none; font-size: 14px; opacity: 0.85; }
-    .header a:hover { opacity: 1; }
-    .container { max-width: 960px; margin: 30px auto; padding: 0 20px; }
-    .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-    .toolbar h2 { margin: 0; color: #333; }
-    .btn { display: inline-block; padding: 10px 20px; border-radius: 6px; font-size: 14px;
-           font-weight: bold; cursor: pointer; border: none; }
-    .btn-primary { background: #2563eb; color: #fff; }
-    .btn-primary:hover { background: #1d4ed8; }
-    .btn-sm { padding: 6px 14px; font-size: 12px; }
-    .btn-danger { background: #dc2626; color: #fff; }
-    .btn-danger:hover { background: #b91c1c; }
-    .btn-outline { background: #fff; color: #2563eb; border: 1px solid #2563eb; }
-    .btn-outline:hover { background: #eff6ff; }
-    .btn-yellow { background: #eab308; color: #fff; }
-    .btn-yellow:hover { background: #ca8a04; }
-    .btn-green { background: #16a34a; color: #fff; }
-    .btn-green:hover { background: #15803d; }
-    .table-wrap { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-                  overflow: hidden; }
-    table { width: 100%; border-collapse: collapse; }
-    th { background: #2563eb; color: #fff; padding: 12px 14px; text-align: left; font-size: 13px; }
-    td { padding: 12px 14px; border-bottom: 1px solid #eee; font-size: 14px; }
-    tr:hover { background: #f9fafb; }
-    .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px;
-             font-weight: bold; }
-    .badge-admin { background: #dbeafe; color: #1d4ed8; }
-    .badge-user { background: #f3f4f6; color: #6b7280; }
-    .badge-active { background: #dcfce7; color: #15803d; }
-    .badge-pending { background: #fef9c3; color: #a16207; }
-    .actions { display: flex; gap: 6px; flex-wrap: wrap; }
-    .you { font-size: 11px; color: #9ca3af; margin-left: 6px; }
-    .email { color: #6b7280; font-size: 13px; }
+{% extends "_base.html" %}
+{% block title %}User Management — Bridge Platform{% endblock %}
+{% block body %}
+<div class="page page--narrow">
+  <div class="page-head">
+    <div><h1>Users <span class="count">({{ users | length }})</span></h1></div>
+    <button class="btn btn-primary" onclick="showCreateModal()">+ Invite User</button>
+  </div>
 
-    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 2000;
-                     justify-content: center; align-items: center; }
-    .modal-overlay.active { display: flex; }
-    .modal { background: #fff; border-radius: 10px; width: 420px; padding: 28px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
-    .modal h3 { margin: 0 0 20px; color: #333; }
-    .modal label { display: block; font-weight: bold; font-size: 13px; color: #444; margin-bottom: 4px; }
-    .modal input[type=text], .modal input[type=email] {
-        width: 100%; padding: 9px 12px; border: 1px solid #d1d5db; border-radius: 6px;
-        font-size: 14px; box-sizing: border-box; margin-bottom: 14px; }
-    .modal input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
-    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
-    .checkbox-row { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
-    .checkbox-row input[type=checkbox] { width: 16px; height: 16px; }
-    .checkbox-row label { margin: 0; }
-    .hint { font-size: 12px; color: #9ca3af; margin: -10px 0 14px; }
-    .toast { display: none; position: fixed; top: 20px; right: 20px; padding: 12px 24px;
-             border-radius: 6px; color: #fff; font-weight: bold; z-index: 3000; }
-    .toast-success { background: #16a34a; }
-    .toast-error { background: #dc2626; }
-</style>
-</head>
-<body>
-<div class="header">
-    <h1>User Management</h1>
-    <div><a href="/home">&larr; Home</a></div>
-</div>
-<div class="container">
-    <div class="toolbar">
-        <h2>Users ({{ users | length }})</h2>
-        <button class="btn btn-primary" onclick="showCreateModal()">+ Invite User</button>
-    </div>
-
-    <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>Username</th>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Status</th>
-                    <th>Created</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for u in users %}
-                <tr id="user-{{ u.id }}">
-                    <td>
-                        {{ u.username }}
-                        {% if u.username == username %}<span class="you">(you)</span>{% endif %}
-                    </td>
-                    <td class="email">{{ u.email or '—' }}</td>
-                    <td>
-                        <span class="badge {{ 'badge-admin' if u.is_admin else 'badge-user' }}">
-                            {{ 'Admin' if u.is_admin else 'User' }}
-                        </span>
-                    </td>
-                    <td>
-                        <span class="badge {{ 'badge-active' if u.password_set else 'badge-pending' }}">
-                            {{ 'Active' if u.password_set else 'Pending' }}
-                        </span>
-                    </td>
-                    <td>{{ u.created_at[:16] if u.created_at else '' }}</td>
-                    <td>
-                        <div class="actions">
-                            {% if u.username != username %}
-                                {% if not u.password_set %}
-                                <button class="btn btn-sm btn-green" onclick="resendInvite({{ u.id }}, '{{ u.username }}')">Resend Invite</button>
-                                {% endif %}
-                                {% if u.email %}
-                                <button class="btn btn-sm btn-outline" onclick="resetPassword({{ u.id }}, '{{ u.username }}')">Reset Password</button>
-                                {% endif %}
-                                <button class="btn btn-sm btn-yellow" onclick="toggleAdmin({{ u.id }})">
-                                    {{ 'Revoke Admin' if u.is_admin else 'Make Admin' }}
-                                </button>
-                                <button class="btn btn-sm btn-danger" onclick="deleteUser({{ u.id }}, '{{ u.username }}')">Delete</button>
-                            {% endif %}
-                        </div>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr id="user-{{ u.id }}">
+          <td>
+            {{ u.username }}
+            {% if u.username == username %}<span class="you">(you)</span>{% endif %}
+          </td>
+          <td class="email">{{ u.email or '—' }}</td>
+          <td>
+            <span class="badge {{ 'badge-admin' if u.is_admin else 'badge-user' }}">{{ 'Admin' if u.is_admin else 'User' }}</span>
+          </td>
+          <td>
+            <span class="badge {{ 'badge-active' if u.password_set else 'badge-pending' }}">{{ 'Active' if u.password_set else 'Pending' }}</span>
+          </td>
+          <td>{{ u.created_at[:16] if u.created_at else '' }}</td>
+          <td>
+            <div class="actions">
+              {% if u.username != username %}
+                {% if not u.password_set %}
+                <button class="btn btn-sm btn-green" onclick="resendInvite({{ u.id }}, '{{ u.username }}')">Resend Invite</button>
+                {% endif %}
+                {% if u.email %}
+                <button class="btn btn-sm btn-outline" onclick="resetPassword({{ u.id }}, '{{ u.username }}')">Reset Password</button>
+                {% endif %}
+                <button class="btn btn-sm btn-yellow" onclick="toggleAdmin({{ u.id }})">{{ 'Revoke Admin' if u.is_admin else 'Make Admin' }}</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteUser({{ u.id }}, '{{ u.username }}')">Delete</button>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 
 <!-- Create User Modal -->
 <div id="create-modal" class="modal-overlay" onclick="if(event.target===this)closeModals()">
-    <div class="modal">
-        <h3>Invite New User</h3>
-        <label for="new-username">Username</label>
-        <input type="text" id="new-username" placeholder="e.g. JohnDoe">
-        <label for="new-email">Email Address</label>
-        <input type="email" id="new-email" placeholder="e.g. john@example.com">
-        <p class="hint">An invite email will be sent so the user can set their own password.</p>
-        <div class="checkbox-row">
-            <input type="checkbox" id="new-admin">
-            <label for="new-admin">Admin privileges</label>
-        </div>
-        <div class="modal-actions">
-            <button class="btn btn-outline" onclick="closeModals()">Cancel</button>
-            <button class="btn btn-primary" id="create-btn" onclick="createUser()">Send Invite</button>
-        </div>
+  <div class="modal">
+    <button class="modal-close" onclick="closeModals()">&times;</button>
+    <h3>Invite New User</h3>
+    <div class="field">
+      <label for="new-username">Username</label>
+      <input type="text" id="new-username" placeholder="e.g. JohnDoe">
     </div>
+    <div class="field">
+      <label for="new-email">Email Address</label>
+      <input type="email" id="new-email" placeholder="e.g. john@example.com">
+    </div>
+    <p class="hint" style="margin-top:-8px">An invite email will be sent so the user can set their own password.</p>
+    <div class="checkbox-row" style="margin:14px 0">
+      <input type="checkbox" id="new-admin">
+      <label for="new-admin" style="margin:0">Admin privileges</label>
+    </div>
+    <div class="modal-actions" style="justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeModals()">Cancel</button>
+      <button class="btn btn-primary" id="create-btn" onclick="createUser()">Send Invite</button>
+    </div>
+  </div>
 </div>
 
 <div id="toast" class="toast"></div>
-
+{% endblock %}
+{% block scripts %}
 <script>
 function showCreateModal() {
     document.getElementById('new-username').value = '';
@@ -281,5 +215,4 @@ function showToast(msg, type) {
 
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeModals(); });
 </script>
-</body>
-</html>
+{% endblock %}
