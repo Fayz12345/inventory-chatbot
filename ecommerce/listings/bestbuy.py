@@ -23,6 +23,7 @@ be confirmed with one real offer before it's relied on in production.
 """
 
 import logging
+import re
 import time
 
 import requests
@@ -33,6 +34,26 @@ log = logging.getLogger(__name__)
 
 _POLL_ATTEMPTS = 10
 _POLL_INTERVAL = 2  # seconds
+
+
+def _offer_product_url(shop_sku):
+    """Best-effort bestbuy.ca product-page URL for a just-posted offer, built from
+    the Best Buy catalog product_sku. Returns None if it can't be resolved (the
+    modal then simply shows no 'View listing' link)."""
+    try:
+        r = requests.get(f"{config.BESTBUY_API_BASE}/offers",
+                         headers=_headers(), params={"sku": shop_sku}, timeout=30)
+        offers = (r.json() or {}).get("offers") or []
+        if not offers:
+            return None
+        o = offers[0]
+        product_sku = o.get("product_sku")
+        if not product_sku:
+            return None
+        slug = re.sub(r"[^a-z0-9]+", "-", (o.get("product_title") or "").lower()).strip("-") or "product"
+        return "https://www.bestbuy.ca/en-ca/product/%s/%s" % (slug, product_sku)
+    except requests.RequestException:
+        return None
 
 
 def _headers():
@@ -137,8 +158,11 @@ def create_listing(product, price, listing_copy, catalog_info=None):
             log.error("Best Buy offer %s not accepted: %s", shop_sku, detail)
             return {"ok": False, "error": f"Best Buy offer not accepted: {detail}"}
 
-        log.info("Best Buy offer posted (production): shop_sku=%s import=%s", shop_sku, import_id)
-        return {"ok": True, "listing_id": shop_sku, "env": "production"}
+        listing_url = _offer_product_url(shop_sku)
+        log.info("Best Buy offer posted (production): shop_sku=%s import=%s url=%s",
+                 shop_sku, import_id, listing_url)
+        return {"ok": True, "listing_id": shop_sku, "env": "production",
+                "listing_url": listing_url}
 
     except requests.RequestException as e:
         log.error("Best Buy API error for %s: %s", shop_sku, e)

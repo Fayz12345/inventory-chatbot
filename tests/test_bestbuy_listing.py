@@ -61,7 +61,9 @@ def test_create_listing_happy_path_builds_offer_and_confirms(mock_requests, monk
 
     out = bestbuy.create_listing(_product(), 299.99, _copy(),
                                  catalog_info={"upc": "999002534166"})
-    assert out == {"ok": True, "listing_id": "SAMSUNG-GALAXY-S21-A-BLACK", "env": "production"}
+    assert out["ok"] is True
+    assert out["listing_id"] == "SAMSUNG-GALAXY-S21-A-BLACK"
+    assert out["env"] == "production"
 
     offer = mock_requests.post.call_args.kwargs["json"]["offers"][0]
     assert offer["shop_sku"] == "SAMSUNG-GALAXY-S21-A-BLACK"
