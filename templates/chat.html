@@ -1,32 +1,65 @@
 {% extends "_base.html" %}
 {% block title %}Inventory Chatbot — Bridge Platform{% endblock %}
 {% block body %}
-<div class="chat-shell">
-  <div id="chat-window">
-    <div class="message bot">Hi! Ask me anything about your current inventory. For example: <em>"How many iPhone 14 Pros are in the Product Room?"</em> or <em>"What was the total device cost received in February 2026?"</em></div>
+<div class="chat-shell is-empty" id="chat">
+  <div class="chat-hero" id="chat-hero">
+    <div class="chat-hero__spark" aria-hidden="true">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M12 2l1.9 5.9a4 4 0 0 0 2.6 2.6L22 12l-5.5 1.5a4 4 0 0 0-2.6 2.6L12 22l-1.9-5.9a4 4 0 0 0-2.6-2.6L2 12l5.5-1.5a4 4 0 0 0 2.6-2.6L12 2z" fill="currentColor"/></svg>
+    </div>
+    <h1>How can I help with your inventory{% if username %}, {{ username }}{% endif %}?</h1>
+    <p class="sub">Ask in plain English — stock counts, device costs, models, locations and more.</p>
   </div>
-  <div id="input-area">
-    <input type="text" id="question" placeholder="Ask a question about inventory..." autofocus>
-    <button id="send-btn" class="btn btn-primary" onclick="sendQuestion()">Ask</button>
+
+  <div id="chat-window"></div>
+
+  <div class="composer-wrap">
+    <div id="input-area">
+      <input type="text" id="question" placeholder="Ask a question about your inventory…" autofocus>
+      <button id="send-btn" onclick="sendQuestion()" aria-label="Send">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 19V5M12 5l-6 6M12 5l6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div class="chat-suggestions" id="chat-suggestions">
+      <button type="button" onclick="useSuggestion(this)">How many iPhone 14 Pros are in the Product Room?</button>
+      <button type="button" onclick="useSuggestion(this)">Total device cost received in February 2026</button>
+      <button type="button" onclick="useSuggestion(this)">Count of devices by manufacturer</button>
+    </div>
   </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
+    const chatEl = document.getElementById('chat');
+
     document.getElementById('question').addEventListener('keydown', function(e) {
         if (e.key === 'Enter') sendQuestion();
     });
+
+    function useSuggestion(btn) {
+        document.getElementById('question').value = btn.textContent.trim();
+        sendQuestion();
+    }
+
+    // First message collapses the centered hero into the conversation view.
+    function activateConversation() {
+        if (chatEl.classList.contains('is-empty')) {
+            chatEl.classList.remove('is-empty');
+            chatEl.classList.add('is-active');
+        }
+    }
 
     function sendQuestion() {
         const input = document.getElementById('question');
         const question = input.value.trim();
         if (!question) return;
 
+        activateConversation();
+
         appendMessage(question, 'user');
         input.value = '';
         document.getElementById('send-btn').disabled = true;
 
-        const thinking = appendMessage('Thinking...', 'bot thinking');
+        const thinking = appendMessage('Thinking…', 'bot thinking');
 
         fetch('/ask', {
             method: 'POST',
@@ -55,6 +88,7 @@
         })
         .finally(() => {
             document.getElementById('send-btn').disabled = false;
+            document.getElementById('question').focus();
         });
     }
 
