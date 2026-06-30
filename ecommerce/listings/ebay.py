@@ -9,6 +9,7 @@ real ebay.ca — so it's the safe place to validate end-to-end before flipping
 Flow: createOrReplaceInventoryItem -> createOffer -> publishOffer.
 """
 
+import hashlib
 import logging
 import re
 import time
@@ -21,6 +22,45 @@ log = logging.getLogger(__name__)
 
 # Pulls "128GB" / "1 TB" out of a Model string for the Storage Capacity aspect.
 _STORAGE_RE = re.compile(r"(\d+)\s*(TB|GB)", re.IGNORECASE)
+_CASE_SIZE_RE = re.compile(r"(\d{2})\s*mm", re.IGNORECASE)
+
+# eBay CA leaf categories per device type (validated live against the sandbox:
+# each one published with the aspect set built in _item_specifics below).
+_CATEGORY_BY_TYPE = {
+    "phone":      "9355",    # Cell Phones & Smartphones
+    "smartwatch": "178893",  # Smart Watches
+    "tablet":     "171485",  # Tablets & eBook Readers
+    "earbuds":    "112529",  # Headphones
+}
+
+
+def _device_type(product):
+    """Classify a product into an eBay category bucket from its Model string."""
+    m = (product.get("Model") or "").lower()
+    if any(k in m for k in ("airpod", "buds", "earbud", "earphone")):
+        return "earbuds"
+    if "watch" in m:
+        return "smartwatch"
+    if any(k in m for k in ("ipad", "tablet", "galaxy tab", "tab s", "tab a")):
+        return "tablet"
+    return "phone"
+
+
+def _category_id(product):
+    return _CATEGORY_BY_TYPE.get(_device_type(product), config.EBAY_CATEGORY_ID or "9355")
+
+
+def _sku(product):
+    """eBay SKU: alphanumeric/dash only, max 50 chars. Long models (which embed
+    parenthesised descriptions) are truncated with a short hash so distinct
+    products stay distinct — eBay rejects anything else with errorId 25707."""
+    raw = "-".join([product.get("Manufacturer", ""), product.get("Model", ""),
+                    product.get("Grade", ""), product.get("Colour", "")])
+    s = re.sub(r"[^A-Za-z0-9]+", "-", raw).strip("-").upper()
+    if len(s) > 50:
+        h = hashlib.md5(raw.encode("utf-8")).hexdigest()[:8].upper()
+        s = s[:41].rstrip("-") + "-" + h
+    return s
 
 # Short-lived in-memory cache for the OAuth access token. eBay tokens last
 # ~2h; caching avoids a token round-trip per listing in a batch approve session.
@@ -128,26 +168,47 @@ def _get_access_token():
 
 
 def _item_specifics(product):
-    """Item specifics (aspects) for the listing.
-
-    eBay categories require more than brand/model to publish — e.g. Cell Phones
-    (9355) mandates Storage Capacity — so we include the commonly-required
-    aspects, parsing storage out of the Model string when present.
+    """Item specifics (aspects) required to PUBLISH in the product's eBay
+    category. The required set differs per category (validated live against the
+    sandbox), so we build it per device type and fill values from the product
+    where possible, with sensible defaults otherwise.
     """
-    mfr = product.get("Manufacturer", "")
-    specs = [
-        {"name": "Brand", "values": [mfr]},
-        {"name": "Model", "values": [product.get("Model", "")]},
-        {"name": "Color", "values": [product.get("Colour", "")]},
-        {"name": "Network", "values": ["Unlocked"]},
-        {"name": "Operating System",
-         "values": ["iOS" if mfr.strip().lower() == "apple" else "Android"]},
-    ]
-    m = _STORAGE_RE.search(product.get("Model", "") or "")
-    if m:
-        specs.append({"name": "Storage Capacity",
-                      "values": ["%s %s" % (m.group(1), m.group(2).upper())]})
-    return specs
+    mfr = product.get("Manufacturer", "") or ""
+    model = product.get("Model", "") or ""
+    colour = product.get("Colour", "") or ""
+    apple = mfr.strip().lower() == "apple"
+    dtype = _device_type(product)
+
+    specs = {"Brand": mfr or "Unbranded", "Model": model or mfr or "N/A"}
+    storage = _STORAGE_RE.search(model)
+    storage_val = "%s %s" % (storage.group(1), storage.group(2).upper()) if storage else None
+
+    if dtype == "smartwatch":
+        case = _CASE_SIZE_RE.search(model)
+        specs["Case Size"] = ("%s mm" % case.group(1)) if case else "44 mm"
+        specs["Compatible Operating System"] = "Apple iOS" if apple else "Android"
+        specs["Band Material"] = "Silicone"
+        if colour:
+            specs["Colour"] = colour
+    elif dtype == "earbuds":
+        specs["Connectivity"] = "Wireless"
+        specs["Type"] = "In-Ear (Earbud)"
+        specs["Color"] = colour or "Black"
+    elif dtype == "tablet":
+        if storage_val:
+            specs["Storage Capacity"] = storage_val
+        specs["Screen Size"] = "10.9 in"
+        specs["Type"] = "Tablet"
+        specs["Internet Connectivity"] = (
+            "Wi-Fi + Cellular" if re.search(r"cellular|lte", model, re.I) else "Wi-Fi")
+    else:  # phone
+        if storage_val:
+            specs["Storage Capacity"] = storage_val
+        specs["Network"] = "Unlocked"
+        specs["Operating System"] = "iOS" if apple else "Android"
+        specs["Color"] = colour or "Black"
+
+    return [{"name": k, "values": [v]} for k, v in specs.items()]
 
 
 def create_listing(product, price, listing_copy, catalog_info=None):
@@ -177,10 +238,7 @@ def create_listing(product, price, listing_copy, catalog_info=None):
         "Content-Language": "en-CA",
     }
 
-    sku = (
-        f"{product['Manufacturer']}-{product['Model']}-"
-        f"{product['Grade']}-{product['Colour']}"
-    ).replace(" ", "-").upper()
+    sku = _sku(product)
 
     description_html = f"<p>{listing_copy.get('description', '')}</p>"
     if listing_copy.get("bullets"):
@@ -230,7 +288,7 @@ def create_listing(product, price, listing_copy, catalog_info=None):
             "pricingSummary": {
                 "price": {"value": str(price), "currency": config.DEFAULT_CURRENCY},
             },
-            "categoryId":  config.EBAY_CATEGORY_ID,
+            "categoryId":  _category_id(product),
             "conditionId": _condition_id(product["Grade"]),
             "quantityLimitPerBuyer": 1,
         }
