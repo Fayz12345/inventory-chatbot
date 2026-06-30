@@ -274,7 +274,7 @@ input.changed, input[type=number].changed, input[type=text].changed { border-col
 
 /* composer */
 .composer-wrap { width: 100%; }
-.chat-shell.is-active .composer-wrap { padding-bottom: 22px; }
+.chat-shell.is-active .composer-wrap { padding-bottom: 52px; }
 #input-area { display: flex; align-items: flex-end; gap: 8px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-lg); padding: 10px 10px 10px 18px; box-shadow: var(--sh-2); transition: border-color .15s, box-shadow .15s; }
 #input-area:focus-within { border-color: var(--brand); box-shadow: 0 0 0 4px rgba(37,99,235,.12); }
 #question { flex: 1; border: none; background: transparent; color: var(--ink); font-family: inherit; font-size: 15px; line-height: 1.55; padding: 8px 0; resize: none; min-height: 28px; max-height: 200px; overflow-y: auto; }
