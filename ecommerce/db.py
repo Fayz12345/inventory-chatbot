@@ -91,10 +91,13 @@ def create_listing_record(product, platform, listing_price, floor_price,
         product['Grade'], product['Quantity'], platform,
         listing_price, floor_price, platform_listing_id, approved_by,
     ))
+    # @@IDENTITY is session-scoped (works in this separate batch); SCOPE_IDENTITY()
+    # after the insert's batch returns NULL. The caller doesn't use the value, so
+    # never let identity retrieval fail an already-successful insert.
+    row = cursor.execute("SELECT @@IDENTITY").fetchone()
     conn.commit()
-    listing_id = cursor.execute("SELECT SCOPE_IDENTITY()").fetchone()[0]
     conn.close()
-    return int(listing_id)
+    return int(row[0]) if row and row[0] is not None else None
 
 
 def update_listing_status(listing_id, status):

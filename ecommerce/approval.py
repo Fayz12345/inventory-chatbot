@@ -201,6 +201,8 @@ def approve():
     posted     = False
     listing_id = None
     env        = None
+    public_listing_id = None
+    listing_url       = None
     if auto_post:
         result = _post_to_marketplace(marketplace, product, price, listing_copy)
         if result is None:
@@ -220,6 +222,8 @@ def approve():
             posted     = True
             listing_id = result.get("listing_id")
             env        = result.get("env")
+            public_listing_id = result.get("public_listing_id")
+            listing_url       = result.get("listing_url")
 
     # Step 4: if we posted, log it then finalize. If logging fails after a real
     # post, roll the post back (delist) and release the claim so we never leave
@@ -265,6 +269,8 @@ def approve():
         "product":     product_name,
         "posted":      posted,
         "listing_id":  listing_id,
+        "public_listing_id": public_listing_id,
+        "listing_url": listing_url,
         "env":         env,
     })
 

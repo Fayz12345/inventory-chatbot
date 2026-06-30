@@ -283,8 +283,19 @@ function showListingPreview(data) {
         status.appendChild(envEl);
         status.appendChild(document.createTextNode(') \u2014 listing ID: '));
         var idEl = document.createElement('code');
-        idEl.textContent = data.listing_id || '?';
+        idEl.textContent = data.public_listing_id || data.listing_id || '?';
         status.appendChild(idEl);
+        if (data.listing_url) {
+            status.appendChild(document.createTextNode('  '));
+            var viewLink = document.createElement('a');
+            viewLink.href = data.listing_url;
+            viewLink.target = '_blank';
+            viewLink.rel = 'noopener';
+            viewLink.textContent = 'View listing \u2192';
+            viewLink.style.fontWeight = 'bold';
+            viewLink.style.color = '#1b5e20';
+            status.appendChild(viewLink);
+        }
     } else {
         status.style.background = '#fffde7';
         status.style.color = '#f57f17';

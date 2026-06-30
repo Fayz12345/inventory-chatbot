@@ -244,13 +244,22 @@ def create_listing(product, price, listing_copy, catalog_info=None):
             )}
 
         public_listing_id = resp.json().get("listingId", offer_id)
+        host = "www.sandbox.ebay.com" if config.EBAY_SANDBOX else "www.ebay.ca"
+        listing_url = "https://%s/itm/%s" % (host, public_listing_id)
         log.info(
-            "eBay listing published (%s): SKU=%s offerId=%s listingId=%s",
-            config.EBAY_ENV, sku, offer_id, public_listing_id,
+            "eBay listing published (%s): SKU=%s offerId=%s listingId=%s url=%s",
+            config.EBAY_ENV, sku, offer_id, public_listing_id, listing_url,
         )
         # Return the offerId as the managed listing id: withdraw/delist operate
         # on the offer, not the public listingId (which can't be withdrawn).
-        return {"ok": True, "listing_id": str(offer_id), "env": config.EBAY_ENV}
+        # public_listing_id + listing_url are for display/linking in the modal.
+        return {
+            "ok": True,
+            "listing_id": str(offer_id),
+            "env": config.EBAY_ENV,
+            "public_listing_id": str(public_listing_id),
+            "listing_url": listing_url,
+        }
 
     except requests.RequestException as e:
         log.error("eBay API error creating listing for %s: %s", sku, e)
