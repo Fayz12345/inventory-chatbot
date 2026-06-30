@@ -287,6 +287,10 @@ input.changed, input[type=number].changed, input[type=text].changed { border-col
 /* full-width button (form submit) */
 .btn-block { width: 100%; }
 
+/* compact, side-by-side action buttons in table rows (ecommerce approve/reject) */
+.actions .btn-approve, .actions .btn-reject { padding: 6px 12px; font-size: 12.5px; }
+.actions--inline { flex-wrap: nowrap; }
+
 /* form card (Telus Weekly form) */
 .form-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 30px 32px; box-shadow: var(--sh-1); }
 .form-card h2 { margin: 0 0 6px; }

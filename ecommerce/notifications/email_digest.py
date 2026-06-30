@@ -84,8 +84,10 @@ DASHBOARD_TEMPLATE = Template("""
                 {% if rec.Decision %}
                     <span class="decision-{{ rec.Decision }}">{{ rec.Decision | capitalize }}</span>
                 {% else %}
-                    <button class="btn btn-approve" onclick="decide({{ rec.ID }}, 'approve')">Approve</button>
-                    <button class="btn btn-reject" onclick="decide({{ rec.ID }}, 'reject')">Reject</button>
+                    <div class="actions actions--inline">
+                        <button class="btn btn-approve" onclick="decide({{ rec.ID }}, 'approve')">Approve</button>
+                        <button class="btn btn-reject" onclick="decide({{ rec.ID }}, 'reject')">Reject</button>
+                    </div>
                 {% endif %}
             </td>
         </tr>
