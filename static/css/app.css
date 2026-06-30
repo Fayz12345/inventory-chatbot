@@ -100,6 +100,7 @@ a.card:hover { text-decoration: none; box-shadow: var(--sh-2); transform: transl
 .card .desc, .card p { color: var(--muted); font-size: 13.5px; margin: 0; }
 .card-icon { width: 42px; height: 42px; border-radius: 11px; display: grid; place-items: center; font-size: 20px; background: var(--brand-50); color: var(--brand); margin-bottom: 14px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
+.cards .section-label { grid-column: 1 / -1; margin: 8px 0 -6px; }
 
 /* metric/summary cards */
 .summary, .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 22px; }
@@ -175,7 +176,7 @@ tr.subtotal td { background: #fbfcfe; font-weight: 600; }
 tr.grand td { background: var(--brand-50); font-weight: 700; color: var(--ink); font-size: 14px; }
 tr.section-divider td { background: var(--warning-50); color: var(--warning-700); font-weight: 600; font-size: 12px; }
 tr.add-row td { background: var(--surface-2); }
-input.changed { border-color: var(--warning); background: var(--warning-50); }
+input.changed, input[type=number].changed, input[type=text].changed { border-color: var(--warning); background: var(--warning-50); }
 .device-count { color: var(--faint); font-weight: 500; font-size: 12px; }
 .count { color: var(--muted); font-size: 13px; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -270,3 +271,49 @@ input.changed { border-color: var(--warning); background: var(--warning-50); }
 /* ---- Footer / misc ---- */
 .footer { color: var(--faint); font-size: 12px; text-align: center; padding: 28px 0 8px; }
 .section-label { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; margin: 24px 0 10px; }
+
+/* ===========================================================================
+   Data-page components (ecommerce dashboard, analytics, billing)
+   Added so the Python-embedded templates can drop their own <style> and rely
+   on these shared classes. Additive only — never overrides the above.
+   =========================================================================== */
+
+/* empty state */
+.empty { color: var(--muted); text-align: center; padding: 48px 0; font-size: 14px; }
+
+/* wider modal (ecommerce listing preview) */
+.modal--wide { width: 680px; }
+
+/* full-width button (form submit) */
+.btn-block { width: 100%; }
+
+/* form card (Telus Weekly form) */
+.form-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 30px 32px; box-shadow: var(--sh-1); }
+.form-card h2 { margin: 0 0 6px; }
+.form-card p { margin: 0 0 22px; color: var(--muted); font-size: 13.5px; }
+
+/* alert-banner inner pieces (TW report unpriced-models warning) */
+.alert-banner .alert-title { font-weight: 700; color: var(--danger-700); font-size: 14px; margin-bottom: 8px; }
+.alert-banner .alert-models { font-size: 13px; color: var(--ink-2); line-height: 1.7; }
+.alert-banner .alert-models span { display: inline-block; background: var(--surface); border: 1px solid var(--danger-100); padding: 2px 10px; border-radius: var(--r-sm); margin: 2px 4px 2px 0; font-size: 12px; }
+.alert-banner a { color: var(--danger-700); font-weight: 600; text-decoration: underline; }
+
+/* breakdown chip row (TW report) */
+.breakdown { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+.breakdown span { font-size: 13px; color: var(--muted); }
+.breakdown strong { color: var(--ink); }
+
+/* toolbar (price review) */
+.toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+.model-name { font-weight: 600; min-width: 200px; color: var(--ink); }
+tr.new-model-row td { background: var(--warning-50); }
+tr.new-model-row:hover td { background: var(--warning-100); }
+
+/* compact manual inputs inside billing tables */
+input.manual { width: 80px; padding: 6px 8px; }
+
+/* OSL tab nav (alias) + category toolbar + AI button */
+.tab-nav { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 0; }
+.cat-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.btn.ai-btn, button.ai-btn { background: #7c3aed; color: #fff; }
+.btn.ai-btn:hover, button.ai-btn:hover { background: #6d28d9; }

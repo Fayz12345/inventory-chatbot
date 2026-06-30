@@ -11,7 +11,7 @@ markup, `{{ }}`/`{name}` expressions, ids, classes, and inline <script> intact.
 from flask import has_request_context, session
 from markupsafe import escape
 
-_CSS_VERSION = "1"
+_CSS_VERSION = "3"
 
 
 def _nav_link(href, label, active, key):

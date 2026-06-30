@@ -7,56 +7,12 @@ totals live. Generate fetches the parameterized endpoint.
 import json
 
 from billing import osl_schedule, schedule
+from ui.shell import page_shell
 
 
-_BILLING_PAGE_TEMPLATE = """<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>{title} - Bridge Platform</title>
-  <style>
-    body {{ font-family: Arial, sans-serif; margin: 0; background: #f0f2f5; color: #333; }}
-    .header {{ background: #2563eb; color: #fff; padding: 14px 24px; display: flex;
-              justify-content: space-between; align-items: center; }}
-    .header h1 {{ margin: 0; font-size: 22px; }}
-    .header a {{ color: #fff; text-decoration: none; opacity: 0.85; }}
-    .container {{ max-width: 1000px; margin: 32px auto; padding: 0 20px; }}
-    .controls {{ background: #fff; border-radius: 10px; padding: 20px 24px; margin-bottom: 24px;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.08); display: flex; gap: 16px; align-items: flex-end;
-                flex-wrap: wrap; }}
-    label {{ display: block; font-size: 13px; color: #666; margin-bottom: 4px; }}
-    select, input[type=number] {{ padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px;
-                font-size: 14px; }}
-    button {{ background: #2563eb; color: #fff; border: none; padding: 10px 20px; border-radius: 6px;
-             font-size: 14px; cursor: pointer; }}
-    button.secondary {{ background: #e5e7eb; color: #333; }}
-    button:disabled {{ opacity: 0.5; cursor: default; }}
-    table {{ width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px;
-            overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }}
-    th, td {{ padding: 8px 12px; text-align: left; font-size: 14px; border-bottom: 1px solid #eee; }}
-    th {{ background: #2563eb; color: #fff; }}
-    td.num, th.num {{ text-align: right; }}
-    tr.section td {{ background: #f3f4f6; font-weight: bold; }}
-    tr.subtotal td {{ font-weight: bold; background: #fafafa; }}
-    tr.grand td {{ font-weight: bold; background: #dbeafe; font-size: 15px; }}
-    input.manual {{ width: 80px; }}
-    .err {{ color: #b91c1c; margin: 12px 0; }}
-    .hint {{ color: #999; font-size: 12px; }}
-    .diag {{ margin-top: 12px; padding: 10px 14px; background: #fef3c7; border-left: 3px solid #f59e0b;
-            color: #78350f; font-size: 13px; border-radius: 4px; }}
-    .loader {{ display: flex; align-items: center; gap: 12px; color: #2563eb; font-size: 15px;
-              padding: 32px; background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }}
-    .spinner {{ width: 22px; height: 22px; border: 3px solid #dbeafe; border-top-color: #2563eb;
-               border-radius: 50%; animation: spin 0.8s linear infinite; }}
-    @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1>{title}</h1>
-    <div><a href="/analytics/">&larr; Analytics</a> &nbsp; <a href="/home">Home</a> &nbsp; <a href="/logout">Sign out</a></div>
-  </div>
+_BILLING_PAGE_TEMPLATE = """
   <div class="container">
+    <div class="page-head"><h1>{title}</h1></div>
     <div class="controls">
       <div>
         <label>Month</label>
@@ -66,7 +22,7 @@ _BILLING_PAGE_TEMPLATE = """<!DOCTYPE html>
         <label>Year</label>
         <select id="year"></select>
       </div>
-      <button id="generate">Generate Billing Report</button>
+      <button id="generate" class="btn btn-primary">Generate Billing Report</button>
       <button id="copy" class="secondary" disabled>Copy</button>
       <button id="csv" class="secondary" disabled>Download CSV</button>
       <button id="raw" class="secondary">Download Raw Data</button>
@@ -280,69 +236,12 @@ document.addEventListener('DOMContentLoaded', () => {{
     a.click();
   }});
 }});
-</script>
-</body>
-</html>"""
+</script>"""
 
 
-_OSL_BILLING_PAGE_TEMPLATE = """<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>OSL Billing Report - Bridge Platform</title>
-  <style>
-    body {{ font-family: Arial, sans-serif; margin: 0; background: #f0f2f5; color: #333; }}
-    .header {{ background: #2563eb; color: #fff; padding: 14px 24px; display: flex;
-              justify-content: space-between; align-items: center; }}
-    .header h1 {{ margin: 0; font-size: 22px; }}
-    .header a {{ color: #fff; text-decoration: none; opacity: 0.85; }}
-    .container {{ max-width: 1000px; margin: 32px auto; padding: 0 20px; }}
-    .controls {{ background: #fff; border-radius: 10px; padding: 20px 24px; margin-bottom: 16px;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.08); display: flex; gap: 16px; align-items: flex-end;
-                flex-wrap: wrap; }}
-    label {{ display: block; font-size: 13px; color: #666; margin-bottom: 4px; }}
-    select, input[type=number] {{ padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px;
-                font-size: 14px; }}
-    button {{ background: #2563eb; color: #fff; border: none; padding: 10px 20px; border-radius: 6px;
-             font-size: 14px; cursor: pointer; }}
-    button.secondary {{ background: #e5e7eb; color: #333; }}
-    button.ai-btn {{ background: #7c3aed; color: #fff; }}
-    button:disabled {{ opacity: 0.5; cursor: default; }}
-    .tab-nav {{ display: flex; gap: 2px; margin-bottom: 0; border-bottom: 2px solid #2563eb; }}
-    .tab-btn {{ background: #e5e7eb; color: #555; border: none; padding: 9px 22px;
-               border-radius: 6px 6px 0 0; font-size: 14px; cursor: pointer; border-bottom: none; }}
-    .tab-btn.active {{ background: #2563eb; color: #fff; }}
-    .tab-panel {{ display: none; padding-top: 20px; }}
-    .tab-panel.active {{ display: block; }}
-    table {{ width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px;
-            overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }}
-    th, td {{ padding: 8px 12px; text-align: left; font-size: 14px; border-bottom: 1px solid #eee; }}
-    th {{ background: #2563eb; color: #fff; }}
-    td.num, th.num {{ text-align: right; }}
-    tr.section td {{ background: #f3f4f6; font-weight: bold; }}
-    tr.grand td {{ font-weight: bold; background: #dbeafe; font-size: 15px; }}
-    input.manual {{ width: 80px; }}
-    .err {{ color: #b91c1c; margin: 12px 0; }}
-    .hint {{ color: #999; font-size: 12px; }}
-    .diag {{ margin-top: 12px; padding: 10px 14px; background: #fef3c7; border-left: 3px solid #f59e0b;
-            color: #78350f; font-size: 13px; border-radius: 4px; }}
-    .loader {{ display: flex; align-items: center; gap: 12px; color: #2563eb; font-size: 15px;
-              padding: 32px; background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }}
-    .spinner {{ width: 22px; height: 22px; border: 3px solid #dbeafe; border-top-color: #2563eb;
-               border-radius: 50%; animation: spin 0.8s linear infinite; }}
-    @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
-    .badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }}
-    .badge-green {{ background: #dcfce7; color: #166534; }}
-    .badge-amber {{ background: #fef3c7; color: #92400e; }}
-    .cat-toolbar {{ display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }}
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1>OSL Billing Report</h1>
-    <div><a href="/analytics/">&larr; Analytics</a> &nbsp; <a href="/home">Home</a> &nbsp; <a href="/logout">Sign out</a></div>
-  </div>
+_OSL_BILLING_PAGE_TEMPLATE = """
   <div class="container">
+    <div class="page-head"><h1>OSL Billing Report</h1></div>
     <div class="controls">
       <div>
         <label>Month</label>
@@ -352,7 +251,7 @@ _OSL_BILLING_PAGE_TEMPLATE = """<!DOCTYPE html>
         <label>Year</label>
         <select id="year"></select>
       </div>
-      <button id="generate">Generate</button>
+      <button id="generate" class="btn btn-primary">Generate</button>
       <button id="copy" class="secondary" disabled>Copy</button>
       <button id="csv" class="secondary" disabled>Download CSV</button>
       <button id="raw" class="secondary">Download Raw Data</button>
@@ -703,22 +602,22 @@ document.addEventListener('DOMContentLoaded', () => {{
     a.click();
   }});
 }});
-</script>
-</body>
-</html>"""
+</script>"""
 
 
 def render_tms_billing_page():
-    return _BILLING_PAGE_TEMPLATE.format(
+    body = _BILLING_PAGE_TEMPLATE.format(
         title="TMS Billing Report",
         endpoint="/billing/tms/generate",
         raw_endpoint="/billing/tms/raw",
         csv_prefix="TMS_Billing_",
         schedule_json=json.dumps(schedule.TMS_FEE_SCHEDULE),
     )
+    return page_shell(body, title="TMS Billing Report", active="analytics", back=("/analytics/", "Analytics"))
 
 
 def render_osl_billing_page():
-    return _OSL_BILLING_PAGE_TEMPLATE.format(
+    body = _OSL_BILLING_PAGE_TEMPLATE.format(
         section_categories_json=json.dumps(osl_schedule.OSL_SECTION_CATEGORIES),
     )
+    return page_shell(body, title="OSL Billing Report", active="analytics", back=("/analytics/", "Analytics"))
