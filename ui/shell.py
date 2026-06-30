@@ -9,13 +9,14 @@ markup, `{{ }}`/`{name}` expressions, ids, classes, and inline <script> intact.
 """
 
 from flask import has_request_context, session
+from markupsafe import escape
 
 _CSS_VERSION = "1"
 
 
 def _nav_link(href, label, active, key):
     cls = ' class="active"' if active == key else ""
-    return '<a href="%s"%s>%s</a>' % (href, cls, label)
+    return '<a href="%s"%s>%s</a>' % (escape(href), cls, escape(label))
 
 
 def _topnav(active=None):
@@ -29,7 +30,7 @@ def _topnav(active=None):
     ]
     if is_admin:
         links.append(_nav_link("/admin/users", "Users", active, "admin"))
-    who = ('<span class="who">%s</span>' % username) if username else ""
+    who = ('<span class="who">%s</span>' % escape(username)) if username else ""
     return (
         '<header class="app-header">'
         '<a class="app-header__brand" href="/home"><span class="dot"></span> Bridge Platform</a>'
@@ -51,12 +52,12 @@ def page_shell(body_html, title="Bridge Platform", active=None, back=None):
     if back:
         back_html = (
             '<div style="max-width:1240px;margin:0 auto;padding:18px 24px 0">'
-            '<a class="back" href="%s">&larr; %s</a></div>' % (back[0], back[1])
+            '<a class="back" href="%s">&larr; %s</a></div>' % (escape(back[0]), escape(back[1]))
         )
     return (
         '<!DOCTYPE html><html lang="en"><head>'
         '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
-        "<title>" + title + "</title>"
+        "<title>" + str(escape(title)) + "</title>"
         '<link rel="stylesheet" href="/static/css/app.css?v=' + _CSS_VERSION + '">'
         "</head><body>"
         + _topnav(active)
