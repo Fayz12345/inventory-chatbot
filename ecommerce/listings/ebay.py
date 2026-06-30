@@ -68,6 +68,30 @@ def _listing_policies():
     return {k: v for k, v in ids.items() if v}
 
 
+def _existing_offer_id(resp):
+    """eBay 25002 'Offer entity already exists' carries the existing offerId in
+    the error parameters — pull it so we can reuse the offer instead of failing."""
+    try:
+        for err in (resp.json().get("errors") or []):
+            if err.get("errorId") == 25002:
+                for p in (err.get("parameters") or []):
+                    if p.get("name") == "offerId" and p.get("value"):
+                        return p["value"]
+    except ValueError:
+        pass
+    return None
+
+
+def _offer_id_by_sku(inv_url, headers, sku):
+    """Look up an existing offerId for a SKU (fallback when the error lacks it)."""
+    try:
+        r = requests.get(f"{inv_url}/offer?sku={sku}", headers=headers, timeout=30)
+        offers = (r.json() or {}).get("offers") or []
+        return offers[0].get("offerId") if offers else None
+    except requests.RequestException:
+        return None
+
+
 def _get_access_token():
     """Exchange refresh token for a short-lived access token (sell scope).
 
@@ -228,11 +252,25 @@ def create_listing(product, price, listing_copy, catalog_info=None):
         resp = requests.post(
             f"{inv_url}/offer", headers=headers, json=offer_body, timeout=30,
         )
-        if resp.status_code not in (200, 201):
-            return {"ok": False, "error": (
-                f"eBay create offer failed: {resp.status_code} {resp.text}"
-            )}
-        offer_id = resp.json().get("offerId")
+        if resp.status_code in (200, 201):
+            offer_id = resp.json().get("offerId")
+        else:
+            # Idempotent re-approve: if an unpublished offer already exists for
+            # this SKU (eBay 25002), reuse it — update it with the current data
+            # and continue to publish — instead of hard-failing.
+            offer_id = _existing_offer_id(resp) or _offer_id_by_sku(inv_url, headers, sku)
+            if not offer_id:
+                return {"ok": False, "error": (
+                    f"eBay create offer failed: {resp.status_code} {resp.text}"
+                )}
+            update_body = {k: v for k, v in offer_body.items() if k != "sku"}
+            upd = requests.put(
+                f"{inv_url}/offer/{offer_id}", headers=headers, json=update_body, timeout=30,
+            )
+            if upd.status_code not in (200, 204):
+                return {"ok": False, "error": (
+                    f"eBay update existing offer failed: {upd.status_code} {upd.text}"
+                )}
 
         # 3) publish
         resp = requests.post(
