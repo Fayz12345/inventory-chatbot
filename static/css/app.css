@@ -344,6 +344,8 @@ input.changed, input[type=number].changed, input[type=text].changed { border-col
 .model-name { font-weight: 600; min-width: 200px; color: var(--ink); }
 tr.new-model-row td { background: var(--warning-50); }
 tr.new-model-row:hover td { background: var(--warning-100); }
+/* Type column select: size to its options (+chevron) instead of the narrow column */
+select[data-field="device_type"], #new-type { width: auto; min-width: 116px; }
 
 /* compact manual inputs inside billing tables */
 input.manual { width: 80px; padding: 6px 8px; }
