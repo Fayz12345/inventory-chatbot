@@ -34,6 +34,8 @@ def _creds(monkeypatch):
     monkeypatch.setattr(config, "BESTBUY_PRODUCT_ID_TYPE", "UPC-A")
     monkeypatch.setattr(config, "BESTBUY_LEADTIME_TO_SHIP", 4)
     monkeypatch.setattr(config, "BESTBUY_MANUFACTURER_WARRANTY", "365")
+    # Keep the demo-only quantity override out of the unit tests.
+    monkeypatch.setattr(config, "BESTBUY_FORCE_QUANTITY", "")
 
 
 def test_no_creds_returns_error(monkeypatch):
