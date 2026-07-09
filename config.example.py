@@ -44,3 +44,7 @@ ECOMMERCE_MINIMUM_MARGIN = 25.00
 
 # Base URL for approval links (set to your EC2 public IP + port)
 APP_BASE_URL = 'http://your-ec2-ip:5000'
+
+# --- Chat assistant models (text-to-SQL) ---
+CHAT_SQL_MODEL    = 'claude-opus-4-8'            # accuracy-critical SQL generation
+CHAT_ANSWER_MODEL = 'claude-haiku-4-5-20251001'  # cheap plain-English formatting
