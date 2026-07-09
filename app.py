@@ -580,6 +580,8 @@ def admin_edit_user():
     new_email = (d.get('email') or '').strip()
     if not new_username:
         return jsonify({'ok': False, 'error': 'Username required'})
+    is_self = user['username'] == session.get('username')
+    actor = session.get('username')
     try:
         if new_username != user['username']:
             users_db.update_username(d['id'], new_username)
@@ -588,7 +590,25 @@ def admin_edit_user():
         if 'UNIQUE' in str(e).upper():
             return jsonify({'ok': False, 'error': f'Username "{new_username}" already exists'})
         return jsonify({'ok': False, 'error': str(e)})
-    admin_audit.log_action(session.get('username'), 'edit_user', target=new_username,
+    # Apply role change (non-self only)
+    new_role = d.get('role')
+    if new_role is not None and not is_self:
+        if new_role not in roles.ROLES:
+            return jsonify({'ok': False, 'error': 'Invalid role'})
+        if new_role != user.get('role'):
+            users_db.set_role(d['id'], new_role)
+            admin_audit.log_action(actor, 'set_role', target=new_username, detail=new_role)
+    # Apply active change (non-self only)
+    if 'active' in d and not is_self:
+        raw_active = d['active']
+        if isinstance(raw_active, bool):
+            new_active = raw_active
+        else:
+            new_active = str(raw_active).lower() not in ('false', '0', '')
+        users_db.set_active(d['id'], new_active)
+        admin_audit.log_action(actor, 'set_active', target=new_username,
+                               detail='active' if new_active else 'disabled')
+    admin_audit.log_action(actor, 'edit_user', target=new_username,
                            detail=f"email={new_email}")
     return jsonify({'ok': True})
 

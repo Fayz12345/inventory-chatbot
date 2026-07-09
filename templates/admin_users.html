@@ -66,7 +66,9 @@
             data-username="{{ u.username | lower }}"
             data-email="{{ (u.email or '') | lower }}"
             data-status="{{ 'disabled' if not u.is_active else ('active' if u.password_set else 'pending') }}"
-            data-role="{{ u.role if u.role else ('admin' if u.is_admin else 'user') }}">
+            data-role="{{ u.role if u.role else ('admin' if u.is_admin else 'user') }}"
+            data-active="{{ 1 if u.is_active else 0 }}"
+            data-pending="{{ 0 if u.password_set else 1 }}">
           <td>
             {{ u.username }}
             {% if u.username == username %}<span class="you">(you)</span>{% endif %}
@@ -87,35 +89,8 @@
             <div class="actions">
               {% if u.username != username %}
                 <button class="icon-btn icon-btn--brand" title="Edit user" aria-label="Edit user"
-                        onclick='openEditModal({{ u.id }}, {{ u.username | tojson }}, {{ (u.email or "") | tojson }})'>
+                        onclick='openEditModal(this)'>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                </button>
-                {% if not u.password_set %}
-                <button class="icon-btn icon-btn--success" title="Resend invite" aria-label="Resend invite"
-                        onclick='resendInvite({{ u.id }}, {{ u.username | tojson }})'>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
-                </button>
-                {% endif %}
-                {% if u.email %}
-                <button class="icon-btn icon-btn--brand" title="Reset password" aria-label="Reset password"
-                        onclick='resetPassword({{ u.id }}, {{ u.username | tojson }})'>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 8-8"/><path d="m16.5 6.5 3 3"/><path d="m19 4 2 2"/></svg>
-                </button>
-                {% endif %}
-                <button class="icon-btn {{ 'icon-btn--warn' if u.is_admin else 'icon-btn--brand' }}"
-                        title="{{ 'Revoke admin' if u.is_admin else 'Make admin' }}" aria-label="{{ 'Revoke admin' if u.is_admin else 'Make admin' }}"
-                        onclick='toggleAdmin({{ u.id }}, {{ u.username | tojson }}, {{ "true" if u.is_admin else "false" }})'>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                </button>
-                <button class="icon-btn {{ 'icon-btn--success' if not u.is_active else 'icon-btn--warn' }}"
-                        title="{{ 'Reactivate user' if not u.is_active else 'Deactivate user' }}"
-                        aria-label="{{ 'Reactivate user' if not u.is_active else 'Deactivate user' }}"
-                        onclick='setActive({{ u.id }}, {{ u.username | tojson }}, {{ "true" if not u.is_active else "false" }})'>
-                  {% if not u.is_active %}
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                  {% else %}
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-                  {% endif %}
                 </button>
                 <button class="icon-btn icon-btn--danger" title="Delete user" aria-label="Delete user"
                         onclick='deleteUser({{ u.id }}, {{ u.username | tojson }})'>
@@ -169,6 +144,23 @@
     <div class="field">
       <label for="edit-email">Email Address</label>
       <input type="email" id="edit-email" placeholder="e.g. john@example.com">
+    </div>
+    <div class="field">
+      <label for="edit-role">Role</label>
+      <select id="edit-role">
+        <option value="admin">admin</option>
+        <option value="manager">manager</option>
+        <option value="viewer">viewer</option>
+        <option value="user">user</option>
+      </select>
+    </div>
+    <div class="checkbox-row" style="margin:14px 0">
+      <input type="checkbox" id="edit-active">
+      <label for="edit-active" style="margin:0">Account active</label>
+    </div>
+    <div style="display:flex;gap:8px;margin:14px 0">
+      <button class="btn btn-outline" id="edit-resend-btn" onclick="editResendInvite()">Resend invite</button>
+      <button class="btn btn-outline" id="edit-reset-btn" onclick="editResetPassword()">Reset password</button>
     </div>
     <div class="modal-actions" style="justify-content:flex-end">
       <button class="btn btn-outline" onclick="closeModals()">Cancel</button>
@@ -352,20 +344,61 @@ function showToast(msg, type) {
     setTimeout(function() { t.style.display = 'none'; }, 3000);
 }
 
-function openEditModal(id, username, email) {
+function openEditModal(btn) {
+    var row = btn.closest('tr');
+    var ds = row.dataset;
+    var id = row.id.replace('user-', '');
+    // Recover the original-case username and email from the row cells
+    var cells = row.cells;
+    var rawUsername = cells[0].textContent.replace('(you)', '').trim();
+    var rawEmail = cells[1].textContent.trim();
+    if (rawEmail === '—') rawEmail = '';
     document.getElementById('edit-id').value = id;
-    document.getElementById('edit-username').value = username;
-    document.getElementById('edit-email').value = email;
+    document.getElementById('edit-username').value = rawUsername;
+    document.getElementById('edit-email').value = rawEmail;
+    document.getElementById('edit-role').value = ds.role || 'user';
+    document.getElementById('edit-active').checked = ds.active === '1';
+    // Resend invite only visible when account is pending
+    var resendBtn = document.getElementById('edit-resend-btn');
+    resendBtn.style.display = ds.pending === '1' ? '' : 'none';
+    // Reset password requires an email address
+    document.getElementById('edit-reset-btn').style.display = rawEmail ? '' : 'none';
     document.getElementById('edit-save-btn').disabled = false;
     document.getElementById('edit-save-btn').textContent = 'Save';
     document.getElementById('edit-modal').classList.add('active');
     document.getElementById('edit-username').focus();
 }
 
+function editResendInvite() {
+    var id = parseInt(document.getElementById('edit-id').value, 10);
+    var username = document.getElementById('edit-username').value.trim();
+    closeModals();
+    openConfirm({
+        title: 'Resend invite',
+        message: 'Resend the invite email to "' + username + '"?',
+        confirmLabel: 'Resend',
+        onConfirm: function() { _post('/admin/users/resend-invite', { id: id }, 'Invite resent to ' + username); }
+    });
+}
+
+function editResetPassword() {
+    var id = parseInt(document.getElementById('edit-id').value, 10);
+    var username = document.getElementById('edit-username').value.trim();
+    closeModals();
+    openConfirm({
+        title: 'Reset password',
+        message: 'Send a password reset email to "' + username + '"?',
+        confirmLabel: 'Send reset',
+        onConfirm: function() { _post('/admin/users/reset-password', { id: id }, 'Password reset email sent'); }
+    });
+}
+
 function saveEditUser() {
     var id = parseInt(document.getElementById('edit-id').value, 10);
     var username = document.getElementById('edit-username').value.trim();
     var email = document.getElementById('edit-email').value.trim();
+    var role = document.getElementById('edit-role').value;
+    var active = document.getElementById('edit-active').checked;
     if (!username) { showToast('Username is required', 'error'); return; }
     var btn = document.getElementById('edit-save-btn');
     btn.disabled = true;
@@ -373,7 +406,7 @@ function saveEditUser() {
     fetch('/admin/users/edit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name=csrf-token]').content },
-        body: JSON.stringify({ id: id, username: username, email: email })
+        body: JSON.stringify({ id: id, username: username, email: email, role: role, active: active })
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {

@@ -129,3 +129,127 @@ def test_delete_writes_audit_row():
     c.post("/admin/users/delete", json={"id": uid}, headers=_ch())
     assert any(r["action"] == "delete_user" and r["target"] == "audituser"
                for r in admin_audit.recent(50))
+
+
+# --- Edit modal consolidation: role + active via /admin/users/edit ---
+
+def test_edit_sets_role():
+    uid = _make_user("roleuser")
+    c = app_module.chatbot_app.test_client()
+    _set_admin_session(c)
+    resp = c.post("/admin/users/edit",
+                  json={"id": uid, "username": "roleuser", "email": "roleuser@x.com", "role": "manager"},
+                  headers=_ch())
+    assert resp.get_json()["ok"] is True
+    row = users_db._row_by_username("roleuser")
+    assert row["role"] == "manager"
+    assert row["is_admin"] == 0
+
+
+def test_edit_sets_role_admin_syncs_is_admin():
+    uid = _make_user("roleadmin")
+    c = app_module.chatbot_app.test_client()
+    _set_admin_session(c)
+    resp = c.post("/admin/users/edit",
+                  json={"id": uid, "username": "roleadmin", "email": "roleadmin@x.com", "role": "admin"},
+                  headers=_ch())
+    assert resp.get_json()["ok"] is True
+    row = users_db._row_by_username("roleadmin")
+    assert row["role"] == "admin"
+    assert row["is_admin"] == 1
+
+
+def test_edit_sets_active_false_string():
+    uid = _make_user("actfalse")
+    c = app_module.chatbot_app.test_client()
+    _set_admin_session(c)
+    resp = c.post("/admin/users/edit",
+                  json={"id": uid, "username": "actfalse", "email": "actfalse@x.com", "active": "false"},
+                  headers=_ch())
+    assert resp.get_json()["ok"] is True
+    assert users_db._row_by_username("actfalse")["is_active"] == 0
+
+
+def test_edit_sets_active_true_string():
+    uid = _make_user("acttrue")
+    c = app_module.chatbot_app.test_client()
+    _set_admin_session(c)
+    # deactivate first via standalone endpoint
+    c.post("/admin/users/set-active", json={"id": uid, "active": False}, headers=_ch())
+    assert users_db._row_by_username("acttrue")["is_active"] == 0
+    # reactivate via edit endpoint
+    resp = c.post("/admin/users/edit",
+                  json={"id": uid, "username": "acttrue", "email": "acttrue@x.com", "active": "true"},
+                  headers=_ch())
+    assert resp.get_json()["ok"] is True
+    assert users_db._row_by_username("acttrue")["is_active"] == 1
+
+
+def test_edit_sets_active_zero_string():
+    uid = _make_user("actzero")
+    c = app_module.chatbot_app.test_client()
+    _set_admin_session(c)
+    resp = c.post("/admin/users/edit",
+                  json={"id": uid, "username": "actzero", "email": "actzero@x.com", "active": "0"},
+                  headers=_ch())
+    assert resp.get_json()["ok"] is True
+    assert users_db._row_by_username("actzero")["is_active"] == 0
+
+
+def test_edit_sets_active_one_string():
+    uid = _make_user("actone")
+    c = app_module.chatbot_app.test_client()
+    _set_admin_session(c)
+    c.post("/admin/users/set-active", json={"id": uid, "active": False}, headers=_ch())
+    resp = c.post("/admin/users/edit",
+                  json={"id": uid, "username": "actone", "email": "actone@x.com", "active": "1"},
+                  headers=_ch())
+    assert resp.get_json()["ok"] is True
+    assert users_db._row_by_username("actone")["is_active"] == 1
+
+
+def test_edit_self_guard_does_not_change_role():
+    c = app_module.chatbot_app.test_client()
+    _set_admin_session(c)
+    admin_id = _make_admin_user()
+    # Attempt to change own role to 'viewer' — should be silently ignored
+    resp = c.post("/admin/users/edit",
+                  json={"id": admin_id, "username": "Admin", "email": "admin@x.com", "role": "viewer"},
+                  headers=_ch())
+    assert resp.get_json()["ok"] is True
+    row = users_db._row_by_username("Admin")
+    assert row["role"] != "viewer"
+
+
+def test_edit_self_guard_does_not_change_active():
+    c = app_module.chatbot_app.test_client()
+    _set_admin_session(c)
+    admin_id = _make_admin_user()
+    # Attempt to deactivate own account — should be silently ignored
+    resp = c.post("/admin/users/edit",
+                  json={"id": admin_id, "username": "Admin", "email": "admin@x.com", "active": False},
+                  headers=_ch())
+    assert resp.get_json()["ok"] is True
+    row = users_db._row_by_username("Admin")
+    assert row["is_active"] == 1
+
+
+def test_edit_invalid_role_returns_error():
+    uid = _make_user("badrole")
+    c = app_module.chatbot_app.test_client()
+    _set_admin_session(c)
+    resp = c.post("/admin/users/edit",
+                  json={"id": uid, "username": "badrole", "email": "badrole@x.com", "role": "superuser"},
+                  headers=_ch())
+    assert resp.get_json()["ok"] is False
+
+
+def test_edit_role_writes_audit_row():
+    uid = _make_user("auditrole")
+    c = app_module.chatbot_app.test_client()
+    _set_admin_session(c)
+    c.post("/admin/users/edit",
+           json={"id": uid, "username": "auditrole", "email": "auditrole@x.com", "role": "viewer"},
+           headers=_ch())
+    assert any(r["action"] == "set_role" and r["target"] == "auditrole" and r["detail"] == "viewer"
+               for r in admin_audit.recent(50))
