@@ -14,6 +14,14 @@
   .icon-btn--success:hover { background: var(--success-50); color: var(--success-700); border-color: var(--success-100); }
   .icon-btn--danger:hover  { background: var(--danger-50);  color: var(--danger-700);  border-color: var(--danger-100); }
   #confirm-message { font-size: 14px; color: var(--ink-2); margin: -6px 0 4px; }
+  /* Toolbar */
+  .user-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+  .user-toolbar input[type=text] { flex: 1 1 200px; min-width: 160px; }
+  .user-toolbar select { flex: 0 0 auto; }
+  th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  th.sortable::after { content: ' \2195'; font-size: 11px; opacity: 0.4; }
+  th.sort-asc::after { content: ' \2191'; opacity: 0.8; }
+  th.sort-desc::after { content: ' \2193'; opacity: 0.8; }
 </style>
 {% endblock %}
 {% block body %}
@@ -23,21 +31,42 @@
     <button class="btn btn-primary" onclick="showCreateModal()">+ Invite User</button>
   </div>
 
+  <div class="user-toolbar">
+    <input type="text" id="user-search" placeholder="Search name or email&hellip;" autocomplete="off">
+    <select id="filter-status">
+      <option value="">All statuses</option>
+      <option value="active">Active</option>
+      <option value="pending">Pending</option>
+      <option value="disabled">Disabled</option>
+    </select>
+    <select id="filter-role">
+      <option value="">All roles</option>
+      <option value="admin">admin</option>
+      <option value="manager">manager</option>
+      <option value="viewer">viewer</option>
+      <option value="user">user</option>
+    </select>
+  </div>
+
   <div class="table-wrap">
-    <table>
+    <table id="users-table">
       <thead>
         <tr>
-          <th>Username</th>
-          <th>Email</th>
-          <th>Role</th>
-          <th>Status</th>
-          <th>Created</th>
+          <th class="sortable" onclick="sortTable(0)">Username</th>
+          <th class="sortable" onclick="sortTable(1)">Email</th>
+          <th class="sortable" onclick="sortTable(2)">Role</th>
+          <th class="sortable" onclick="sortTable(3)">Status</th>
+          <th class="sortable" onclick="sortTable(4)">Created</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for u in users %}
-        <tr id="user-{{ u.id }}">
+        <tr id="user-{{ u.id }}"
+            data-username="{{ u.username | lower }}"
+            data-email="{{ (u.email or '') | lower }}"
+            data-status="{{ 'disabled' if not u.is_active else ('active' if u.password_set else 'pending') }}"
+            data-role="{{ u.role if u.role else ('admin' if u.is_admin else 'user') }}">
           <td>
             {{ u.username }}
             {% if u.username == username %}<span class="you">(you)</span>{% endif %}
@@ -365,5 +394,52 @@ function saveEditUser() {
 }
 
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeModals(); closeConfirm(); } });
+
+// --- Search / filter / sort ---
+(function() {
+    var searchEl = document.getElementById('user-search');
+    var statusEl = document.getElementById('filter-status');
+    var roleEl   = document.getElementById('filter-role');
+
+    function applyFilters() {
+        var q      = searchEl.value.toLowerCase();
+        var status = statusEl.value;
+        var role   = roleEl.value;
+        var rows   = document.querySelectorAll('#users-table tbody tr');
+        rows.forEach(function(row) {
+            var matchText   = !q || row.dataset.username.indexOf(q) !== -1 || row.dataset.email.indexOf(q) !== -1;
+            var matchStatus = !status || row.dataset.status === status;
+            var matchRole   = !role   || row.dataset.role   === role;
+            row.style.display = (matchText && matchStatus && matchRole) ? '' : 'none';
+        });
+    }
+
+    searchEl.addEventListener('input',  applyFilters);
+    statusEl.addEventListener('change', applyFilters);
+    roleEl.addEventListener('change',   applyFilters);
+
+    var _sortCol = -1, _sortAsc = true;
+    window.sortTable = function(colIndex) {
+        var tbody = document.querySelector('#users-table tbody');
+        var rows  = Array.from(tbody.querySelectorAll('tr'));
+        if (_sortCol === colIndex) {
+            _sortAsc = !_sortAsc;
+        } else {
+            _sortCol = colIndex;
+            _sortAsc = true;
+        }
+        rows.sort(function(a, b) {
+            var aVal = (a.cells[colIndex] ? a.cells[colIndex].textContent.trim() : '').toLowerCase();
+            var bVal = (b.cells[colIndex] ? b.cells[colIndex].textContent.trim() : '').toLowerCase();
+            return _sortAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        });
+        rows.forEach(function(r) { tbody.appendChild(r); });
+        // Update header indicators
+        document.querySelectorAll('#users-table th.sortable').forEach(function(th, i) {
+            th.classList.remove('sort-asc', 'sort-desc');
+            if (i === colIndex) { th.classList.add(_sortAsc ? 'sort-asc' : 'sort-desc'); }
+        });
+    };
+}());
 </script>
 {% endblock %}
