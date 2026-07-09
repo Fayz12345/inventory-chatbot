@@ -14,6 +14,19 @@ import anthropic
 import config
 import users_db
 
+CHAT_SQL_MODEL = getattr(config, "CHAT_SQL_MODEL", "claude-opus-4-8")
+CHAT_ANSWER_MODEL = getattr(config, "CHAT_ANSWER_MODEL", "claude-haiku-4-5-20251001")
+
+_anthropic = None
+def _anthropic_client():
+    """One shared client with a timeout so a hung API call can't pin a worker."""
+    global _anthropic
+    if _anthropic is None:
+        _anthropic = anthropic.Anthropic(
+            api_key=config.ANTHROPIC_API_KEY, timeout=30, max_retries=2
+        )
+    return _anthropic
+
 
 chatbot_app = Flask(__name__)
 chatbot_app.secret_key = config.SECRET_KEY
@@ -165,27 +178,20 @@ def run_query(sql):
 
 # --- Ask Claude to generate SQL ---
 def generate_sql(user_question):
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    message = client.messages.create(
-        model="claude-opus-4-6",
-        max_tokens=500,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_question}]
+    message = _anthropic_client().messages.create(
+        model=CHAT_SQL_MODEL, max_tokens=500, system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_question}],
     )
     return message.content[0].text.strip()
 
 # --- Format result into a readable answer ---
 def format_answer(sql, data, user_question):
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     rows_preview = str(data['rows'][:50])
-    message = client.messages.create(
-        model="claude-opus-4-6",
-        max_tokens=500,
+    message = _anthropic_client().messages.create(
+        model=CHAT_ANSWER_MODEL, max_tokens=500,
         system="You are a helpful inventory assistant. Given a SQL query result, answer the user's question in plain English. Be concise and direct. If it's a count or sum, state the number clearly.",
-        messages=[{
-            "role": "user",
-            "content": f"Question: {user_question}\nSQL used: {sql}\nColumns: {data['columns']}\nData: {rows_preview}\n\nAnswer the question in plain English."
-        }]
+        messages=[{"role": "user",
+                   "content": f"Question: {user_question}\nSQL used: {sql}\nColumns: {data['columns']}\nData: {rows_preview}\n\nAnswer the question in plain English."}],
     )
     return message.content[0].text.strip()
 
