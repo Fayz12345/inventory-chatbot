@@ -87,3 +87,22 @@ def test_edit_user_updates_and_rejects_dupe_username():
     assert ok["ok"] is True and users_db._row_by_username("edit_a2")["email"] == "a2@x.com"
     dupe = c.post("/admin/users/edit", json={"id": a, "username": "edit_b", "email": "a2@x.com"}).get_json()
     assert dupe["ok"] is False
+
+
+def test_admin_users_page_tojson_escapes_single_quote_in_username():
+    """Regression: username with a single quote must not break out of onclick JS string literals.
+
+    Jinja tojson in an HTML context emits \\u0027 for the single quote, producing
+    onclick='deleteUser(1, "o\\u0027brien")'.  The dangerous raw breakout pattern
+    'o'brien' (raw unescaped single quote inside a single-quoted attribute) must be absent.
+    """
+    users_db.create_user("o'brien", "obrien@x.com", created_by="t")
+    c = app_module.chatbot_app.test_client()
+    _set_admin_session(c)
+    resp = c.get("/admin/users")
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8")
+    # tojson escapes the single quote as ' in an HTML context → safe unicode-escaped form present
+    assert "\\u0027brien" in body
+    # The dangerous raw breakout pattern must NOT appear in any onclick attribute
+    assert "'o'brien'" not in body
