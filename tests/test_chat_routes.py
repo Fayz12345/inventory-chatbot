@@ -69,3 +69,22 @@ def test_anthropic_client_is_shared_singleton(monkeypatch):
     assert c1 is c2
     assert len(made) == 1
     assert made[0].get("timeout") == 30 and made[0].get("max_retries") == 2
+
+
+def test_ask_threads_history_into_generation(monkeypatch):
+    seen = {}
+    class Usage: input_tokens = 1; output_tokens = 1
+    def fake_generate(messages):
+        seen['messages'] = messages
+        return ("SELECT ESN FROM ReportingInventoryFlat", Usage())
+    monkeypatch.setattr(app, "generate_sql", fake_generate)
+    monkeypatch.setattr(app, "run_query", lambda s: ({'columns': ['ESN'], 'rows': [['1']], 'truncated': False}, None))
+    monkeypatch.setattr(app, "format_answer", lambda *a, **k: "ok")
+    client = app.chatbot_app.test_client(); _login(client)
+    history = [{"role": "user", "content": "how many Apple?"},
+               {"role": "assistant", "content": "1,240."}]
+    client.post("/ask", json={"question": "what about Samsung?", "history": history})
+    roles = [m['role'] for m in seen['messages']]
+    # history (user, assistant) then the current user question
+    assert roles == ["user", "assistant", "user"]
+    assert seen['messages'][-1]['content'] == "what about Samsung?"

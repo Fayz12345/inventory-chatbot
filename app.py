@@ -18,6 +18,7 @@ import chat_sql
 CHAT_SQL_MODEL = getattr(config, "CHAT_SQL_MODEL", "claude-opus-4-8")
 CHAT_ANSWER_MODEL = getattr(config, "CHAT_ANSWER_MODEL", "claude-haiku-4-5-20251001")
 CHAT_ROW_CAP = 50
+CHAT_HISTORY_TURNS = 6
 
 _anthropic = None
 def _anthropic_client():
@@ -212,6 +213,17 @@ def run_query_raw(sql):
     except Exception as e:
         return None, str(e)
 
+def _sanitize_history(raw):
+    """Accept only well-formed {role in (user,assistant), content:str} items,
+    keep the last CHAT_HISTORY_TURNS*2, and coerce to plain strings."""
+    if not isinstance(raw, list):
+        return []
+    clean = []
+    for m in raw[-(CHAT_HISTORY_TURNS * 2):]:
+        if isinstance(m, dict) and m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str):
+            clean.append({"role": m["role"], "content": m["content"][:4000]})
+    return clean
+
 # --- Ask Claude to generate SQL ---
 CHAT_MAX_RETRIES = 2
 
@@ -277,7 +289,8 @@ def ask():
     if not user_question:
         return jsonify({'error': 'No question provided'}), 400
 
-    messages = [{"role": "user", "content": user_question}]
+    history = _sanitize_history((request.json or {}).get('history'))
+    messages = history + [{"role": "user", "content": user_question}]
     sql, data, error = None, None, None
     for attempt in range(CHAT_MAX_RETRIES + 1):
         sql, _usage = generate_sql(messages)

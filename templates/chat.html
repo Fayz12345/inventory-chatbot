@@ -32,6 +32,7 @@
 <script>
     const chatEl = document.getElementById('chat');
     const questionEl = document.getElementById('question');
+    let chatHistory = [];
 
     // Enter sends; Shift+Enter inserts a newline (multi-line questions).
     questionEl.addEventListener('keydown', function(e) {
@@ -86,7 +87,7 @@
         fetch('/ask', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ question })
+            body: JSON.stringify({ question, history: chatHistory })
         })
         .then(r => r.json())
         .then(data => {
@@ -108,6 +109,9 @@
             msg.innerHTML = html;
             document.getElementById('chat-window').appendChild(msg);
             scrollToBottom();
+            chatHistory.push({ role: 'user', content: question });
+            chatHistory.push({ role: 'assistant', content: data.answer || '' });
+            if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);  // 6 turns
         })
         .catch(() => {
             thinking.remove();
