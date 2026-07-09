@@ -82,7 +82,10 @@ def _csrf_guard():
     protected = request.method == 'POST' and (
         request.path.startswith('/admin/') or request.path in ('/ask',) or request.path.startswith('/profile'))
     if protected:
-        if request.headers.get('X-CSRF-Token') != session.get('csrf_token'):
+        token = session.get('csrf_token')
+        # reject when there is no session token (avoids a None==None pass for an
+        # unauthenticated POST to a protected path) or the header doesn't match
+        if not token or request.headers.get('X-CSRF-Token') != token:
             return jsonify({'ok': False, 'error': 'Invalid CSRF token'}), 403
 
 
