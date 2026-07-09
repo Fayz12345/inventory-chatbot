@@ -78,3 +78,12 @@ def test_set_active_unknown_user():
     _set_admin_session(c)
     resp = c.post("/admin/users/set-active", json={"id": 99999, "active": False})
     assert resp.get_json()["ok"] is False
+
+
+def test_edit_user_updates_and_rejects_dupe_username():
+    a = _make_user("edit_a"); _make_user("edit_b")
+    c = app_module.chatbot_app.test_client(); _set_admin_session(c)
+    ok = c.post("/admin/users/edit", json={"id": a, "username": "edit_a2", "email": "a2@x.com"}).get_json()
+    assert ok["ok"] is True and users_db._row_by_username("edit_a2")["email"] == "a2@x.com"
+    dupe = c.post("/admin/users/edit", json={"id": a, "username": "edit_b", "email": "a2@x.com"}).get_json()
+    assert dupe["ok"] is False

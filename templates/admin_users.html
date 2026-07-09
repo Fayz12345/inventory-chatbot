@@ -57,6 +57,10 @@
           <td>
             <div class="actions">
               {% if u.username != username %}
+                <button class="icon-btn icon-btn--brand" title="Edit user" aria-label="Edit user"
+                        onclick="openEditModal({{ u.id }}, '{{ u.username | e }}', '{{ (u.email or '') | e }}')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
                 {% if not u.password_set %}
                 <button class="icon-btn icon-btn--success" title="Resend invite" aria-label="Resend invite"
                         onclick="resendInvite({{ u.id }}, '{{ u.username }}')">
@@ -119,6 +123,27 @@
     <div class="modal-actions" style="justify-content:flex-end">
       <button class="btn btn-outline" onclick="closeModals()">Cancel</button>
       <button class="btn btn-primary" id="create-btn" onclick="createUser()">Send Invite</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit User Modal -->
+<div id="edit-modal" class="modal-overlay" onclick="if(event.target===this)closeModals()">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModals()">&times;</button>
+    <h3>Edit User</h3>
+    <input type="hidden" id="edit-id">
+    <div class="field">
+      <label for="edit-username">Username</label>
+      <input type="text" id="edit-username" placeholder="e.g. JohnDoe">
+    </div>
+    <div class="field">
+      <label for="edit-email">Email Address</label>
+      <input type="email" id="edit-email" placeholder="e.g. john@example.com">
+    </div>
+    <div class="modal-actions" style="justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeModals()">Cancel</button>
+      <button class="btn btn-primary" id="edit-save-btn" onclick="saveEditUser()">Save</button>
     </div>
   </div>
 </div>
@@ -296,6 +321,47 @@ function showToast(msg, type) {
     t.className = 'toast toast-' + type;
     t.style.display = 'block';
     setTimeout(function() { t.style.display = 'none'; }, 3000);
+}
+
+function openEditModal(id, username, email) {
+    document.getElementById('edit-id').value = id;
+    document.getElementById('edit-username').value = username;
+    document.getElementById('edit-email').value = email;
+    document.getElementById('edit-save-btn').disabled = false;
+    document.getElementById('edit-save-btn').textContent = 'Save';
+    document.getElementById('edit-modal').classList.add('active');
+    document.getElementById('edit-username').focus();
+}
+
+function saveEditUser() {
+    var id = parseInt(document.getElementById('edit-id').value, 10);
+    var username = document.getElementById('edit-username').value.trim();
+    var email = document.getElementById('edit-email').value.trim();
+    if (!username) { showToast('Username is required', 'error'); return; }
+    var btn = document.getElementById('edit-save-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    fetch('/admin/users/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: id, username: username, email: email })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.ok) {
+            showToast('User updated', 'success');
+            setTimeout(function() { location.reload(); }, 800);
+        } else {
+            showToast(data.error, 'error');
+            btn.disabled = false;
+            btn.textContent = 'Save';
+        }
+    })
+    .catch(function() {
+        showToast('Network error', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Save';
+    });
 }
 
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeModals(); closeConfirm(); } });

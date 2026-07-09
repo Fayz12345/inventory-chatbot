@@ -526,6 +526,31 @@ def admin_delete_user():
     return jsonify({'ok': True})
 
 
+@chatbot_app.route('/admin/users/edit', methods=['POST'])
+def admin_edit_user():
+    if not session.get('logged_in') or not session.get('is_admin'):
+        return jsonify({'ok': False, 'error': 'Unauthorized'}), 403
+    d = request.get_json() or {}
+    user = users_db.get_user_by_id(d.get('id'))
+    if not user:
+        return jsonify({'ok': False, 'error': 'User not found'})
+    new_username = (d.get('username') or '').strip()
+    new_email = (d.get('email') or '').strip()
+    if not new_username:
+        return jsonify({'ok': False, 'error': 'Username required'})
+    try:
+        if new_username != user['username']:
+            users_db.update_username(d['id'], new_username)
+        users_db.set_email(d['id'], new_email)
+    except Exception as e:
+        if 'UNIQUE' in str(e).upper():
+            return jsonify({'ok': False, 'error': f'Username "{new_username}" already exists'})
+        return jsonify({'ok': False, 'error': str(e)})
+    admin_audit.log_action(session.get('username'), 'edit_user', target=new_username,
+                           detail=f"email={new_email}")
+    return jsonify({'ok': True})
+
+
 @chatbot_app.route('/admin/users/set-active', methods=['POST'])
 def admin_set_active():
     if not session.get('logged_in') or not session.get('is_admin'):
