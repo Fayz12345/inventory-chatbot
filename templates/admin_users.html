@@ -73,7 +73,7 @@
           </td>
           <td class="email">{{ u.email or '—' }}</td>
           <td>
-            <span class="badge {{ 'badge-admin' if u.is_admin else 'badge-user' }}">{{ 'Admin' if u.is_admin else 'User' }}</span>
+            <span class="badge {{ 'badge-admin' if (u.role or ('admin' if u.is_admin else 'user')) == 'admin' else 'badge-user' }}">{{ (u.role or ('admin' if u.is_admin else 'user')) | capitalize }}</span>
           </td>
           <td>
             {% if not u.is_active %}

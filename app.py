@@ -447,7 +447,7 @@ def admin_audit_view():
         return redirect(url_for('login'))
     return render_template('admin_audit.html', logs=admin_audit.recent(200),
                            username=session.get('username'),
-                           is_admin=True, active='admin')
+                           is_admin=True, active='audit')
 
 
 @chatbot_app.route('/admin/users/create', methods=['POST'])
