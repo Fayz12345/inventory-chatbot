@@ -1,0 +1,42 @@
+{% extends "_base.html" %}
+{% block title %}Chat Log — Bridge Platform{% endblock %}
+{% block body %}
+<div class="page page--narrow">
+  <div class="page-head">
+    <div><h1>Chat Log <span class="count">({{ logs | length }})</span></h1></div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>User</th>
+          <th>Question</th>
+          <th>OK</th>
+          <th>Rows</th>
+          <th>Retries</th>
+          <th>ms</th>
+          <th>Tok in/out</th>
+          <th>SQL / Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in logs %}
+        <tr>
+          <td>{{ l.created_at }}</td>
+          <td>{{ l.username }}</td>
+          <td>{{ l.question }}</td>
+          <td>{{ 'yes' if l.ok else 'no' }}</td>
+          <td>{{ l.row_count }}</td>
+          <td>{{ l.retries }}</td>
+          <td>{{ l.latency_ms }}</td>
+          <td>{{ l.input_tokens }}/{{ l.output_tokens }}</td>
+          <td><code>{{ l.sql or l.error }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

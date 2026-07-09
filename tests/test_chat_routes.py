@@ -137,3 +137,16 @@ def test_sanitize_history():
     result = app._sanitize_history([{"role": "user", "content": long_content}])
     assert len(result) == 1
     assert len(result[0]["content"]) == 4000
+
+
+def test_ask_writes_a_log_row(monkeypatch):
+    written = {}
+    monkeypatch.setattr(app.chat_log, "log_query", lambda **k: written.update(k))
+    class Usage: input_tokens = 7; output_tokens = 3
+    monkeypatch.setattr(app, "generate_sql", lambda messages: ("SELECT ESN FROM ReportingInventoryFlat", Usage()))
+    monkeypatch.setattr(app, "run_query", lambda s: ({'columns': ['ESN'], 'rows': [['1']], 'truncated': False}, None))
+    monkeypatch.setattr(app, "format_answer", lambda *a, **k: "ok")
+    client = app.chatbot_app.test_client(); _login(client)
+    client.post("/ask", json={"question": "one esn"})
+    assert written['ok'] is True and written['question'] == "one esn"
+    assert written['row_count'] == 1

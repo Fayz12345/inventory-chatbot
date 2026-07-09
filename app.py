@@ -14,6 +14,7 @@ import anthropic
 import config
 import users_db
 import chat_sql
+import chat_log
 
 CHAT_SQL_MODEL = getattr(config, "CHAT_SQL_MODEL", "claude-opus-4-8")
 CHAT_ANSWER_MODEL = getattr(config, "CHAT_ANSWER_MODEL", "claude-haiku-4-5-20251001")
@@ -37,6 +38,7 @@ chatbot_app.secret_key = config.SECRET_KEY
 # Initialise local SQLite user database
 users_db.init_db()
 users_db.seed_admin_if_empty()
+chat_log.init_db()
 
 # Register blueprints
 from ecommerce.approval import approval_bp
@@ -289,33 +291,56 @@ def ask():
     if not user_question:
         return jsonify({'error': 'No question provided'}), 400
 
+    import time as _t
+    _t0 = _t.time()
+    retries = 0
+    in_tok = out_tok = 0
+
+    def _finish(payload, *, ok, sql=None, error=None, row_count=None):
+        try:
+            chat_log.log_query(username=session.get('username'), question=user_question,
+                               sql=sql, ok=ok, error=error, row_count=row_count,
+                               retries=retries, latency_ms=int((_t.time() - _t0) * 1000),
+                               input_tokens=in_tok, output_tokens=out_tok)
+        except Exception:
+            pass
+        return jsonify(payload)
+
     history = _sanitize_history((request.json or {}).get('history'))
     messages = history + [{"role": "user", "content": user_question}]
     sql, data, error = None, None, None
     for attempt in range(CHAT_MAX_RETRIES + 1):
         sql, _usage = generate_sql(messages)
+        in_tok += getattr(_usage, 'input_tokens', 0)
+        out_tok += getattr(_usage, 'output_tokens', 0)
         if sql == 'UNABLE_TO_ANSWER':
-            return jsonify({'answer': "I'm unable to answer that from the inventory data I have access to.", 'sql': ''})
+            return _finish({'answer': "I'm unable to answer that from the inventory data I have access to.", 'sql': ''},
+                           ok=False, sql='')
         data, error = run_query(sql)
         if not error:
             break
+        if attempt < CHAT_MAX_RETRIES:
+            retries += 1
         # feed the failure back so the model can self-correct
         messages.append({"role": "assistant", "content": sql})
         messages.append({"role": "user",
                          "content": f"That query failed with error: {error}. Return a corrected single T-SQL SELECT only."})
     if error:
-        return jsonify({'answer': f'There was an error running the query: {error}', 'sql': sql})
+        return _finish({'answer': f'There was an error running the query: {error}', 'sql': sql},
+                       ok=False, sql=sql, error=error)
     if not data['rows']:
-        return jsonify({'answer': 'No results found for your question.', 'sql': sql})
+        return _finish({'answer': 'No results found for your question.', 'sql': sql},
+                       ok=True, sql=sql, row_count=0)
 
     total_rows = len(data['rows'])
     if data.get('truncated'):
         count_data, _ = run_query_raw(chat_sql.build_count_query(sql))
         total_rows = count_data['rows'][0][0] if count_data else None
     answer = format_answer(sql, data, user_question, truncated=data.get('truncated'), total_rows=total_rows)
-    return jsonify({'answer': answer, 'sql': sql, 'rows': data['rows'][:CHAT_ROW_CAP],
+    return _finish({'answer': answer, 'sql': sql, 'rows': data['rows'][:CHAT_ROW_CAP],
                     'columns': data['columns'], 'truncated': bool(data.get('truncated')),
-                    'total_rows': total_rows})
+                    'total_rows': total_rows},
+                   ok=True, sql=sql, row_count=total_rows)
 
 @chatbot_app.route('/logout')
 def logout():
@@ -350,6 +375,15 @@ def admin_users():
         return redirect(url_for('login'))
     users = users_db.get_all_users()
     return render_template('admin_users.html', users=users,
+                           username=session.get('username'),
+                           is_admin=session.get('is_admin', False), active='admin')
+
+
+@chatbot_app.route('/admin/chat-log')
+def admin_chat_log():
+    if not session.get('logged_in') or not session.get('is_admin'):
+        return redirect(url_for('login'))
+    return render_template('chat_log.html', logs=chat_log.recent(200),
                            username=session.get('username'),
                            is_admin=session.get('is_admin', False), active='admin')
 
