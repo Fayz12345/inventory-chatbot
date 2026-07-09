@@ -13,6 +13,7 @@ import pyodbc
 import anthropic
 import config
 import users_db
+import admin_audit
 import chat_sql
 import chat_log
 
@@ -38,6 +39,7 @@ chatbot_app.secret_key = config.SECRET_KEY
 # Initialise local SQLite user database
 users_db.init_db()
 users_db.seed_admin_if_empty()
+admin_audit.init_db()
 chat_log.init_db()
 
 # Register blueprints
@@ -261,8 +263,15 @@ def login():
         if user:
             session['logged_in'] = True
             session['username'] = user['username']
+            session['role'] = user.get('role') or ('admin' if user['is_admin'] else 'user')
             session['is_admin'] = bool(user['is_admin'])
             return redirect(url_for('home'))
+        # distinguish disabled / locked / bad-credential
+        row = users_db._row_by_username(username)
+        if row and not row.get('is_active', 1):
+            error = 'This account is disabled. Contact an administrator.'
+        elif row and users_db.is_locked(row):
+            error = 'Too many failed attempts. Try again in ~15 minutes.'
         else:
             error = 'Invalid username or password.'
     return render_template('login.html', error=error)

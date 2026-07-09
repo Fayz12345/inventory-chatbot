@@ -77,8 +77,17 @@ def authenticate(username, password):
     conn = _get_conn()
     row = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
     conn.close()
-    if row and row['password_set'] and check_password_hash(row['password_hash'], password):
-        return dict(row)
+    if not row:
+        return None
+    row = dict(row)
+    if not row.get('is_active', 1):
+        return None
+    if is_locked(row):
+        return None
+    if row['password_set'] and check_password_hash(row['password_hash'], password):
+        update_last_login(row['id'])
+        return row
+    record_failed_login(username)
     return None
 
 
