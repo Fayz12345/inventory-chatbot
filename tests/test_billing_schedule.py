@@ -56,7 +56,7 @@ def test_open_box_transfer_uses_in_list():
 def test_android_enrollment_split():
     samsung = _find("Android Device Enrollment", "Samsung")
     other = _find("Android Device Enrollment", "Other (non-Samsung)")
-    assert samsung["column"] == "Subsidy_Created"
+    assert samsung["column"] == "Device_Enrollment_Created"
     assert samsung["manufacturer"] == "Samsung" and samsung["manufacturer_op"] == "="
     assert other["column"] == "Device_Enrollment_Created"
     assert other["manufacturer"] == "Samsung" and other["manufacturer_op"] == "<>"
