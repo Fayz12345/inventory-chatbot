@@ -88,12 +88,16 @@ BESTBUY_MANUFACTURER_WARRANTY = _env("BESTBUY_MANUFACTURER_WARRANTY", "365")
 # is live but not purchasable). Leave blank in production so real stock is used.
 BESTBUY_FORCE_QUANTITY = _env("BESTBUY_FORCE_QUANTITY", "")
 
-# Reebelo (creds parked; auto-post NOT wired yet per ADO #138)
+# Reebelo (Cobalt) — ticket 1D.12. Cobalt auth is a static API key in the
+# `x-api-key` header; base URL is env-specific (sandbox a.reebelo.blue / prod
+# a.reebelo.com). USERNAME/PASSWORD slots are legacy/unused by Cobalt.
 REEBELO_ENV       = _env("REEBELO_ENV", "sandbox").lower()
 REEBELO_USERNAME  = _resolve("REEBELO_ENV", "REEBELO_USERNAME",  "REEBELO_USERNAME_SANDBOX")
 REEBELO_PASSWORD  = _resolve("REEBELO_ENV", "REEBELO_PASSWORD",  "REEBELO_PASSWORD_SANDBOX")
 REEBELO_API_KEY   = _resolve("REEBELO_ENV", "REEBELO_API_KEY",   "REEBELO_API_KEY_SANDBOX")
 REEBELO_SANDBOX   = (REEBELO_ENV != "production")
+REEBELO_API_BASE  = _env("REEBELO_API_BASE",
+                         "https://a.reebelo.blue" if REEBELO_SANDBOX else "https://a.reebelo.com")
 
 
 # ---------------------------------------------------------------------------
