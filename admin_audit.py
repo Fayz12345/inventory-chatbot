@@ -14,15 +14,18 @@ def _conn():
 
 def init_db():
     c = _conn()
-    c.execute('''CREATE TABLE IF NOT EXISTS admin_audit (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        actor      TEXT,
-        action     TEXT NOT NULL,
-        target     TEXT,
-        detail     TEXT
-    )''')
-    c.commit(); c.close()
+    try:
+        c.execute('''CREATE TABLE IF NOT EXISTS admin_audit (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            actor      TEXT,
+            action     TEXT NOT NULL,
+            target     TEXT,
+            detail     TEXT
+        )''')
+        c.commit()
+    finally:
+        c.close()
 
 
 def log_action(actor, action, target=None, detail=None):
@@ -37,6 +40,8 @@ def log_action(actor, action, target=None, detail=None):
 
 def recent(limit=200):
     c = _conn()
-    rows = c.execute("SELECT * FROM admin_audit ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
-    c.close()
-    return [dict(r) for r in rows]
+    try:
+        rows = c.execute("SELECT * FROM admin_audit ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        c.close()
