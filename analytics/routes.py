@@ -2,8 +2,16 @@ from flask import Blueprint, request, jsonify, session, redirect, url_for, Respo
 from analytics import db, pricing, templates
 from io import BytesIO
 from datetime import datetime
+import roles
 
 analytics_bp = Blueprint('analytics', __name__, url_prefix='/analytics')
+
+
+@analytics_bp.before_request
+def _gate_analytics():
+    role = session.get('role', 'user')
+    if session.get('logged_in') and not roles.role_allows(role, 'analytics'):
+        return redirect(url_for('home'))
 
 
 def _require_login():

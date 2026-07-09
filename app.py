@@ -5,16 +5,20 @@ load_dotenv()
 
 from flask import Flask, render_template, request, session, redirect, url_for, jsonify
 from werkzeug.security import check_password_hash
+from functools import wraps
 import json
 import os
+import secrets as _secrets
 import time
 from urllib import error as urlerror, parse as urlparse, request as urlrequest
 import pyodbc
 import anthropic
 import config
 import users_db
+import admin_audit
 import chat_sql
 import chat_log
+import roles
 
 CHAT_SQL_MODEL = getattr(config, "CHAT_SQL_MODEL", "claude-sonnet-4-6")
 CHAT_ANSWER_MODEL = getattr(config, "CHAT_ANSWER_MODEL", "claude-haiku-4-5-20251001")
@@ -35,9 +39,30 @@ def _anthropic_client():
 chatbot_app = Flask(__name__)
 chatbot_app.secret_key = config.SECRET_KEY
 
+
+def require_module(module):
+    """Decorator: redirect to /home if the session role lacks the module."""
+    def deco(fn):
+        @wraps(fn)
+        def wrapper(*a, **kw):
+            if not session.get('logged_in'):
+                return redirect(url_for('login'))
+            if not roles.role_allows(session.get('role', 'user'), module):
+                return redirect(url_for('home'))
+            return fn(*a, **kw)
+        return wrapper
+    return deco
+
+
+def _perms():
+    """Return a perms dict for the current session role (for nav gating)."""
+    role = session.get('role', 'user')
+    return {m: roles.role_allows(role, m) for m in roles.MODULES}
+
 # Initialise local SQLite user database
 users_db.init_db()
 users_db.seed_admin_if_empty()
+admin_audit.init_db()
 chat_log.init_db()
 
 # Register blueprints
@@ -47,6 +72,27 @@ from billing.routes import billing_bp
 chatbot_app.register_blueprint(approval_bp)
 chatbot_app.register_blueprint(analytics_bp)
 chatbot_app.register_blueprint(billing_bp)
+
+
+# --- CSRF protection ---
+@chatbot_app.before_request
+def _csrf_guard():
+    if session.get('logged_in') and not session.get('csrf_token'):
+        session['csrf_token'] = _secrets.token_urlsafe(32)
+    protected = request.method == 'POST' and (
+        request.path.startswith('/admin/') or request.path in ('/ask',) or request.path.startswith('/profile'))
+    if protected:
+        token = session.get('csrf_token')
+        # reject when there is no session token (avoids a None==None pass for an
+        # unauthenticated POST to a protected path) or the header doesn't match
+        if not token or request.headers.get('X-CSRF-Token') != token:
+            return jsonify({'ok': False, 'error': 'Invalid CSRF token'}), 403
+
+
+@chatbot_app.context_processor
+def _inject_csrf():
+    return {'csrf_token': session.get('csrf_token', '')}
+
 
 # --- Database connection ---
 def get_db_connection():
@@ -261,8 +307,15 @@ def login():
         if user:
             session['logged_in'] = True
             session['username'] = user['username']
+            session['role'] = user.get('role') or ('admin' if user['is_admin'] else 'user')
             session['is_admin'] = bool(user['is_admin'])
             return redirect(url_for('home'))
+        # distinguish disabled / locked / bad-credential
+        row = users_db._row_by_username(username)
+        if row and not row.get('is_active', 1):
+            error = 'This account is disabled. Contact an administrator.'
+        elif row and users_db.is_locked(row):
+            error = 'Too many failed attempts. Try again in ~15 minutes.'
         else:
             error = 'Invalid username or password.'
     return render_template('login.html', error=error)
@@ -272,15 +325,16 @@ def home():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
     return render_template('home.html', username=session.get('username'),
-                           is_admin=session.get('is_admin', False), active='home')
+                           is_admin=session.get('is_admin', False), active='home',
+                           perms=_perms())
 
 
 @chatbot_app.route('/chat')
+@require_module('chat')
 def chat():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
     return render_template('chat.html', username=session.get('username'),
-                           is_admin=session.get('is_admin', False), active='chat')
+                           is_admin=session.get('is_admin', False), active='chat',
+                           perms=_perms())
 
 @chatbot_app.route('/ask', methods=['POST'])
 def ask():
@@ -387,6 +441,15 @@ def admin_chat_log():
                            is_admin=session.get('is_admin', False), active='admin')
 
 
+@chatbot_app.route('/admin/audit')
+def admin_audit_view():
+    if not session.get('logged_in') or not session.get('is_admin'):
+        return redirect(url_for('login'))
+    return render_template('admin_audit.html', logs=admin_audit.recent(200),
+                           username=session.get('username'),
+                           is_admin=True, active='audit')
+
+
 @chatbot_app.route('/admin/users/create', methods=['POST'])
 def admin_create_user():
     if not session.get('logged_in') or not session.get('is_admin'):
@@ -401,6 +464,8 @@ def admin_create_user():
         token = users_db.create_user(new_username, new_email, is_admin,
                                      created_by=session.get('username'))
         send_invite_email(new_email, new_username, token)
+        admin_audit.log_action(session.get('username'), 'create_user',
+                               target=new_username, detail=new_email)
         return jsonify({'ok': True})
     except Exception as e:
         if 'UNIQUE' in str(e).upper():
@@ -422,6 +487,8 @@ def admin_resend_invite():
     try:
         token = users_db.generate_invite_token(user_id)
         send_invite_email(user['email'], user['username'], token)
+        admin_audit.log_action(session.get('username'), 'resend_invite',
+                               target=user['username'])
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
@@ -441,6 +508,8 @@ def admin_reset_password():
     try:
         token = users_db.generate_invite_token(user_id)
         send_invite_email(user['email'], user['username'], token)
+        admin_audit.log_action(session.get('username'), 'reset_password',
+                               target=user['username'])
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
@@ -457,8 +526,30 @@ def admin_toggle_admin():
         return jsonify({'ok': False, 'error': 'User not found'})
     if user['username'] == session.get('username'):
         return jsonify({'ok': False, 'error': 'Cannot change your own admin status'})
-    users_db.update_admin_status(user_id, not user['is_admin'])
-    return jsonify({'ok': True, 'is_admin': not user['is_admin']})
+    new_admin_state = not user['is_admin']
+    users_db.update_admin_status(user_id, new_admin_state)
+    admin_audit.log_action(session.get('username'), 'toggle_admin',
+                           target=user['username'],
+                           detail='admin' if new_admin_state else 'not_admin')
+    return jsonify({'ok': True, 'is_admin': new_admin_state})
+
+
+@chatbot_app.route('/admin/users/set-role', methods=['POST'])
+def admin_set_role():
+    if not session.get('logged_in') or not session.get('is_admin'):
+        return jsonify({'ok': False, 'error': 'Unauthorized'}), 403
+    d = request.get_json() or {}
+    user = users_db.get_user_by_id(d.get('id'))
+    if not user:
+        return jsonify({'ok': False, 'error': 'User not found'})
+    if user['username'] == session.get('username'):
+        return jsonify({'ok': False, 'error': 'Cannot change your own role'})
+    role = d.get('role')
+    if role not in roles.ROLES:
+        return jsonify({'ok': False, 'error': 'Invalid role'})
+    users_db.set_role(d['id'], role)
+    admin_audit.log_action(session.get('username'), 'set_role', target=user['username'], detail=role)
+    return jsonify({'ok': True})
 
 
 @chatbot_app.route('/admin/users/delete', methods=['POST'])
@@ -473,6 +564,106 @@ def admin_delete_user():
     if user['username'] == session.get('username'):
         return jsonify({'ok': False, 'error': 'Cannot delete your own account'})
     users_db.delete_user(user_id)
+    admin_audit.log_action(session.get('username'), 'delete_user', target=user['username'])
+    return jsonify({'ok': True})
+
+
+@chatbot_app.route('/admin/users/edit', methods=['POST'])
+def admin_edit_user():
+    if not session.get('logged_in') or not session.get('is_admin'):
+        return jsonify({'ok': False, 'error': 'Unauthorized'}), 403
+    d = request.get_json() or {}
+    user = users_db.get_user_by_id(d.get('id'))
+    if not user:
+        return jsonify({'ok': False, 'error': 'User not found'})
+    new_username = (d.get('username') or '').strip()
+    new_email = (d.get('email') or '').strip()
+    if not new_username:
+        return jsonify({'ok': False, 'error': 'Username required'})
+    is_self = user['username'] == session.get('username')
+    actor = session.get('username')
+    try:
+        if new_username != user['username']:
+            users_db.update_username(d['id'], new_username)
+        users_db.set_email(d['id'], new_email)
+    except Exception as e:
+        if 'UNIQUE' in str(e).upper():
+            return jsonify({'ok': False, 'error': f'Username "{new_username}" already exists'})
+        return jsonify({'ok': False, 'error': str(e)})
+    # Apply role change (non-self only)
+    new_role = d.get('role')
+    if new_role is not None and not is_self:
+        if new_role not in roles.ROLES:
+            return jsonify({'ok': False, 'error': 'Invalid role'})
+        if new_role != user.get('role'):
+            users_db.set_role(d['id'], new_role)
+            admin_audit.log_action(actor, 'set_role', target=new_username, detail=new_role)
+    # Apply active change (non-self only)
+    if 'active' in d and not is_self:
+        raw_active = d['active']
+        if isinstance(raw_active, bool):
+            new_active = raw_active
+        else:
+            new_active = str(raw_active).lower() not in ('false', '0', '')
+        users_db.set_active(d['id'], new_active)
+        admin_audit.log_action(actor, 'set_active', target=new_username,
+                               detail='active' if new_active else 'disabled')
+    admin_audit.log_action(actor, 'edit_user', target=new_username,
+                           detail=f"email={new_email}")
+    return jsonify({'ok': True})
+
+
+@chatbot_app.route('/admin/users/set-active', methods=['POST'])
+def admin_set_active():
+    if not session.get('logged_in') or not session.get('is_admin'):
+        return jsonify({'ok': False, 'error': 'Unauthorized'}), 403
+    d = request.get_json() or {}
+    user = users_db.get_user_by_id(d.get('id'))
+    if not user:
+        return jsonify({'ok': False, 'error': 'User not found'})
+    if user['username'] == session.get('username'):
+        return jsonify({'ok': False, 'error': 'Cannot disable your own account'})
+    active = bool(d.get('active'))
+    users_db.set_active(d['id'], active)
+    admin_audit.log_action(session.get('username'), 'set_active', target=user['username'],
+                           detail='active' if active else 'disabled')
+    return jsonify({'ok': True})
+
+
+# --- Profile: self-service password and email ---
+@chatbot_app.route('/profile')
+def profile():
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+    me = users_db._row_by_username(session.get('username'))
+    return render_template('profile.html', me=me,
+                           username=session.get('username'),
+                           is_admin=session.get('is_admin', False),
+                           active='profile',
+                           perms=_perms())
+
+
+@chatbot_app.route('/profile/password', methods=['POST'])
+def profile_password():
+    if not session.get('logged_in'):
+        return jsonify({'ok': False, 'error': 'Not logged in'}), 401
+    d = request.get_json() or {}
+    if not users_db.verify_password(session['username'], d.get('current', '')):
+        return jsonify({'ok': False, 'error': 'Current password is incorrect'})
+    if len(d.get('new', '')) < 6:
+        return jsonify({'ok': False, 'error': 'New password must be at least 6 characters'})
+    uid = users_db._row_by_username(session['username'])['id']
+    users_db.update_password(uid, d['new'])
+    return jsonify({'ok': True})
+
+
+@chatbot_app.route('/profile/email', methods=['POST'])
+def profile_email():
+    if not session.get('logged_in'):
+        return jsonify({'ok': False, 'error': 'Not logged in'}), 401
+    d = request.get_json() or {}
+    uid = users_db._row_by_username(session['username'])['id']
+    users_db.set_email(uid, (d.get('email') or '').strip())
     return jsonify({'ok': True})
 
 

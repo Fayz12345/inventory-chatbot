@@ -24,6 +24,7 @@ def client():
         with c.session_transaction() as sess:
             sess["logged_in"] = True
             sess["username"] = "tester"
+            sess["role"] = "admin"
         yield c
 
 

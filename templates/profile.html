@@ -1,0 +1,115 @@
+{% extends "_base.html" %}
+{% block title %}Profile — Bridge Platform{% endblock %}
+{% block body %}
+<div class="page page--narrow">
+  <div class="page-head">
+    <div><h1>My Profile</h1></div>
+  </div>
+
+  <div class="card" style="margin-bottom:24px">
+    <h2 class="card-title">Account Info</h2>
+    <div class="field-row">
+      <span class="field-label">Username</span>
+      <span class="field-value">{{ me.username if me else username }}</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">Email</span>
+      <span class="field-value" id="current-email">{{ me.email if me and me.email else '—' }}</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">Role</span>
+      <span class="field-value">
+        <span class="badge {{ 'badge-admin' if is_admin else 'badge-user' }}">{{ 'Admin' if is_admin else 'User' }}</span>
+      </span>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:24px">
+    <h2 class="card-title">Change Password</h2>
+    <div class="field">
+      <label for="current-pw">Current Password</label>
+      <input type="password" id="current-pw" autocomplete="current-password" placeholder="Enter current password">
+    </div>
+    <div class="field">
+      <label for="new-pw">New Password</label>
+      <input type="password" id="new-pw" autocomplete="new-password" placeholder="At least 6 characters">
+    </div>
+    <div class="field">
+      <label for="confirm-pw">Confirm New Password</label>
+      <input type="password" id="confirm-pw" autocomplete="new-password" placeholder="Repeat new password">
+    </div>
+    <div style="margin-top:4px">
+      <button class="btn btn-primary" id="pw-btn" onclick="changePassword()">Update Password</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="card-title">Change Email</h2>
+    <div class="field">
+      <label for="new-email">New Email Address</label>
+      <input type="email" id="new-email" autocomplete="email" placeholder="e.g. you@example.com">
+    </div>
+    <div style="margin-top:4px">
+      <button class="btn btn-primary" id="email-btn" onclick="changeEmail()">Update Email</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+function showToast(msg, type) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast toast-' + type;
+    t.style.display = 'block';
+    setTimeout(function() { t.style.display = 'none'; }, 3500);
+}
+
+function changePassword() {
+    var current = document.getElementById('current-pw').value;
+    var newPw   = document.getElementById('new-pw').value;
+    var confirm = document.getElementById('confirm-pw').value;
+    if (!current) { showToast('Enter your current password', 'error'); return; }
+    if (newPw.length < 6) { showToast('New password must be at least 6 characters', 'error'); return; }
+    if (newPw !== confirm) { showToast('Passwords do not match', 'error'); return; }
+    var btn = document.getElementById('pw-btn');
+    btn.disabled = true; btn.textContent = 'Saving...';
+    postJSON('/profile/password', { current: current, new: newPw })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.ok) {
+                showToast('Password updated', 'success');
+                document.getElementById('current-pw').value = '';
+                document.getElementById('new-pw').value = '';
+                document.getElementById('confirm-pw').value = '';
+            } else {
+                showToast(data.error || 'Failed to update password', 'error');
+            }
+        })
+        .catch(function() { showToast('Network error', 'error'); })
+        .finally(function() { btn.disabled = false; btn.textContent = 'Update Password'; });
+}
+
+function changeEmail() {
+    var email = document.getElementById('new-email').value.trim();
+    if (!email) { showToast('Enter a new email address', 'error'); return; }
+    var btn = document.getElementById('email-btn');
+    btn.disabled = true; btn.textContent = 'Saving...';
+    postJSON('/profile/email', { email: email })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.ok) {
+                showToast('Email updated', 'success');
+                document.getElementById('current-email').textContent = email;
+                document.getElementById('new-email').value = '';
+            } else {
+                showToast(data.error || 'Failed to update email', 'error');
+            }
+        })
+        .catch(function() { showToast('Network error', 'error'); })
+        .finally(function() { btn.disabled = false; btn.textContent = 'Update Email'; });
+}
+</script>
+{% endblock %}

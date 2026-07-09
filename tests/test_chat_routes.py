@@ -16,9 +16,14 @@ def test_model_ids_are_centralized_and_upgraded():
     assert "claude-opus-4-6" not in src
 
 
+_CSRF = 'TESTTOKEN'
+_CH = {'X-CSRF-Token': _CSRF}
+
+
 def _login(client):
     with client.session_transaction() as s:
         s['logged_in'] = True; s['username'] = 'tester'; s['is_admin'] = False
+        s['csrf_token'] = _CSRF
 
 
 class _Usage:
@@ -35,7 +40,7 @@ def test_ask_reports_truncation(monkeypatch):
     monkeypatch.setattr(app, "run_query_raw", lambda sql: ({'columns': ['n'], 'rows': [[1234]]}, None))
     monkeypatch.setattr(app, "format_answer", lambda *a, **k: "sample answer")
     client = app.chatbot_app.test_client(); _login(client)
-    r = client.post("/ask", json={"question": "list devices"})
+    r = client.post("/ask", json={"question": "list devices"}, headers=_CH)
     body = r.get_json()
     assert body['truncated'] is True and body['total_rows'] == 1234
 
@@ -55,7 +60,7 @@ def test_ask_retries_on_bad_sql_then_succeeds(monkeypatch):
     monkeypatch.setattr(app, "run_query", fake_run)
     monkeypatch.setattr(app, "format_answer", lambda *a, **k: "ok")
     client = app.chatbot_app.test_client(); _login(client)
-    r = client.post("/ask", json={"question": "list an esn"})
+    r = client.post("/ask", json={"question": "list an esn"}, headers=_CH)
     assert r.get_json()['answer'] == "ok"
     assert calls["n"] == 2   # retried exactly once after the failure
 
@@ -86,7 +91,7 @@ def test_ask_threads_history_into_generation(monkeypatch):
     client = app.chatbot_app.test_client(); _login(client)
     history = [{"role": "user", "content": "how many Apple?"},
                {"role": "assistant", "content": "1,240."}]
-    client.post("/ask", json={"question": "what about Samsung?", "history": history})
+    client.post("/ask", json={"question": "what about Samsung?", "history": history}, headers=_CH)
     roles = [m['role'] for m in seen['messages']]
     # history (user, assistant) then the current user question
     assert roles == ["user", "assistant", "user"]
@@ -150,6 +155,6 @@ def test_ask_writes_a_log_row(monkeypatch):
     monkeypatch.setattr(app, "run_query", lambda s: ({'columns': ['ESN'], 'rows': [['1']], 'truncated': False}, None))
     monkeypatch.setattr(app, "format_answer", lambda *a, **k: "ok")
     client = app.chatbot_app.test_client(); _login(client)
-    client.post("/ask", json={"question": "one esn"})
+    client.post("/ask", json={"question": "one esn"}, headers=_CH)
     assert written['ok'] is True and written['question'] == "one esn"
     assert written['row_count'] == 1

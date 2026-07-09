@@ -43,9 +43,17 @@ def init_db():
         ('invite_token', 'TEXT'),
         ('invite_token_expires', 'TEXT'),
         ('password_set', 'INTEGER NOT NULL DEFAULT 1'),
+        ('is_active', 'INTEGER NOT NULL DEFAULT 1'),
+        ('last_login', 'TEXT'),
+        ('role', "TEXT NOT NULL DEFAULT 'user'"),
+        ('failed_logins', 'INTEGER NOT NULL DEFAULT 0'),
+        ('locked_until', 'TEXT'),
+        ('updated_at', 'TEXT'),
     ]:
         if not _column_exists(conn, 'users', col):
             conn.execute(f'ALTER TABLE users ADD COLUMN {col} {typedef}')
+    # backfill role from legacy is_admin
+    conn.execute("UPDATE users SET role='admin' WHERE is_admin=1 AND (role IS NULL OR role='user')")
     conn.commit()
     conn.close()
 
@@ -69,15 +77,26 @@ def authenticate(username, password):
     conn = _get_conn()
     row = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
     conn.close()
-    if row and row['password_set'] and check_password_hash(row['password_hash'], password):
-        return dict(row)
+    if not row:
+        return None
+    row = dict(row)
+    if not row.get('is_active', 1):
+        return None
+    if is_locked(row):
+        return None
+    if row['password_set'] and check_password_hash(row['password_hash'], password):
+        update_last_login(row['id'])
+        return row
+    record_failed_login(username)
     return None
 
 
 def get_all_users():
     conn = _get_conn()
     rows = conn.execute(
-        'SELECT id, username, email, is_admin, created_at, created_by, password_set FROM users ORDER BY id'
+        'SELECT id, username, email, is_admin, role, is_active, last_login, created_at, created_by, password_set, '
+        'failed_logins, locked_until, updated_at '
+        'FROM users ORDER BY id'
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -163,3 +182,79 @@ def get_user_by_id(user_id):
     row = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def _row_by_username(username):
+    conn = _get_conn()
+    row = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def set_active(user_id, active):
+    conn = _get_conn()
+    conn.execute("UPDATE users SET is_active=?, updated_at=datetime('now') WHERE id=?",
+                 (1 if active else 0, user_id))
+    conn.commit(); conn.close()
+
+
+def update_last_login(user_id):
+    conn = _get_conn()
+    conn.execute("UPDATE users SET last_login=datetime('now'), failed_logins=0, locked_until=NULL WHERE id=?", (user_id,))
+    conn.commit(); conn.close()
+
+
+def set_role(user_id, role):
+    conn = _get_conn()
+    conn.execute("UPDATE users SET role=?, is_admin=?, updated_at=datetime('now') WHERE id=?",
+                 (role, 1 if role == 'admin' else 0, user_id))
+    conn.commit(); conn.close()
+
+
+def set_email(user_id, email):
+    conn = _get_conn()
+    conn.execute("UPDATE users SET email=?, updated_at=datetime('now') WHERE id=?", (email, user_id))
+    conn.commit(); conn.close()
+
+
+def update_username(user_id, username):
+    conn = _get_conn()
+    conn.execute("UPDATE users SET username=?, updated_at=datetime('now') WHERE id=?", (username, user_id))
+    conn.commit(); conn.close()
+
+
+def record_failed_login(username):
+    conn = _get_conn()
+    conn.execute("UPDATE users SET failed_logins = failed_logins + 1 WHERE username = ?", (username,))
+    # lock after 5 failures for 15 minutes
+    conn.execute("""UPDATE users SET locked_until = datetime('now','+15 minutes')
+                    WHERE username = ? AND failed_logins >= 5""", (username,))
+    conn.commit(); conn.close()
+
+
+def reset_failed_logins(user_id):
+    conn = _get_conn()
+    conn.execute("UPDATE users SET failed_logins=0, locked_until=NULL WHERE id=?", (user_id,))
+    conn.commit(); conn.close()
+
+
+def verify_password(username, password):
+    """Read-only current-password check — no writes, no lockout side effects."""
+    conn = _get_conn()
+    row = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+    conn.close()
+    return bool(row and row['password_set'] and check_password_hash(row['password_hash'], password))
+
+
+def is_locked(row):
+    from datetime import datetime
+    if isinstance(row, dict):
+        lu = row.get('locked_until')
+    else:
+        lu = row['locked_until'] if 'locked_until' in row.keys() else None
+    if not lu:
+        return False
+    try:
+        return datetime.fromisoformat(lu) > datetime.utcnow()
+    except ValueError:
+        return False
