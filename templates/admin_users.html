@@ -1,5 +1,21 @@
 {% extends "_base.html" %}
 {% block title %}User Management — Bridge Platform{% endblock %}
+{% block head_extra %}
+<style>
+  /* Icon action buttons — match the design-system tokens */
+  .actions { display: flex; gap: 4px; flex-wrap: wrap; }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+    padding: 0; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent;
+    color: var(--muted); cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+  .icon-btn svg { width: 17px; height: 17px; }
+  .icon-btn:hover { background: var(--surface-2); color: var(--ink); border-color: var(--border-strong); }
+  .icon-btn--brand:hover   { background: var(--brand-50);   color: var(--brand-700);   border-color: var(--brand-100); }
+  .icon-btn--warn:hover    { background: var(--warning-50); color: var(--warning-700); border-color: var(--warning-100); }
+  .icon-btn--success:hover { background: var(--success-50); color: var(--success-700); border-color: var(--success-100); }
+  .icon-btn--danger:hover  { background: var(--danger-50);  color: var(--danger-700);  border-color: var(--danger-100); }
+  #confirm-message { font-size: 14px; color: var(--ink-2); margin: -6px 0 4px; }
+</style>
+{% endblock %}
 {% block body %}
 <div class="page page--narrow">
   <div class="page-head">
@@ -38,13 +54,26 @@
             <div class="actions">
               {% if u.username != username %}
                 {% if not u.password_set %}
-                <button class="btn btn-sm btn-green" onclick="resendInvite({{ u.id }}, '{{ u.username }}')">Resend Invite</button>
+                <button class="icon-btn icon-btn--success" title="Resend invite" aria-label="Resend invite"
+                        onclick="resendInvite({{ u.id }}, '{{ u.username }}')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
+                </button>
                 {% endif %}
                 {% if u.email %}
-                <button class="btn btn-sm btn-outline" onclick="resetPassword({{ u.id }}, '{{ u.username }}')">Reset Password</button>
+                <button class="icon-btn icon-btn--brand" title="Reset password" aria-label="Reset password"
+                        onclick="resetPassword({{ u.id }}, '{{ u.username }}')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 8-8"/><path d="m16.5 6.5 3 3"/><path d="m19 4 2 2"/></svg>
+                </button>
                 {% endif %}
-                <button class="btn btn-sm btn-yellow" onclick="toggleAdmin({{ u.id }})">{{ 'Revoke Admin' if u.is_admin else 'Make Admin' }}</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteUser({{ u.id }}, '{{ u.username }}')">Delete</button>
+                <button class="icon-btn {{ 'icon-btn--warn' if u.is_admin else 'icon-btn--brand' }}"
+                        title="{{ 'Revoke admin' if u.is_admin else 'Make admin' }}" aria-label="{{ 'Revoke admin' if u.is_admin else 'Make admin' }}"
+                        onclick="toggleAdmin({{ u.id }}, '{{ u.username }}', {{ 'true' if u.is_admin else 'false' }})">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                </button>
+                <button class="icon-btn icon-btn--danger" title="Delete user" aria-label="Delete user"
+                        onclick="deleteUser({{ u.id }}, '{{ u.username }}')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                </button>
               {% endif %}
             </div>
           </td>
@@ -80,6 +109,19 @@
   </div>
 </div>
 
+<!-- Reusable Confirmation Modal (replaces native confirm()) -->
+<div id="confirm-modal" class="modal-overlay" onclick="if(event.target===this)closeConfirm()">
+  <div class="modal" style="width:420px">
+    <button class="modal-close" onclick="closeConfirm()">&times;</button>
+    <h3 id="confirm-title">Are you sure?</h3>
+    <p id="confirm-message"></p>
+    <div class="modal-actions" style="justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeConfirm()">Cancel</button>
+      <button class="btn btn-primary" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
 {% endblock %}
 {% block scripts %}
@@ -96,6 +138,42 @@ function showCreateModal() {
 
 function closeModals() {
     document.querySelectorAll('.modal-overlay').forEach(function(m) { m.classList.remove('active'); });
+}
+
+// --- Reusable confirmation dialog ---
+var _confirmCb = null;
+function openConfirm(opts) {
+    document.getElementById('confirm-title').textContent = opts.title || 'Are you sure?';
+    document.getElementById('confirm-message').textContent = opts.message || '';
+    var ok = document.getElementById('confirm-ok');
+    ok.textContent = opts.confirmLabel || 'Confirm';
+    ok.className = 'btn ' + (opts.danger ? 'btn-danger' : 'btn-primary');
+    _confirmCb = opts.onConfirm || null;
+    document.getElementById('confirm-modal').classList.add('active');
+    ok.focus();
+}
+function closeConfirm() {
+    document.getElementById('confirm-modal').classList.remove('active');
+    _confirmCb = null;
+}
+document.getElementById('confirm-ok').addEventListener('click', function() {
+    var cb = _confirmCb;
+    closeConfirm();
+    if (cb) cb();
+});
+
+function _post(url, body, okMsg, reload) {
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.ok) {
+            showToast(okMsg, 'success');
+            if (reload) setTimeout(function() { location.reload(); }, 800);
+        } else {
+            showToast(data.error, 'error');
+        }
+    })
+    .catch(function() { showToast('Network error', 'error'); });
 }
 
 function createUser() {
@@ -132,77 +210,58 @@ function createUser() {
 }
 
 function resendInvite(id, username) {
-    if (!confirm('Resend invite email to ' + username + '?')) return;
-    fetch('/admin/users/resend-invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: id })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        if (data.ok) {
-            showToast('Invite resent to ' + username, 'success');
-        } else {
-            showToast(data.error, 'error');
-        }
-    })
-    .catch(function() { showToast('Network error', 'error'); });
+    openConfirm({
+        title: 'Resend invite',
+        message: 'Resend the invite email to "' + username + '"?',
+        confirmLabel: 'Resend',
+        onConfirm: function() { _post('/admin/users/resend-invite', { id: id }, 'Invite resent to ' + username); }
+    });
 }
 
 function resetPassword(id, username) {
-    if (!confirm('Send a password reset email to ' + username + '?')) return;
-    fetch('/admin/users/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: id })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        if (data.ok) {
-            showToast('Password reset email sent', 'success');
-        } else {
-            showToast(data.error, 'error');
-        }
-    })
-    .catch(function() { showToast('Network error', 'error'); });
+    openConfirm({
+        title: 'Reset password',
+        message: 'Send a password reset email to "' + username + '"?',
+        confirmLabel: 'Send reset',
+        onConfirm: function() { _post('/admin/users/reset-password', { id: id }, 'Password reset email sent'); }
+    });
 }
 
-function toggleAdmin(id) {
-    fetch('/admin/users/toggle-admin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: id })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        if (data.ok) {
-            showToast('Role updated', 'success');
-            setTimeout(function() { location.reload(); }, 800);
-        } else {
-            showToast(data.error, 'error');
-        }
-    })
-    .catch(function() { showToast('Network error', 'error'); });
+function toggleAdmin(id, username, isAdmin) {
+    openConfirm({
+        title: isAdmin ? 'Revoke admin' : 'Make admin',
+        message: (isAdmin ? 'Remove admin privileges from "' : 'Grant admin privileges to "') + username + '"?',
+        confirmLabel: isAdmin ? 'Revoke' : 'Grant',
+        danger: isAdmin,
+        onConfirm: function() { _post('/admin/users/toggle-admin', { id: id }, 'Role updated', true); }
+    });
 }
 
 function deleteUser(id, username) {
-    if (!confirm('Delete user "' + username + '"? This cannot be undone.')) return;
-
-    fetch('/admin/users/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: id })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        if (data.ok) {
-            showToast('User deleted', 'success');
-            document.getElementById('user-' + id).remove();
-        } else {
-            showToast(data.error, 'error');
+    openConfirm({
+        title: 'Delete user',
+        message: 'Permanently delete "' + username + '"? This cannot be undone.',
+        confirmLabel: 'Delete',
+        danger: true,
+        onConfirm: function() {
+            fetch('/admin/users/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: id })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.ok) {
+                    showToast('User deleted', 'success');
+                    var el = document.getElementById('user-' + id);
+                    if (el) el.remove();
+                } else {
+                    showToast(data.error, 'error');
+                }
+            })
+            .catch(function() { showToast('Network error', 'error'); });
         }
-    })
-    .catch(function() { showToast('Network error', 'error'); });
+    });
 }
 
 function showToast(msg, type) {
@@ -213,6 +272,6 @@ function showToast(msg, type) {
     setTimeout(function() { t.style.display = 'none'; }, 3000);
 }
 
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeModals(); });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeModals(); closeConfirm(); } });
 </script>
 {% endblock %}
