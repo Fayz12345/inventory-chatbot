@@ -47,7 +47,11 @@
             <span class="badge {{ 'badge-admin' if u.is_admin else 'badge-user' }}">{{ 'Admin' if u.is_admin else 'User' }}</span>
           </td>
           <td>
+            {% if not u.is_active %}
+            <span class="badge badge-error">Disabled</span>
+            {% else %}
             <span class="badge {{ 'badge-active' if u.password_set else 'badge-pending' }}">{{ 'Active' if u.password_set else 'Pending' }}</span>
+            {% endif %}
           </td>
           <td>{{ u.created_at[:16] if u.created_at else '' }}</td>
           <td>
@@ -69,6 +73,16 @@
                         title="{{ 'Revoke admin' if u.is_admin else 'Make admin' }}" aria-label="{{ 'Revoke admin' if u.is_admin else 'Make admin' }}"
                         onclick="toggleAdmin({{ u.id }}, '{{ u.username }}', {{ 'true' if u.is_admin else 'false' }})">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                </button>
+                <button class="icon-btn {{ 'icon-btn--success' if not u.is_active else 'icon-btn--warn' }}"
+                        title="{{ 'Reactivate user' if not u.is_active else 'Deactivate user' }}"
+                        aria-label="{{ 'Reactivate user' if not u.is_active else 'Deactivate user' }}"
+                        onclick="setActive({{ u.id }}, '{{ u.username }}', {{ 'true' if not u.is_active else 'false' }})">
+                  {% if not u.is_active %}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  {% else %}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                  {% endif %}
                 </button>
                 <button class="icon-btn icon-btn--danger" title="Delete user" aria-label="Delete user"
                         onclick="deleteUser({{ u.id }}, '{{ u.username }}')">
@@ -234,6 +248,18 @@ function toggleAdmin(id, username, isAdmin) {
         confirmLabel: isAdmin ? 'Revoke' : 'Grant',
         danger: isAdmin,
         onConfirm: function() { _post('/admin/users/toggle-admin', { id: id }, 'Role updated', true); }
+    });
+}
+
+function setActive(id, username, active) {
+    openConfirm({
+        title: active ? 'Reactivate user' : 'Deactivate user',
+        message: active
+            ? 'Reactivate account for "' + username + '"?'
+            : 'Deactivate account for "' + username + '"? They will no longer be able to log in.',
+        confirmLabel: active ? 'Reactivate' : 'Deactivate',
+        danger: !active,
+        onConfirm: function() { _post('/admin/users/set-active', { id: id, active: active }, active ? 'Account reactivated' : 'Account deactivated', true); }
     });
 }
 

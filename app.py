@@ -526,6 +526,23 @@ def admin_delete_user():
     return jsonify({'ok': True})
 
 
+@chatbot_app.route('/admin/users/set-active', methods=['POST'])
+def admin_set_active():
+    if not session.get('logged_in') or not session.get('is_admin'):
+        return jsonify({'ok': False, 'error': 'Unauthorized'}), 403
+    d = request.get_json() or {}
+    user = users_db.get_user_by_id(d.get('id'))
+    if not user:
+        return jsonify({'ok': False, 'error': 'User not found'})
+    if user['username'] == session.get('username'):
+        return jsonify({'ok': False, 'error': 'Cannot disable your own account'})
+    active = bool(d.get('active'))
+    users_db.set_active(d['id'], active)
+    admin_audit.log_action(session.get('username'), 'set_active', target=user['username'],
+                           detail='active' if active else 'disabled')
+    return jsonify({'ok': True})
+
+
 app = chatbot_app
 
 if __name__ == '__main__':
