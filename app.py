@@ -590,6 +590,43 @@ def admin_set_active():
     return jsonify({'ok': True})
 
 
+# --- Profile: self-service password and email ---
+@chatbot_app.route('/profile')
+def profile():
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+    me = users_db._row_by_username(session.get('username'))
+    return render_template('profile.html', me=me,
+                           username=session.get('username'),
+                           is_admin=session.get('is_admin', False),
+                           active='profile',
+                           perms=_perms())
+
+
+@chatbot_app.route('/profile/password', methods=['POST'])
+def profile_password():
+    if not session.get('logged_in'):
+        return jsonify({'ok': False, 'error': 'Not logged in'}), 401
+    d = request.get_json() or {}
+    if not users_db.verify_password(session['username'], d.get('current', '')):
+        return jsonify({'ok': False, 'error': 'Current password is incorrect'})
+    if len(d.get('new', '')) < 6:
+        return jsonify({'ok': False, 'error': 'New password must be at least 6 characters'})
+    uid = users_db._row_by_username(session['username'])['id']
+    users_db.update_password(uid, d['new'])
+    return jsonify({'ok': True})
+
+
+@chatbot_app.route('/profile/email', methods=['POST'])
+def profile_email():
+    if not session.get('logged_in'):
+        return jsonify({'ok': False, 'error': 'Not logged in'}), 401
+    d = request.get_json() or {}
+    uid = users_db._row_by_username(session['username'])['id']
+    users_db.set_email(uid, (d.get('email') or '').strip())
+    return jsonify({'ok': True})
+
+
 app = chatbot_app
 
 if __name__ == '__main__':

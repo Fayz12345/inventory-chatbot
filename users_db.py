@@ -238,6 +238,14 @@ def reset_failed_logins(user_id):
     conn.commit(); conn.close()
 
 
+def verify_password(username, password):
+    """Read-only current-password check — no writes, no lockout side effects."""
+    conn = _get_conn()
+    row = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+    conn.close()
+    return bool(row and row['password_set'] and check_password_hash(row['password_hash'], password))
+
+
 def is_locked(row):
     from datetime import datetime
     if isinstance(row, dict):

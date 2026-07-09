@@ -9,7 +9,7 @@
     {% if is_admin %}<a href="/admin/users" class="{{ 'active' if active == 'admin' }}">Users</a>{% endif %}
   </nav>
   <div class="app-header__right">
-    {% if username %}<span class="who">{{ username }}</span>{% endif %}
+    {% if username %}<a href="/profile" class="{{ 'active' if active == 'profile' }}" style="font-weight:500">{{ username }}</a>{% endif %}
     <a href="/logout">Sign out</a>
   </div>
 </header>
