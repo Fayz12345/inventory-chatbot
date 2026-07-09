@@ -13,6 +13,7 @@ import pyodbc
 import anthropic
 import config
 import users_db
+import chat_sql
 
 CHAT_SQL_MODEL = getattr(config, "CHAT_SQL_MODEL", "claude-opus-4-8")
 CHAT_ANSWER_MODEL = getattr(config, "CHAT_ANSWER_MODEL", "claude-haiku-4-5-20251001")
@@ -158,17 +159,14 @@ def send_invite_email(email, username, token):
 
 # --- Run SQL query safely ---
 def run_query(sql):
-    sql = sql.strip()
-    if not sql.upper().startswith('SELECT'):
-        return None, "Only SELECT queries are allowed."
-    blocked = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'EXEC', 'EXECUTE']
-    for word in blocked:
-        if word in sql.upper():
-            return None, f"Query contains forbidden keyword: {word}"
+    try:
+        safe_sql = chat_sql.validate_sql(sql)
+    except chat_sql.SqlValidationError as e:
+        return None, str(e)
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute(sql)
+        cursor.execute(safe_sql)
         columns = [col[0] for col in cursor.description]
         rows = cursor.fetchall()
         conn.close()
