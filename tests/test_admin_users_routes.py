@@ -1,12 +1,16 @@
 import pytest
 import users_db
+import admin_audit
 import app as app_module
 
 
 @pytest.fixture(autouse=True)
 def fresh_users_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(users_db, "DB_PATH", str(tmp_path / "users.db"))
+    db_path = str(tmp_path / "users.db")
+    monkeypatch.setattr(users_db, "DB_PATH", db_path)
+    monkeypatch.setattr(admin_audit, "DB_PATH", db_path)
     users_db.init_db()
+    admin_audit.init_db()
     yield
 
 
@@ -116,3 +120,12 @@ def test_admin_users_page_tojson_escapes_single_quote_in_username():
     assert "\\u0027brien" in body
     # The dangerous raw breakout pattern must NOT appear in any onclick attribute
     assert "'o'brien'" not in body
+
+
+def test_delete_writes_audit_row():
+    uid = _make_user("audituser")
+    c = app_module.chatbot_app.test_client()
+    _set_admin_session(c)
+    c.post("/admin/users/delete", json={"id": uid}, headers=_ch())
+    assert any(r["action"] == "delete_user" and r["target"] == "audituser"
+               for r in admin_audit.recent(50))

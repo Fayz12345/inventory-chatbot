@@ -441,6 +441,15 @@ def admin_chat_log():
                            is_admin=session.get('is_admin', False), active='admin')
 
 
+@chatbot_app.route('/admin/audit')
+def admin_audit_view():
+    if not session.get('logged_in') or not session.get('is_admin'):
+        return redirect(url_for('login'))
+    return render_template('admin_audit.html', logs=admin_audit.recent(200),
+                           username=session.get('username'),
+                           is_admin=True, active='admin')
+
+
 @chatbot_app.route('/admin/users/create', methods=['POST'])
 def admin_create_user():
     if not session.get('logged_in') or not session.get('is_admin'):
@@ -455,6 +464,8 @@ def admin_create_user():
         token = users_db.create_user(new_username, new_email, is_admin,
                                      created_by=session.get('username'))
         send_invite_email(new_email, new_username, token)
+        admin_audit.log_action(session.get('username'), 'create_user',
+                               target=new_username, detail=new_email)
         return jsonify({'ok': True})
     except Exception as e:
         if 'UNIQUE' in str(e).upper():
@@ -476,6 +487,8 @@ def admin_resend_invite():
     try:
         token = users_db.generate_invite_token(user_id)
         send_invite_email(user['email'], user['username'], token)
+        admin_audit.log_action(session.get('username'), 'resend_invite',
+                               target=user['username'])
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
@@ -495,6 +508,8 @@ def admin_reset_password():
     try:
         token = users_db.generate_invite_token(user_id)
         send_invite_email(user['email'], user['username'], token)
+        admin_audit.log_action(session.get('username'), 'reset_password',
+                               target=user['username'])
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
@@ -511,8 +526,12 @@ def admin_toggle_admin():
         return jsonify({'ok': False, 'error': 'User not found'})
     if user['username'] == session.get('username'):
         return jsonify({'ok': False, 'error': 'Cannot change your own admin status'})
-    users_db.update_admin_status(user_id, not user['is_admin'])
-    return jsonify({'ok': True, 'is_admin': not user['is_admin']})
+    new_admin_state = not user['is_admin']
+    users_db.update_admin_status(user_id, new_admin_state)
+    admin_audit.log_action(session.get('username'), 'toggle_admin',
+                           target=user['username'],
+                           detail='admin' if new_admin_state else 'not_admin')
+    return jsonify({'ok': True, 'is_admin': new_admin_state})
 
 
 @chatbot_app.route('/admin/users/set-role', methods=['POST'])
@@ -545,6 +564,7 @@ def admin_delete_user():
     if user['username'] == session.get('username'):
         return jsonify({'ok': False, 'error': 'Cannot delete your own account'})
     users_db.delete_user(user_id)
+    admin_audit.log_action(session.get('username'), 'delete_user', target=user['username'])
     return jsonify({'ok': True})
 
 
