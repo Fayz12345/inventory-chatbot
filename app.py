@@ -5,6 +5,7 @@ load_dotenv()
 
 from flask import Flask, render_template, request, session, redirect, url_for, jsonify
 from werkzeug.security import check_password_hash
+from functools import wraps
 import json
 import os
 import time
@@ -16,6 +17,7 @@ import users_db
 import admin_audit
 import chat_sql
 import chat_log
+import roles
 
 CHAT_SQL_MODEL = getattr(config, "CHAT_SQL_MODEL", "claude-sonnet-4-6")
 CHAT_ANSWER_MODEL = getattr(config, "CHAT_ANSWER_MODEL", "claude-haiku-4-5-20251001")
@@ -35,6 +37,26 @@ def _anthropic_client():
 
 chatbot_app = Flask(__name__)
 chatbot_app.secret_key = config.SECRET_KEY
+
+
+def require_module(module):
+    """Decorator: redirect to /home if the session role lacks the module."""
+    def deco(fn):
+        @wraps(fn)
+        def wrapper(*a, **kw):
+            if not session.get('logged_in'):
+                return redirect(url_for('login'))
+            if not roles.role_allows(session.get('role', 'user'), module):
+                return redirect(url_for('home'))
+            return fn(*a, **kw)
+        return wrapper
+    return deco
+
+
+def _perms():
+    """Return a perms dict for the current session role (for nav gating)."""
+    role = session.get('role', 'user')
+    return {m: roles.role_allows(role, m) for m in roles.MODULES}
 
 # Initialise local SQLite user database
 users_db.init_db()
@@ -281,15 +303,16 @@ def home():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
     return render_template('home.html', username=session.get('username'),
-                           is_admin=session.get('is_admin', False), active='home')
+                           is_admin=session.get('is_admin', False), active='home',
+                           perms=_perms())
 
 
 @chatbot_app.route('/chat')
+@require_module('chat')
 def chat():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
     return render_template('chat.html', username=session.get('username'),
-                           is_admin=session.get('is_admin', False), active='chat')
+                           is_admin=session.get('is_admin', False), active='chat',
+                           perms=_perms())
 
 @chatbot_app.route('/ask', methods=['POST'])
 def ask():
@@ -468,6 +491,24 @@ def admin_toggle_admin():
         return jsonify({'ok': False, 'error': 'Cannot change your own admin status'})
     users_db.update_admin_status(user_id, not user['is_admin'])
     return jsonify({'ok': True, 'is_admin': not user['is_admin']})
+
+
+@chatbot_app.route('/admin/users/set-role', methods=['POST'])
+def admin_set_role():
+    if not session.get('logged_in') or not session.get('is_admin'):
+        return jsonify({'ok': False, 'error': 'Unauthorized'}), 403
+    d = request.get_json() or {}
+    user = users_db.get_user_by_id(d.get('id'))
+    if not user:
+        return jsonify({'ok': False, 'error': 'User not found'})
+    if user['username'] == session.get('username'):
+        return jsonify({'ok': False, 'error': 'Cannot change your own role'})
+    role = d.get('role')
+    if role not in roles.ROLES:
+        return jsonify({'ok': False, 'error': 'Invalid role'})
+    users_db.set_role(d['id'], role)
+    admin_audit.log_action(session.get('username'), 'set_role', target=user['username'], detail=role)
+    return jsonify({'ok': True})
 
 
 @chatbot_app.route('/admin/users/delete', methods=['POST'])

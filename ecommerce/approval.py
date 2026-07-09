@@ -11,8 +11,9 @@ recommendation is NOT marked as approved so the user can retry.
 
 import logging
 
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, redirect, request, session, url_for
 
+import roles
 from ecommerce import db
 from ecommerce.listings import amazon as amazon_listings
 from ecommerce.listings import bestbuy as bestbuy_listings
@@ -24,6 +25,15 @@ from ecommerce.notifications.email_digest import render_batch_list, render_dashb
 log = logging.getLogger(__name__)
 
 approval_bp = Blueprint("ecommerce", __name__, url_prefix="/ecommerce")
+
+
+@approval_bp.before_request
+def _gate_ecommerce():
+    # Gate authenticated users who have a role set; if role is absent the
+    # per-route auth guard handles the request (preserves AJAX 401 behaviour).
+    role = session.get('role')
+    if session.get('logged_in') and role and not roles.role_allows(role, 'ecommerce'):
+        return redirect(url_for('home'))
 
 # Marketplaces that auto-post on approve. Best Buy CA (Mirakl, 1D.11) posts only
 # when a catalog UPC match exists; Reebelo CA (Cobalt, 1D.12) posts only when its

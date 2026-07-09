@@ -3,8 +3,17 @@ import calendar
 from flask import Blueprint, request, jsonify, session, redirect, url_for, Response
 
 from billing import osl, templates, tms, export
+import roles
 
 billing_bp = Blueprint('billing', __name__, url_prefix='/billing')
+
+
+@billing_bp.before_request
+def _gate_billing():
+    role = session.get('role')
+    if session.get('logged_in') and role and not roles.role_allows(role, 'billing'):
+        return redirect(url_for('home'))
+
 
 XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
