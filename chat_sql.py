@@ -29,6 +29,16 @@ def _clean(sql):
     return s.rstrip(";").strip()
 
 
+def build_count_query(sql):
+    """Wrap a validated SELECT in COUNT(*), dropping ORDER BY / TOP which are
+    illegal or pointless inside the counting subquery on SQL Server."""
+    stmt = sqlglot.parse_one(sql, dialect="tsql").copy()
+    stmt.set("order", None)   # ORDER BY
+    stmt.set("limit", None)   # TOP / LIMIT
+    inner = stmt.sql(dialect="tsql")
+    return f"SELECT COUNT(*) AS n FROM ({inner}) AS _sub"
+
+
 def validate_sql(sql, allowed_tables=ALLOWED_TABLES):
     cleaned = _clean(sql)
     if not cleaned:

@@ -98,6 +98,11 @@
             if (data.columns && data.rows && data.rows.length > 0 && data.rows.length > 1) {
                 html += buildTable(data.columns, data.rows);
             }
+            if (data.truncated) {
+                const shown = data.rows.length;
+                const total = data.total_rows != null ? data.total_rows : 'many';
+                html += `<div class="truncation-note">Showing first ${shown} of ${total} rows.</div>`;
+            }
             const msg = document.createElement('div');
             msg.className = 'message bot';
             msg.innerHTML = html;

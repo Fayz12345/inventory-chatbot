@@ -17,6 +17,7 @@ import chat_sql
 
 CHAT_SQL_MODEL = getattr(config, "CHAT_SQL_MODEL", "claude-opus-4-8")
 CHAT_ANSWER_MODEL = getattr(config, "CHAT_ANSWER_MODEL", "claude-haiku-4-5-20251001")
+CHAT_ROW_CAP = 50
 
 _anthropic = None
 def _anthropic_client():
@@ -167,10 +168,25 @@ def run_query(sql):
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(safe_sql)
+        fetched = cursor.fetchmany(CHAT_ROW_CAP + 1)
+        truncated = len(fetched) > CHAT_ROW_CAP
+        fetched = fetched[:CHAT_ROW_CAP]
         columns = [col[0] for col in cursor.description]
-        rows = cursor.fetchall()
         conn.close()
-        return {'columns': columns, 'rows': [list(row) for row in rows]}, None
+        return {'columns': columns,
+                'rows': [list(r) for r in fetched],
+                'truncated': truncated}, None
+    except Exception as e:
+        return None, str(e)
+
+
+def run_query_raw(sql):
+    try:
+        safe_sql = chat_sql.validate_sql(sql)
+        conn = get_db_connection(); cur = conn.cursor(); cur.execute(safe_sql)
+        cols = [c[0] for c in cur.description]; rows = [list(r) for r in cur.fetchall()]
+        conn.close()
+        return {'columns': cols, 'rows': rows}, None
     except Exception as e:
         return None, str(e)
 
@@ -183,13 +199,18 @@ def generate_sql(user_question):
     return message.content[0].text.strip()
 
 # --- Format result into a readable answer ---
-def format_answer(sql, data, user_question):
-    rows_preview = str(data['rows'][:50])
+def format_answer(sql, data, user_question, truncated=False, total_rows=None):
+    rows_preview = str(data['rows'][:CHAT_ROW_CAP])
+    note = ""
+    if truncated:
+        note = (f"\nNOTE: results were truncated to the first {CHAT_ROW_CAP} of "
+                f"{total_rows if total_rows is not None else 'many'} rows. Do NOT "
+                f"claim this is the complete set; say it's a sample.")
     message = _anthropic_client().messages.create(
         model=CHAT_ANSWER_MODEL, max_tokens=500,
         system="You are a helpful inventory assistant. Given a SQL query result, answer the user's question in plain English. Be concise and direct. If it's a count or sum, state the number clearly.",
         messages=[{"role": "user",
-                   "content": f"Question: {user_question}\nSQL used: {sql}\nColumns: {data['columns']}\nData: {rows_preview}\n\nAnswer the question in plain English."}],
+                   "content": f"Question: {user_question}\nSQL used: {sql}\nColumns: {data['columns']}\nData: {rows_preview}{note}\n\nAnswer the question in plain English."}],
     )
     return message.content[0].text.strip()
 
@@ -246,8 +267,14 @@ def ask():
     if not data['rows']:
         return jsonify({'answer': 'No results found for your question.', 'sql': sql})
 
-    answer = format_answer(sql, data, user_question)
-    return jsonify({'answer': answer, 'sql': sql, 'rows': data['rows'][:50], 'columns': data['columns']})
+    total_rows = len(data['rows'])
+    if data.get('truncated'):
+        count_data, _ = run_query_raw(chat_sql.build_count_query(sql))
+        total_rows = count_data['rows'][0][0] if count_data else None
+    answer = format_answer(sql, data, user_question, truncated=data.get('truncated'), total_rows=total_rows)
+    return jsonify({'answer': answer, 'sql': sql,
+                    'rows': data['rows'][:CHAT_ROW_CAP], 'columns': data['columns'],
+                    'truncated': bool(data.get('truncated')), 'total_rows': total_rows})
 
 @chatbot_app.route('/logout')
 def logout():
