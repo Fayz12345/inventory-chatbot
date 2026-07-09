@@ -29,10 +29,8 @@ approval_bp = Blueprint("ecommerce", __name__, url_prefix="/ecommerce")
 
 @approval_bp.before_request
 def _gate_ecommerce():
-    # Gate authenticated users who have a role set; if role is absent the
-    # per-route auth guard handles the request (preserves AJAX 401 behaviour).
-    role = session.get('role')
-    if session.get('logged_in') and role and not roles.role_allows(role, 'ecommerce'):
+    role = session.get('role', 'user')
+    if session.get('logged_in') and not roles.role_allows(role, 'ecommerce'):
         return redirect(url_for('home'))
 
 # Marketplaces that auto-post on approve. Best Buy CA (Mirakl, 1D.11) posts only

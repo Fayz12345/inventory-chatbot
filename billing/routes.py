@@ -10,8 +10,8 @@ billing_bp = Blueprint('billing', __name__, url_prefix='/billing')
 
 @billing_bp.before_request
 def _gate_billing():
-    role = session.get('role')
-    if session.get('logged_in') and role and not roles.role_allows(role, 'billing'):
+    role = session.get('role', 'user')
+    if session.get('logged_in') and not roles.role_allows(role, 'billing'):
         return redirect(url_for('home'))
 
 
