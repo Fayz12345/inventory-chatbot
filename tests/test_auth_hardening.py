@@ -45,3 +45,22 @@ def test_success_updates_last_login_and_clears_counter():
     assert u is not None
     row = users_db._row_by_username("good")
     assert row["failed_logins"] == 0 and row["last_login"] is not None
+
+
+def test_login_route_shows_disabled_message():
+    import app as _app
+    uid = _user("disabled_user", "Secret123")
+    users_db.set_active(uid, False)
+    c = _app.chatbot_app.test_client()
+    resp = c.post("/", data={"username": "disabled_user", "password": "Secret123"})
+    assert "disabled" in resp.get_data(as_text=True)
+
+
+def test_login_route_shows_locked_message():
+    import app as _app
+    _user("locked_user", "Secret123")
+    for _ in range(5):
+        users_db.record_failed_login("locked_user")
+    c = _app.chatbot_app.test_client()
+    resp = c.post("/", data={"username": "locked_user", "password": "Secret123"})
+    assert "Too many failed attempts" in resp.get_data(as_text=True)
