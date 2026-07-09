@@ -46,5 +46,5 @@ ECOMMERCE_MINIMUM_MARGIN = 25.00
 APP_BASE_URL = 'http://your-ec2-ip:5000'
 
 # --- Chat assistant models (text-to-SQL) ---
-CHAT_SQL_MODEL    = 'claude-opus-4-8'            # accuracy-critical SQL generation
+CHAT_SQL_MODEL    = 'claude-sonnet-4-6'          # single-table text-to-SQL; guarded by prompt+retry+validator
 CHAT_ANSWER_MODEL = 'claude-haiku-4-5-20251001'  # cheap plain-English formatting

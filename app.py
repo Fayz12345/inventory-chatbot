@@ -16,7 +16,7 @@ import users_db
 import chat_sql
 import chat_log
 
-CHAT_SQL_MODEL = getattr(config, "CHAT_SQL_MODEL", "claude-opus-4-8")
+CHAT_SQL_MODEL = getattr(config, "CHAT_SQL_MODEL", "claude-sonnet-4-6")
 CHAT_ANSWER_MODEL = getattr(config, "CHAT_ANSWER_MODEL", "claude-haiku-4-5-20251001")
 CHAT_ROW_CAP = 50
 CHAT_HISTORY_TURNS = 6

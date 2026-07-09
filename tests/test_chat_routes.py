@@ -6,7 +6,9 @@ import app
 
 
 def test_model_ids_are_centralized_and_upgraded():
-    assert app.CHAT_SQL_MODEL == "claude-opus-4-8"
+    # SQL generation runs on Sonnet 4.6 (single-table task, guarded by
+    # prompt + retry + validator); answer formatting on Haiku 4.5.
+    assert app.CHAT_SQL_MODEL == "claude-sonnet-4-6"
     assert app.CHAT_ANSWER_MODEL == "claude-haiku-4-5-20251001"
     # no legacy id left hardcoded in the module source
     import inspect
