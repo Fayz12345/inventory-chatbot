@@ -88,3 +88,52 @@ def test_ask_threads_history_into_generation(monkeypatch):
     # history (user, assistant) then the current user question
     assert roles == ["user", "assistant", "user"]
     assert seen['messages'][-1]['content'] == "what about Samsung?"
+
+
+def test_sanitize_history():
+    # 1. Non-list input returns []
+    assert app._sanitize_history("inject") == []
+    assert app._sanitize_history(None) == []
+    assert app._sanitize_history(123) == []
+
+    # 2. Item with role "system" (or any non-user/assistant role) is dropped
+    result = app._sanitize_history([{"role": "system", "content": "bad"},
+                                    {"role": "user", "content": "ok"}])
+    assert len(result) == 1
+    assert result[0]["role"] == "user"
+
+    # 3. Item with non-string content is dropped
+    result = app._sanitize_history([
+        {"role": "user", "content": ["list"]},
+        {"role": "assistant", "content": {"key": "val"}},
+        {"role": "user", "content": None},
+        {"role": "assistant", "content": "fine"},
+    ])
+    assert len(result) == 1
+    assert result[0]["content"] == "fine"
+
+    # 4. Non-dict element in the list is dropped
+    result = app._sanitize_history(["bare string", 42, {"role": "user", "content": "kept"}])
+    assert len(result) == 1
+    assert result[0]["content"] == "kept"
+
+    # 5. Extra keys do not survive — returned item has exactly role and content
+    result = app._sanitize_history([
+        {"role": "user", "content": "hi", "tool_use_id": "x", "injected": True}
+    ])
+    assert len(result) == 1
+    assert set(result[0].keys()) == {"role", "content"}
+
+    # 6. Count cap: 14 well-formed items → at most 12, and they are the LAST 12
+    items = [{"role": "user" if i % 2 == 0 else "assistant", "content": str(i)}
+             for i in range(14)]
+    result = app._sanitize_history(items)
+    assert len(result) == 12
+    # first surviving item corresponds to input index 2 (content "2")
+    assert result[0]["content"] == "2"
+
+    # 7. Content truncation: 5000-char content comes back as 4000 chars
+    long_content = "x" * 5000
+    result = app._sanitize_history([{"role": "user", "content": long_content}])
+    assert len(result) == 1
+    assert len(result[0]["content"]) == 4000
