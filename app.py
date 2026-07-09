@@ -211,14 +211,15 @@ def home():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
     return render_template('home.html', username=session.get('username'),
-                           is_admin=session.get('is_admin', False))
+                           is_admin=session.get('is_admin', False), active='home')
 
 
 @chatbot_app.route('/chat')
 def chat():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
-    return render_template('chat.html')
+    return render_template('chat.html', username=session.get('username'),
+                           is_admin=session.get('is_admin', False), active='chat')
 
 @chatbot_app.route('/ask', methods=['POST'])
 def ask():
@@ -277,7 +278,8 @@ def admin_users():
         return redirect(url_for('login'))
     users = users_db.get_all_users()
     return render_template('admin_users.html', users=users,
-                           username=session.get('username'))
+                           username=session.get('username'),
+                           is_admin=session.get('is_admin', False), active='admin')
 
 
 @chatbot_app.route('/admin/users/create', methods=['POST'])

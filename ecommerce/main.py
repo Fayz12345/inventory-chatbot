@@ -87,6 +87,26 @@ def run_pipeline(limit=None, dry_run=False):
     # Reebelo CA — custom reebelo.ca actor
     reebelo_raw = reebelo_pricing.scrape_prices(search_keywords)
 
+    # Per-marketplace coverage — makes a silent scrape failure (e.g. an actor
+    # timeout that the client swallows as []) visible in the run log instead of
+    # quietly writing every floor as NULL.
+    def _coverage(d):
+        return sum(1 for v in d.values() if v is not None)
+
+    n_kw = len(search_keywords)
+    coverage = {
+        'Amazon': _coverage(amazon_raw),
+        'Best Buy': _coverage(bestbuy_raw),
+        'Reebelo': _coverage(reebelo_raw),
+    }
+    log.info("Scrape coverage (of %d keywords): %s", n_kw,
+             ', '.join('%s %d' % (k, v) for k, v in coverage.items()))
+    for market, hits in coverage.items():
+        if hits == 0:
+            log.warning("%s returned 0 prices for all %d keywords — likely an actor "
+                        "failure/timeout, not 'no listings'. Check the Apify run.",
+                        market, n_kw)
+
     # Step 4: Build recommendations
     log.info("Step 4: Running pricing algorithm...")
     recommendations = []

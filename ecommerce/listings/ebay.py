@@ -9,7 +9,9 @@ real ebay.ca — so it's the safe place to validate end-to-end before flipping
 Flow: createOrReplaceInventoryItem -> createOffer -> publishOffer.
 """
 
+import hashlib
 import logging
+import re
 import time
 
 import requests
@@ -17,6 +19,48 @@ import requests
 from ecommerce import config
 
 log = logging.getLogger(__name__)
+
+# Pulls "128GB" / "1 TB" out of a Model string for the Storage Capacity aspect.
+_STORAGE_RE = re.compile(r"(\d+)\s*(TB|GB)", re.IGNORECASE)
+_CASE_SIZE_RE = re.compile(r"(\d{2})\s*mm", re.IGNORECASE)
+
+# eBay CA leaf categories per device type (validated live against the sandbox:
+# each one published with the aspect set built in _item_specifics below).
+_CATEGORY_BY_TYPE = {
+    "phone":      "9355",    # Cell Phones & Smartphones
+    "smartwatch": "178893",  # Smart Watches
+    "tablet":     "171485",  # Tablets & eBook Readers
+    "earbuds":    "112529",  # Headphones
+}
+
+
+def _device_type(product):
+    """Classify a product into an eBay category bucket from its Model string."""
+    m = (product.get("Model") or "").lower()
+    if any(k in m for k in ("airpod", "buds", "earbud", "earphone")):
+        return "earbuds"
+    if "watch" in m:
+        return "smartwatch"
+    if any(k in m for k in ("ipad", "tablet", "galaxy tab", "tab s", "tab a")):
+        return "tablet"
+    return "phone"
+
+
+def _category_id(product):
+    return _CATEGORY_BY_TYPE.get(_device_type(product), config.EBAY_CATEGORY_ID or "9355")
+
+
+def _sku(product):
+    """eBay SKU: alphanumeric/dash only, max 50 chars. Long models (which embed
+    parenthesised descriptions) are truncated with a short hash so distinct
+    products stay distinct — eBay rejects anything else with errorId 25707."""
+    raw = "-".join([product.get("Manufacturer", ""), product.get("Model", ""),
+                    product.get("Grade", ""), product.get("Colour", "")])
+    s = re.sub(r"[^A-Za-z0-9]+", "-", raw).strip("-").upper()
+    if len(s) > 50:
+        h = hashlib.md5(raw.encode("utf-8")).hexdigest()[:8].upper()
+        s = s[:41].rstrip("-") + "-" + h
+    return s
 
 # Short-lived in-memory cache for the OAuth access token. eBay tokens last
 # ~2h; caching avoids a token round-trip per listing in a batch approve session.
@@ -64,6 +108,30 @@ def _listing_policies():
     return {k: v for k, v in ids.items() if v}
 
 
+def _existing_offer_id(resp):
+    """eBay 25002 'Offer entity already exists' carries the existing offerId in
+    the error parameters — pull it so we can reuse the offer instead of failing."""
+    try:
+        for err in (resp.json().get("errors") or []):
+            if err.get("errorId") == 25002:
+                for p in (err.get("parameters") or []):
+                    if p.get("name") == "offerId" and p.get("value"):
+                        return p["value"]
+    except ValueError:
+        pass
+    return None
+
+
+def _offer_id_by_sku(inv_url, headers, sku):
+    """Look up an existing offerId for a SKU (fallback when the error lacks it)."""
+    try:
+        r = requests.get(f"{inv_url}/offer?sku={sku}", headers=headers, timeout=30)
+        offers = (r.json() or {}).get("offers") or []
+        return offers[0].get("offerId") if offers else None
+    except requests.RequestException:
+        return None
+
+
 def _get_access_token():
     """Exchange refresh token for a short-lived access token (sell scope).
 
@@ -100,11 +168,47 @@ def _get_access_token():
 
 
 def _item_specifics(product):
-    return [
-        {"name": "Brand",  "values": [product["Manufacturer"]]},
-        {"name": "Model",  "values": [product["Model"]]},
-        {"name": "Colour", "values": [product["Colour"]]},
-    ]
+    """Item specifics (aspects) required to PUBLISH in the product's eBay
+    category. The required set differs per category (validated live against the
+    sandbox), so we build it per device type and fill values from the product
+    where possible, with sensible defaults otherwise.
+    """
+    mfr = product.get("Manufacturer", "") or ""
+    model = product.get("Model", "") or ""
+    colour = product.get("Colour", "") or ""
+    apple = mfr.strip().lower() == "apple"
+    dtype = _device_type(product)
+
+    specs = {"Brand": mfr or "Unbranded", "Model": model or mfr or "N/A"}
+    storage = _STORAGE_RE.search(model)
+    storage_val = "%s %s" % (storage.group(1), storage.group(2).upper()) if storage else None
+
+    if dtype == "smartwatch":
+        case = _CASE_SIZE_RE.search(model)
+        specs["Case Size"] = ("%s mm" % case.group(1)) if case else "44 mm"
+        specs["Compatible Operating System"] = "Apple iOS" if apple else "Android"
+        specs["Band Material"] = "Silicone"
+        if colour:
+            specs["Colour"] = colour
+    elif dtype == "earbuds":
+        specs["Connectivity"] = "Wireless"
+        specs["Type"] = "In-Ear (Earbud)"
+        specs["Color"] = colour or "Black"
+    elif dtype == "tablet":
+        if storage_val:
+            specs["Storage Capacity"] = storage_val
+        specs["Screen Size"] = "10.9 in"
+        specs["Type"] = "Tablet"
+        specs["Internet Connectivity"] = (
+            "Wi-Fi + Cellular" if re.search(r"cellular|lte", model, re.I) else "Wi-Fi")
+    else:  # phone
+        if storage_val:
+            specs["Storage Capacity"] = storage_val
+        specs["Network"] = "Unlocked"
+        specs["Operating System"] = "iOS" if apple else "Android"
+        specs["Color"] = colour or "Black"
+
+    return [{"name": k, "values": [v]} for k, v in specs.items()]
 
 
 def create_listing(product, price, listing_copy, catalog_info=None):
@@ -134,10 +238,7 @@ def create_listing(product, price, listing_copy, catalog_info=None):
         "Content-Language": "en-CA",
     }
 
-    sku = (
-        f"{product['Manufacturer']}-{product['Model']}-"
-        f"{product['Grade']}-{product['Colour']}"
-    ).replace(" ", "-").upper()
+    sku = _sku(product)
 
     description_html = f"<p>{listing_copy.get('description', '')}</p>"
     if listing_copy.get("bullets"):
@@ -187,7 +288,7 @@ def create_listing(product, price, listing_copy, catalog_info=None):
             "pricingSummary": {
                 "price": {"value": str(price), "currency": config.DEFAULT_CURRENCY},
             },
-            "categoryId":  config.EBAY_CATEGORY_ID,
+            "categoryId":  _category_id(product),
             "conditionId": _condition_id(product["Grade"]),
             "quantityLimitPerBuyer": 1,
         }
@@ -209,11 +310,25 @@ def create_listing(product, price, listing_copy, catalog_info=None):
         resp = requests.post(
             f"{inv_url}/offer", headers=headers, json=offer_body, timeout=30,
         )
-        if resp.status_code not in (200, 201):
-            return {"ok": False, "error": (
-                f"eBay create offer failed: {resp.status_code} {resp.text}"
-            )}
-        offer_id = resp.json().get("offerId")
+        if resp.status_code in (200, 201):
+            offer_id = resp.json().get("offerId")
+        else:
+            # Idempotent re-approve: if an unpublished offer already exists for
+            # this SKU (eBay 25002), reuse it — update it with the current data
+            # and continue to publish — instead of hard-failing.
+            offer_id = _existing_offer_id(resp) or _offer_id_by_sku(inv_url, headers, sku)
+            if not offer_id:
+                return {"ok": False, "error": (
+                    f"eBay create offer failed: {resp.status_code} {resp.text}"
+                )}
+            update_body = {k: v for k, v in offer_body.items() if k != "sku"}
+            upd = requests.put(
+                f"{inv_url}/offer/{offer_id}", headers=headers, json=update_body, timeout=30,
+            )
+            if upd.status_code not in (200, 204):
+                return {"ok": False, "error": (
+                    f"eBay update existing offer failed: {upd.status_code} {upd.text}"
+                )}
 
         # 3) publish
         resp = requests.post(
@@ -224,12 +339,23 @@ def create_listing(product, price, listing_copy, catalog_info=None):
                 f"eBay publish offer failed: {resp.status_code} {resp.text}"
             )}
 
-        listing_id = resp.json().get("listingId", offer_id)
+        public_listing_id = resp.json().get("listingId", offer_id)
+        host = "www.sandbox.ebay.com" if config.EBAY_SANDBOX else "www.ebay.ca"
+        listing_url = "https://%s/itm/%s" % (host, public_listing_id)
         log.info(
-            "eBay listing published (%s): SKU=%s listingId=%s",
-            config.EBAY_ENV, sku, listing_id,
+            "eBay listing published (%s): SKU=%s offerId=%s listingId=%s url=%s",
+            config.EBAY_ENV, sku, offer_id, public_listing_id, listing_url,
         )
-        return {"ok": True, "listing_id": str(listing_id), "env": config.EBAY_ENV}
+        # Return the offerId as the managed listing id: withdraw/delist operate
+        # on the offer, not the public listingId (which can't be withdrawn).
+        # public_listing_id + listing_url are for display/linking in the modal.
+        return {
+            "ok": True,
+            "listing_id": str(offer_id),
+            "env": config.EBAY_ENV,
+            "public_listing_id": str(public_listing_id),
+            "listing_url": listing_url,
+        }
 
     except requests.RequestException as e:
         log.error("eBay API error creating listing for %s: %s", sku, e)

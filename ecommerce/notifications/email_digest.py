@@ -5,33 +5,13 @@ Renders the batch dashboard and recommendation tables served by Flask.
 """
 
 from jinja2 import Template
+from ui.shell import page_shell
 
 
 # ---------------------------------------------------------------------------
 # Batch list page — shows all weekly pipeline runs
 # ---------------------------------------------------------------------------
 BATCH_LIST_TEMPLATE = Template("""
-<!DOCTYPE html>
-<html>
-<head>
-<title>Ecommerce Pricing Dashboard</title>
-<style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
-    .container { max-width: 900px; margin: 0 auto; background: #fff; border-radius: 8px; padding: 30px; }
-    h1 { color: #333; border-bottom: 2px solid #2196F3; padding-bottom: 10px; }
-    table { width: 100%; border-collapse: collapse; margin: 15px 0; }
-    th { background: #2196F3; color: #fff; padding: 12px 10px; text-align: left; font-size: 13px; }
-    td { padding: 10px; border-bottom: 1px solid #eee; font-size: 13px; }
-    tr:hover { background: #f9f9f9; }
-    a { color: #1565c0; text-decoration: none; font-weight: bold; }
-    a:hover { text-decoration: underline; }
-    .status-ready { color: #2e7d32; font-weight: bold; }
-    .status-completed { color: #999; }
-    .status-pending { color: #e65100; }
-    .empty { color: #999; padding: 40px 0; text-align: center; }
-</style>
-</head>
-<body>
 <div class="container">
     <h1>Ecommerce Pricing Dashboard</h1>
 
@@ -56,8 +36,6 @@ BATCH_LIST_TEMPLATE = Template("""
     <p class="empty">No pipeline runs yet. The first batch will appear after the weekly cron job runs.</p>
     {% endif %}
 </div>
-</body>
-</html>
 """)
 
 
@@ -65,77 +43,10 @@ BATCH_LIST_TEMPLATE = Template("""
 # Single batch detail page — recommendations with approve/reject
 # ---------------------------------------------------------------------------
 DASHBOARD_TEMPLATE = Template("""
-<!DOCTYPE html>
-<html>
-<head>
-<title>Batch #{{ batch.ID }} — Ecommerce Pricing</title>
-<style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
-    .container { max-width: 1100px; margin: 0 auto; background: #fff; border-radius: 8px; padding: 30px; }
-    h1 { color: #333; border-bottom: 2px solid #2196F3; padding-bottom: 10px; }
-    h2 { color: #555; margin-top: 30px; }
-    table { width: 100%; border-collapse: collapse; margin: 15px 0; }
-    th { background: #2196F3; color: #fff; padding: 12px 10px; text-align: left; font-size: 13px; }
-    td { padding: 10px; border-bottom: 1px solid #eee; font-size: 13px; }
-    tr:hover { background: #f9f9f9; }
-    .price { font-weight: bold; color: #2e7d32; }
-    .skip { color: #c62828; }
-    .btn { display: inline-block; padding: 6px 16px; border-radius: 4px; text-decoration: none;
-           font-size: 12px; font-weight: bold; margin-right: 5px; cursor: pointer; border: none; }
-    .btn-approve { background: #4CAF50; color: #fff; }
-    .btn-approve:hover { background: #388E3C; }
-    .btn-reject { background: #f44336; color: #fff; }
-    .btn-reject:hover { background: #c62828; }
-    .btn-disabled { background: #bdbdbd; color: #fff; cursor: default; }
-    .modal-loader { display: flex; align-items: center; justify-content: center; gap: 14px;
-                    padding: 50px 20px; color: #555; font-size: 15px; }
-    .spinner { width: 26px; height: 26px; border: 3px solid #e3f2fd; border-top-color: #2196F3;
-               border-radius: 50%; animation: spin 0.8s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .modal-body { display: none; }
-    .modal-body.ready { display: block; }
-    .summary { background: #e3f2fd; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
-    .back { display: inline-block; margin-bottom: 15px; color: #1565c0; text-decoration: none; }
-    .back:hover { text-decoration: underline; }
-    .decision-approved { color: #2e7d32; font-weight: bold; }
-    .decision-rejected { color: #c62828; font-weight: bold; }
-    .decision-pending { color: #e65100; }
-    .footer { margin-top: 30px; font-size: 12px; color: #999; border-top: 1px solid #eee; padding-top: 15px; }
-    .toast { display: none; position: fixed; top: 20px; right: 20px; padding: 12px 24px;
-             border-radius: 6px; color: #fff; font-weight: bold; z-index: 1000; }
-    .toast-success { background: #4CAF50; }
-    .toast-error { background: #f44336; }
-
-    /* Listing preview modal */
-    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000;
-                     justify-content: center; align-items: flex-start; padding: 40px 20px; overflow-y: auto; }
-    .modal-overlay.active { display: flex; }
-    .modal { background: #fff; border-radius: 8px; max-width: 700px; width: 100%; padding: 30px;
-             position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
-    .modal h2 { margin-top: 0; color: #333; border-bottom: 2px solid #2196F3; padding-bottom: 10px; }
-    .modal-close { position: absolute; top: 12px; right: 16px; font-size: 22px; cursor: pointer;
-                   background: none; border: none; color: #999; }
-    .modal-close:hover { color: #333; }
-    .listing-field { margin-bottom: 16px; }
-    .listing-field label { display: block; font-weight: bold; color: #555; margin-bottom: 4px; font-size: 12px;
-                           text-transform: uppercase; letter-spacing: 0.5px; }
-    .listing-field .value { background: #f5f5f5; padding: 10px 14px; border-radius: 4px; border: 1px solid #e0e0e0;
-                            font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
-    .listing-field ul { background: #f5f5f5; padding: 10px 14px 10px 30px; border-radius: 4px;
-                        border: 1px solid #e0e0e0; margin: 0; font-size: 14px; line-height: 1.8; }
-    .btn-copy { background: #2196F3; color: #fff; border: none; padding: 8px 20px; border-radius: 4px;
-                font-size: 13px; font-weight: bold; cursor: pointer; margin-right: 8px; }
-    .btn-copy:hover { background: #1565c0; }
-    .btn-copy.copied { background: #4CAF50; }
-    .modal-meta { color: #777; font-size: 13px; margin-bottom: 18px; }
-</style>
-</head>
-<body>
 <div class="container">
-    <a href="/ecommerce/dashboard" class="back">&larr; All Batches</a>
     <h1>Batch #{{ batch.ID }} — {{ batch.CreatedAt.strftime('%B %d, %Y') if batch.CreatedAt else '' }}</h1>
 
-    <div class="summary">
+    <div class="alert-banner">
         <strong>{{ recommendations | length }}</strong> SKUs scanned &mdash;
         <strong>{{ recommended_count }}</strong> recommended,
         <strong>{{ skipped_count }}</strong> skipped,
@@ -173,8 +84,10 @@ DASHBOARD_TEMPLATE = Template("""
                 {% if rec.Decision %}
                     <span class="decision-{{ rec.Decision }}">{{ rec.Decision | capitalize }}</span>
                 {% else %}
-                    <button class="btn btn-approve" onclick="decide({{ rec.ID }}, 'approve')">Approve</button>
-                    <button class="btn btn-reject" onclick="decide({{ rec.ID }}, 'reject')">Reject</button>
+                    <div class="actions actions--inline">
+                        <button class="btn btn-approve" onclick="decide({{ rec.ID }}, 'approve')">Approve</button>
+                        <button class="btn btn-reject" onclick="decide({{ rec.ID }}, 'reject')">Reject</button>
+                    </div>
                 {% endif %}
             </td>
         </tr>
@@ -226,7 +139,7 @@ DASHBOARD_TEMPLATE = Template("""
 
 <!-- Listing preview modal -->
 <div id="listing-modal" class="modal-overlay" onclick="if(event.target===this)closeModal()">
-    <div class="modal">
+    <div class="modal modal--wide">
         <button class="modal-close" onclick="closeModal()">&times;</button>
         <h2>Generated Listing Preview</h2>
 
@@ -370,8 +283,19 @@ function showListingPreview(data) {
         status.appendChild(envEl);
         status.appendChild(document.createTextNode(') \u2014 listing ID: '));
         var idEl = document.createElement('code');
-        idEl.textContent = data.listing_id || '?';
+        idEl.textContent = data.public_listing_id || data.listing_id || '?';
         status.appendChild(idEl);
+        if (data.listing_url) {
+            status.appendChild(document.createTextNode('  '));
+            var viewLink = document.createElement('a');
+            viewLink.href = data.listing_url;
+            viewLink.target = '_blank';
+            viewLink.rel = 'noopener';
+            viewLink.textContent = 'View listing \u2192';
+            viewLink.style.fontWeight = 'bold';
+            viewLink.style.color = '#1b5e20';
+            status.appendChild(viewLink);
+        }
     } else {
         status.style.background = '#fffde7';
         status.style.color = '#f57f17';
@@ -448,14 +372,12 @@ function showToast(msg, type) {
 // Close modal on Escape
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeModal(); });
 </script>
-</body>
-</html>
 """)
 
 
 def render_batch_list(batches):
     """Render the batch list page."""
-    return BATCH_LIST_TEMPLATE.render(batches=batches)
+    return page_shell(BATCH_LIST_TEMPLATE.render(batches=batches), title="Ecommerce Pricing Dashboard", active="ecommerce")
 
 
 def render_dashboard(batch, recommendations):
@@ -473,12 +395,17 @@ def render_dashboard(batch, recommendations):
     skipped = [r for r in recommendations if not r.get('MarginOK')]
     decided = [r for r in recommended if r.get('Decision')]
 
-    return DASHBOARD_TEMPLATE.render(
-        batch=batch,
-        recommendations=recommendations,
-        recommended=recommended,
-        skipped=skipped,
-        recommended_count=len(recommended),
-        skipped_count=len(skipped),
-        decided_count=len(decided),
+    return page_shell(
+        DASHBOARD_TEMPLATE.render(
+            batch=batch,
+            recommendations=recommendations,
+            recommended=recommended,
+            skipped=skipped,
+            recommended_count=len(recommended),
+            skipped_count=len(skipped),
+            decided_count=len(decided),
+        ),
+        title="Ecommerce Pricing",
+        active="ecommerce",
+        back=("/ecommerce/dashboard", "All Batches"),
     )

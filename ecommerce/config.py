@@ -84,6 +84,9 @@ BESTBUY_PRODUCT_ID_TYPE  = _env("BESTBUY_PRODUCT_ID_TYPE", "UPC-A")
 BESTBUY_LEADTIME_TO_SHIP = int(_env("BESTBUY_LEADTIME_TO_SHIP", "4") or "4")
 # Mirakl requires the additional offer field "manufacturer-warranty" (days).
 BESTBUY_MANUFACTURER_WARRANTY = _env("BESTBUY_MANUFACTURER_WARRANTY", "365")
+# Override the posted offer quantity when set (e.g. "0" for a demo listing that
+# is live but not purchasable). Leave blank in production so real stock is used.
+BESTBUY_FORCE_QUANTITY = _env("BESTBUY_FORCE_QUANTITY", "")
 
 # Reebelo (creds parked; auto-post NOT wired yet per ADO #138)
 REEBELO_ENV       = _env("REEBELO_ENV", "sandbox").lower()
@@ -105,8 +108,11 @@ GRADE_CONDITION_MAP = {
     "NEW": {"amazon": "New",         "ebay": "NEW",            "ebay_id": "1000"},
     "A+":  {"amazon": "UsedLikeNew", "ebay": "USED_EXCELLENT", "ebay_id": "2500"},
     "A":   {"amazon": "UsedLikeNew", "ebay": "USED_EXCELLENT", "ebay_id": "2500"},
-    "B":   {"amazon": "UsedVeryGood","ebay": "USED_VERY_GOOD", "ebay_id": "3000"},
-    "C":   {"amazon": "UsedGood",    "ebay": "USED_GOOD",      "ebay_id": "4000"},
+    # eBay Cell Phones category (9355) only accepts USED_EXCELLENT/2500 for used
+    # (the granular USED_VERY_GOOD/USED_GOOD + 3000/4000 are rejected on publish);
+    # the precise grade is still conveyed in the title/condition note.
+    "B":   {"amazon": "UsedVeryGood","ebay": "USED_EXCELLENT", "ebay_id": "2500"},
+    "C":   {"amazon": "UsedGood",    "ebay": "USED_EXCELLENT", "ebay_id": "2500"},
 }
 
 
