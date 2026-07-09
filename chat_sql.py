@@ -2,7 +2,7 @@
 
 validate_sql replaces the old substring blocklist in app.run_query with an
 AST allowlist: exactly one read-only SELECT (CTEs allowed) that references only
-approved tables. build_count_query supports honest result truncation (#5).
+approved tables.
 """
 import re
 import sqlglot
@@ -47,6 +47,10 @@ def validate_sql(sql, allowed_tables=ALLOWED_TABLES):
     cte_names = {c.alias_or_name.lower() for c in stmt.find_all(exp.CTE)}
     allowed = {t.lower() for t in allowed_tables} | cte_names
     for table in stmt.find_all(exp.Table):
+        catalog = (table.text("catalog") or "").lower()
+        db = (table.text("db") or "").lower()
+        if catalog or (db and db != "dbo"):
+            raise SqlValidationError(f"Querying '{table.sql()}' is not allowed.")
         if (table.name or "").lower() not in allowed:
             raise SqlValidationError(f"Querying '{table.name}' is not allowed.")
     return stmt.sql(dialect="tsql")

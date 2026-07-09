@@ -37,3 +37,21 @@ def test_false_positive_value_containing_keyword_is_allowed():
     # old substring blocklist wrongly rejected this; allowlist must accept it
     assert validate_sql(
         "SELECT * FROM ReportingInventoryFlat WHERE Model LIKE '%Update%'")
+
+
+# --- qualifier bypass tests ---
+
+@pytest.mark.parametrize("bad", [
+    "SELECT * FROM OtherDB.dbo.ReportingInventoryFlat",   # cross-database catalog qualifier
+    "SELECT * FROM secretschema.ReportingInventoryFlat",  # non-dbo schema qualifier
+    "WITH tables AS (SELECT 1 x) SELECT name FROM sys.tables",  # sys catalog view
+])
+def test_qualifier_bypass_rejected(bad):
+    with pytest.raises(SqlValidationError):
+        validate_sql(bad)
+
+
+def test_dbo_qualified_ref_accepted():
+    # dbo.Table is a legitimate and common pattern; must not be over-rejected
+    out = validate_sql("SELECT ESN FROM dbo.ReportingInventoryFlat")
+    assert "ReportingInventoryFlat" in out
