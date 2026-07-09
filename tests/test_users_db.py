@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 os.environ["USERS_DB_PATH"] = "/tmp/test_users_db_enh.db"
 if os.path.exists("/tmp/test_users_db_enh.db"):
     os.remove("/tmp/test_users_db_enh.db")
@@ -43,3 +44,17 @@ def test_failed_login_counter_and_reset():
     assert row["failed_logins"] == 2
     users_db.reset_failed_logins(row["id"])
     assert users_db._row_by_username("lock")["failed_logins"] == 0
+
+
+def test_is_locked_boundaries():
+    # missing key or None -> not locked
+    assert users_db.is_locked({}) is False
+    assert users_db.is_locked({'locked_until': None}) is False
+
+    # past timestamp -> not locked
+    past = (datetime.utcnow() - timedelta(minutes=1)).isoformat()
+    assert users_db.is_locked({'locked_until': past}) is False
+
+    # future timestamp -> locked
+    future = (datetime.utcnow() + timedelta(minutes=15)).isoformat()
+    assert users_db.is_locked({'locked_until': future}) is True

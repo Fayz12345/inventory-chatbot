@@ -85,7 +85,8 @@ def authenticate(username, password):
 def get_all_users():
     conn = _get_conn()
     rows = conn.execute(
-        'SELECT id, username, email, is_admin, role, is_active, last_login, created_at, created_by, password_set '
+        'SELECT id, username, email, is_admin, role, is_active, last_login, created_at, created_by, password_set, '
+        'failed_logins, locked_until, updated_at '
         'FROM users ORDER BY id'
     ).fetchall()
     conn.close()
@@ -230,7 +231,10 @@ def reset_failed_logins(user_id):
 
 def is_locked(row):
     from datetime import datetime
-    lu = row.get('locked_until') if isinstance(row, dict) else row['locked_until']
+    if isinstance(row, dict):
+        lu = row.get('locked_until')
+    else:
+        lu = row['locked_until'] if 'locked_until' in row.keys() else None
     if not lu:
         return False
     try:
