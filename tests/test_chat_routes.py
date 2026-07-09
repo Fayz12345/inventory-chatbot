@@ -19,8 +19,15 @@ def _login(client):
         s['logged_in'] = True; s['username'] = 'tester'; s['is_admin'] = False
 
 
+class _Usage:
+    input_tokens = 1
+    output_tokens = 1
+
+
 def test_ask_reports_truncation(monkeypatch):
-    monkeypatch.setattr(app, "generate_sql", lambda q: "SELECT ESN FROM ReportingInventoryFlat")
+    def fake_generate(messages):
+        return ("SELECT ESN FROM ReportingInventoryFlat", _Usage())
+    monkeypatch.setattr(app, "generate_sql", fake_generate)
     big = {'columns': ['ESN'], 'rows': [[i] for i in range(50)], 'truncated': True}
     monkeypatch.setattr(app, "run_query", lambda sql: (big, None))
     monkeypatch.setattr(app, "run_query_raw", lambda sql: ({'columns': ['n'], 'rows': [[1234]]}, None))
@@ -29,6 +36,26 @@ def test_ask_reports_truncation(monkeypatch):
     r = client.post("/ask", json={"question": "list devices"})
     body = r.get_json()
     assert body['truncated'] is True and body['total_rows'] == 1234
+
+
+def test_ask_retries_on_bad_sql_then_succeeds(monkeypatch):
+    calls = {"n": 0}
+    class Usage:  # minimal stand-in for anthropic usage object
+        input_tokens = 10; output_tokens = 5
+    def fake_generate(messages):
+        calls["n"] += 1
+        return ("SELECT bad" if calls["n"] == 1 else "SELECT ESN FROM ReportingInventoryFlat", Usage())
+    def fake_run(sql):
+        if sql == "SELECT bad":
+            return (None, "Invalid column name 'bad'.")
+        return ({'columns': ['ESN'], 'rows': [['123']], 'truncated': False}, None)
+    monkeypatch.setattr(app, "generate_sql", fake_generate)
+    monkeypatch.setattr(app, "run_query", fake_run)
+    monkeypatch.setattr(app, "format_answer", lambda *a, **k: "ok")
+    client = app.chatbot_app.test_client(); _login(client)
+    r = client.post("/ask", json={"question": "list an esn"})
+    assert r.get_json()['answer'] == "ok"
+    assert calls["n"] == 2   # retried exactly once after the failure
 
 
 def test_anthropic_client_is_shared_singleton(monkeypatch):

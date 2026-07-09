@@ -213,12 +213,12 @@ def run_query_raw(sql):
         return None, str(e)
 
 # --- Ask Claude to generate SQL ---
-def generate_sql(user_question):
+CHAT_MAX_RETRIES = 2
+
+def generate_sql(messages):
     message = _anthropic_client().messages.create(
-        model=CHAT_SQL_MODEL, max_tokens=500, system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_question}],
-    )
-    return message.content[0].text.strip()
+        model=CHAT_SQL_MODEL, max_tokens=500, system=SYSTEM_PROMPT, messages=messages)
+    return message.content[0].text.strip(), message.usage
 
 # --- Format result into a readable answer ---
 def format_answer(sql, data, user_question, truncated=False, total_rows=None):
@@ -277,15 +277,21 @@ def ask():
     if not user_question:
         return jsonify({'error': 'No question provided'}), 400
 
-    sql = generate_sql(user_question)
-
-    if sql == 'UNABLE_TO_ANSWER':
-        return jsonify({'answer': "I'm unable to answer that from the inventory data I have access to.", 'sql': ''})
-
-    data, error = run_query(sql)
+    messages = [{"role": "user", "content": user_question}]
+    sql, data, error = None, None, None
+    for attempt in range(CHAT_MAX_RETRIES + 1):
+        sql, _usage = generate_sql(messages)
+        if sql == 'UNABLE_TO_ANSWER':
+            return jsonify({'answer': "I'm unable to answer that from the inventory data I have access to.", 'sql': ''})
+        data, error = run_query(sql)
+        if not error:
+            break
+        # feed the failure back so the model can self-correct
+        messages.append({"role": "assistant", "content": sql})
+        messages.append({"role": "user",
+                         "content": f"That query failed with error: {error}. Return a corrected single T-SQL SELECT only."})
     if error:
         return jsonify({'answer': f'There was an error running the query: {error}', 'sql': sql})
-
     if not data['rows']:
         return jsonify({'answer': 'No results found for your question.', 'sql': sql})
 
@@ -294,9 +300,9 @@ def ask():
         count_data, _ = run_query_raw(chat_sql.build_count_query(sql))
         total_rows = count_data['rows'][0][0] if count_data else None
     answer = format_answer(sql, data, user_question, truncated=data.get('truncated'), total_rows=total_rows)
-    return jsonify({'answer': answer, 'sql': sql,
-                    'rows': data['rows'][:CHAT_ROW_CAP], 'columns': data['columns'],
-                    'truncated': bool(data.get('truncated')), 'total_rows': total_rows})
+    return jsonify({'answer': answer, 'sql': sql, 'rows': data['rows'][:CHAT_ROW_CAP],
+                    'columns': data['columns'], 'truncated': bool(data.get('truncated')),
+                    'total_rows': total_rows})
 
 @chatbot_app.route('/logout')
 def logout():
