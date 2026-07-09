@@ -1,9 +1,17 @@
-import os
 from datetime import datetime, timedelta
-os.environ["USERS_DB_PATH"] = "/tmp/test_users_db_enh.db"
-if os.path.exists("/tmp/test_users_db_enh.db"):
-    os.remove("/tmp/test_users_db_enh.db")
+import pytest
 import users_db
+
+
+@pytest.fixture(autouse=True)
+def fresh_users_db(tmp_path, monkeypatch):
+    """Fresh, isolated users.db per test. Overrides users_db.DB_PATH directly
+    (monkeypatch, auto-restored) rather than the env var — other test files
+    import users_db first (via app), so the import-time env path is already
+    cached; setting DB_PATH on the module is what _get_conn actually reads."""
+    monkeypatch.setattr(users_db, "DB_PATH", str(tmp_path / "users.db"))
+    users_db.init_db()
+    yield
 
 
 def _mk(username="u1", is_admin=False):
