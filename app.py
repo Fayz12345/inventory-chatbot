@@ -236,7 +236,7 @@ def generate_sql(messages):
 
 # --- Format result into a readable answer ---
 def format_answer(sql, data, user_question, truncated=False, total_rows=None):
-    rows_preview = str(data['rows'][:CHAT_ROW_CAP])
+    rows_preview = str(data['rows'])
     note = ""
     if truncated:
         note = (f"\nNOTE: results were truncated to the first {CHAT_ROW_CAP} of "
@@ -291,8 +291,7 @@ def ask():
     if not user_question:
         return jsonify({'error': 'No question provided'}), 400
 
-    import time as _t
-    _t0 = _t.time()
+    _t0 = time.time()
     retries = 0
     in_tok = out_tok = 0
 
@@ -300,7 +299,7 @@ def ask():
         try:
             chat_log.log_query(username=session.get('username'), question=user_question,
                                sql=sql, ok=ok, error=error, row_count=row_count,
-                               retries=retries, latency_ms=int((_t.time() - _t0) * 1000),
+                               retries=retries, latency_ms=int((time.time() - _t0) * 1000),
                                input_tokens=in_tok, output_tokens=out_tok)
         except Exception:
             pass

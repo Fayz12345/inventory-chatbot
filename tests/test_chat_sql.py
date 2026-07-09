@@ -1,5 +1,5 @@
 import pytest
-from chat_sql import validate_sql, SqlValidationError
+from chat_sql import validate_sql, SqlValidationError, build_count_query
 
 
 def test_plain_select_passes():
@@ -55,9 +55,6 @@ def test_dbo_qualified_ref_accepted():
     # dbo.Table is a legitimate and common pattern; must not be over-rejected
     out = validate_sql("SELECT ESN FROM dbo.ReportingInventoryFlat")
     assert "ReportingInventoryFlat" in out
-
-
-from chat_sql import build_count_query
 
 
 def test_build_count_query_wraps_and_strips_order_by():

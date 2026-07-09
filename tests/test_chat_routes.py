@@ -69,6 +69,7 @@ def test_anthropic_client_is_shared_singleton(monkeypatch):
     assert c1 is c2
     assert len(made) == 1
     assert made[0].get("timeout") == 30 and made[0].get("max_retries") == 2
+    app._anthropic = None
 
 
 def test_ask_threads_history_into_generation(monkeypatch):
