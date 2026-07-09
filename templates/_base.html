@@ -4,12 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Bridge Platform{% endblock %}</title>
+  <meta name="csrf-token" content="{{ csrf_token }}">
   <link rel="stylesheet" href="/static/css/app.css?v=10">
   {% block head_extra %}{% endblock %}
 </head>
 <body>
   {% block topnav %}{% include "_topnav.html" %}{% endblock %}
   {% block body %}{% endblock %}
+  <script>
+  window.postJSON = function(url, body) {
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': document.querySelector('meta[name=csrf-token]').content
+      },
+      body: JSON.stringify(body || {})
+    });
+  };
+  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

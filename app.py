@@ -8,6 +8,7 @@ from werkzeug.security import check_password_hash
 from functools import wraps
 import json
 import os
+import secrets as _secrets
 import time
 from urllib import error as urlerror, parse as urlparse, request as urlrequest
 import pyodbc
@@ -71,6 +72,24 @@ from billing.routes import billing_bp
 chatbot_app.register_blueprint(approval_bp)
 chatbot_app.register_blueprint(analytics_bp)
 chatbot_app.register_blueprint(billing_bp)
+
+
+# --- CSRF protection ---
+@chatbot_app.before_request
+def _csrf_guard():
+    if session.get('logged_in') and not session.get('csrf_token'):
+        session['csrf_token'] = _secrets.token_urlsafe(32)
+    protected = request.method == 'POST' and (
+        request.path.startswith('/admin/') or request.path in ('/ask',) or request.path.startswith('/profile'))
+    if protected:
+        if request.headers.get('X-CSRF-Token') != session.get('csrf_token'):
+            return jsonify({'ok': False, 'error': 'Invalid CSRF token'}), 403
+
+
+@chatbot_app.context_processor
+def _inject_csrf():
+    return {'csrf_token': session.get('csrf_token', '')}
+
 
 # --- Database connection ---
 def get_db_connection():
