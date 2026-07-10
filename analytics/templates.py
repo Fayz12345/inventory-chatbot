@@ -1,4 +1,5 @@
 import html as _html
+import json as _json
 from jinja2 import Template
 from ui.shell import page_shell
 
@@ -33,56 +34,392 @@ ANALYTICS_INDEX_TEMPLATE = Template("""
 
 
 # ---------------------------------------------------------------------------
-# Telus Weekly — ProjectTag input form
+# Telus Weekly — ProjectTag input form (custom combobox, no datalist)
 # ---------------------------------------------------------------------------
-TELUS_WEEKLY_FORM_TEMPLATE = Template("""
+
+def _telus_weekly_form_html(error, project_tag, client_name, project_tags, client_names):
+    """Return the inner HTML for the Telus Weekly Generate Report form."""
+    pt_json = _json.dumps(project_tags)
+    cn_json = _json.dumps(client_names)
+    error_block = ''
+    if error:
+        error_block = f'<div class="error">{_html.escape(error)}</div>'
+    pt_val = _html.escape(project_tag or '')
+    cn_val = _html.escape(client_name or '')
+    return f"""
+<style>
+/* ── Telus Weekly combobox component ────────────────────────── */
+.cb-wrap {{
+  position: relative;
+  display: flex;
+  align-items: center;
+}}
+.cb-wrap input[type="text"] {{
+  flex: 1;
+  padding-right: 36px !important;
+}}
+.cb-chevron {{
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+  width: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: #6b7280;
+  flex-shrink: 0;
+}}
+.cb-chevron:hover {{ color: #2563eb; }}
+.cb-chevron svg {{
+  transition: transform 200ms ease;
+  pointer-events: none;
+}}
+@media (prefers-reduced-motion: reduce) {{
+  .cb-chevron svg {{ transition: none; }}
+}}
+.cb-chevron.open svg {{ transform: rotate(180deg); }}
+.cb-panel {{
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(2,6,23,.12);
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}}
+.cb-panel.open {{ display: block; }}
+.cb-panel ul {{
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}}
+.cb-panel ul li {{
+  padding: 10px 14px;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 14px;
+  color: #111827;
+  line-height: 1.4;
+  box-sizing: border-box;
+}}
+.cb-panel ul li:hover,
+.cb-panel ul li.cb-hover {{
+  background: #eff6ff;
+}}
+.cb-panel ul li.cb-active {{
+  background: #dbeafe;
+  border-left: 3px solid #2563eb;
+  padding-left: 11px;
+  color: #1e40af;
+  font-weight: 500;
+}}
+.cb-panel ul li.cb-meta {{
+  color: #9ca3af;
+  font-size: 12px;
+  cursor: default;
+  justify-content: center;
+  font-style: italic;
+}}
+.cb-panel ul li.cb-meta:hover,
+.cb-panel ul li.cb-meta.cb-hover {{
+  background: transparent;
+}}
+.cb-match {{ font-weight: 700; color: #2563eb; }}
+</style>
+
 <div class="container">
-    <div class="form-card">
-        <h2>Generate Report</h2>
-        <p>Enter the ProjectTag to pull device data and calculate pricing recommendations.</p>
+  <div class="form-card">
+    <h2>Generate Report</h2>
+    <p>Enter the ProjectTag to pull device data and calculate pricing recommendations.</p>
 
-        {% if error %}
-        <div class="error">{{ error }}</div>
-        {% endif %}
+    {error_block}
 
-        <form method="POST" action="/analytics/telus-weekly/report" id="report-form">
-            <label for="project_tag">ProjectTag</label>
-            <input type="text" id="project_tag" name="project_tag" placeholder="e.g. TW1626"
-                   value="{{ project_tag or '' }}" list="projecttag-options" autocomplete="off" required>
-            {% if project_tags %}
-            <datalist id="projecttag-options">
-                {% for tag in project_tags %}<option value="{{ tag | e }}">
-                {% endfor %}
-            </datalist>
-            {% else %}
-            <datalist id="projecttag-options"></datalist>
-            {% endif %}
-            <div class="hint">Version = 000, ProjectName = Telus Weekly</div>
+    <form method="POST" action="/analytics/telus-weekly/report" id="report-form">
+      <label for="project_tag">ProjectTag</label>
+      <div class="cb-wrap" id="pt-wrap">
+        <input type="text" id="project_tag" name="project_tag"
+               placeholder="e.g. TW1626"
+               value="{pt_val}"
+               autocomplete="off"
+               required
+               role="combobox"
+               aria-autocomplete="list"
+               aria-expanded="false"
+               aria-controls="pt-panel"
+               aria-activedescendant="">
+        <button type="button" class="cb-chevron" id="pt-chevron" aria-label="Show ProjectTag options" tabindex="-1">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div class="cb-panel" id="pt-panel" role="listbox" aria-label="ProjectTag options">
+          <ul id="pt-list"></ul>
+        </div>
+      </div>
+      <div class="hint">Version = 000, ProjectName = Telus Weekly</div>
 
-            <label for="client_name">Client Name (optional)</label>
-            <input type="text" id="client_name" name="client_name" placeholder="e.g. Telus"
-                   value="{{ client_name or '' }}" list="clientname-options" autocomplete="off">
-            {% if client_names %}
-            <datalist id="clientname-options">
-                {% for name in client_names %}<option value="{{ name | e }}">
-                {% endfor %}
-            </datalist>
-            {% else %}
-            <datalist id="clientname-options"></datalist>
-            {% endif %}
+      <label for="client_name">Client Name (optional)</label>
+      <div class="cb-wrap" id="cn-wrap">
+        <input type="text" id="client_name" name="client_name"
+               placeholder="e.g. Telus"
+               value="{cn_val}"
+               autocomplete="off"
+               role="combobox"
+               aria-autocomplete="list"
+               aria-expanded="false"
+               aria-controls="cn-panel"
+               aria-activedescendant="">
+        <button type="button" class="cb-chevron" id="cn-chevron" aria-label="Show Client Name options" tabindex="-1">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div class="cb-panel" id="cn-panel" role="listbox" aria-label="Client Name options">
+          <ul id="cn-list"></ul>
+        </div>
+      </div>
 
-            <button type="submit" class="btn btn-primary btn-block" id="submit-btn">Generate Report</button>
-        </form>
-    </div>
+      <button type="submit" class="btn btn-primary btn-block" id="submit-btn">Generate Report</button>
+    </form>
+  </div>
 </div>
+
 <script>
-document.getElementById('report-form').addEventListener('submit', function() {
+(function () {{
+  'use strict';
+
+  var PROJECTTAG_OPTIONS = {pt_json};
+  var CLIENTNAME_OPTIONS = {cn_json};
+
+  var MAX = 50;
+
+  function escapeHtml(s) {{
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }}
+
+  // Highlight matched substring in label
+  function highlight(label, q) {{
+    if (!q) return escapeHtml(label);
+    var idx = label.toLowerCase().indexOf(q.toLowerCase());
+    if (idx === -1) return escapeHtml(label);
+    return (
+      escapeHtml(label.slice(0, idx)) +
+      '<span class="cb-match">' + escapeHtml(label.slice(idx, idx + q.length)) + '</span>' +
+      escapeHtml(label.slice(idx + q.length))
+    );
+  }}
+
+  // Filter and rank: prefix matches first, then substring
+  function filterOptions(options, q) {{
+    if (!q) return options.slice(0, MAX);
+    var ql = q.toLowerCase();
+    var prefix = [], sub = [];
+    for (var i = 0; i < options.length; i++) {{
+      var ol = options[i].toLowerCase();
+      if (ol.indexOf(ql) === 0) prefix.push(options[i]);
+      else if (ol.indexOf(ql) !== -1) sub.push(options[i]);
+    }}
+    return prefix.concat(sub).slice(0, MAX);
+  }}
+
+  function initCombobox(inputEl, panelEl, chevronEl, listEl, options) {{
+    var activeIdx = -1;
+    var currentQuery = '';
+    var isOpen = false;
+    var closeTimer = null;
+    var totalMatched = 0;
+
+    function openPanel() {{
+      isOpen = true;
+      panelEl.classList.add('open');
+      chevronEl.classList.add('open');
+      inputEl.setAttribute('aria-expanded', 'true');
+      renderList(inputEl.value);
+    }}
+
+    function closePanel() {{
+      isOpen = false;
+      panelEl.classList.remove('open');
+      chevronEl.classList.remove('open');
+      inputEl.setAttribute('aria-expanded', 'false');
+      inputEl.setAttribute('aria-activedescendant', '');
+      activeIdx = -1;
+    }}
+
+    function renderList(q) {{
+      currentQuery = q;
+      var ql = q.toLowerCase();
+      var prefix = [], sub = [];
+      for (var i = 0; i < options.length; i++) {{
+        var ol = options[i].toLowerCase();
+        if (ol.indexOf(ql) === 0) prefix.push(options[i]);
+        else if (ol.indexOf(ql) !== -1) sub.push(options[i]);
+      }}
+      totalMatched = prefix.length + sub.length;
+      var visible = prefix.concat(sub).slice(0, MAX);
+
+      var html = '';
+      if (visible.length === 0) {{
+        html = '<li class="cb-meta" role="option" aria-disabled="true">No matches</li>';
+      }} else {{
+        var panelId = panelEl.id;
+        for (var j = 0; j < visible.length; j++) {{
+          var optId = panelId + '-opt-' + j;
+          html += '<li id="' + optId + '" role="option" aria-selected="false" data-value="' + escapeHtml(visible[j]) + '">' +
+                  highlight(visible[j], q) + '</li>';
+        }}
+        if (totalMatched > MAX) {{
+          var more = totalMatched - MAX;
+          html += '<li class="cb-meta" role="option" aria-disabled="true">…' + more + ' more — keep typing to narrow</li>';
+        }}
+      }}
+      listEl.innerHTML = html;
+      activeIdx = -1;
+
+      // Mouse events on rendered items
+      var items = listEl.querySelectorAll('li[data-value]');
+      for (var k = 0; k < items.length; k++) {{
+        (function(item) {{
+          item.addEventListener('mouseover', function() {{
+            setActive(Array.prototype.indexOf.call(listEl.querySelectorAll('li[data-value]'), item));
+          }});
+          item.addEventListener('mousedown', function(e) {{
+            e.preventDefault(); // prevent blur before click
+            selectValue(item.dataset.value);
+          }});
+        }})(items[k]);
+      }}
+    }}
+
+    function setActive(idx) {{
+      var items = listEl.querySelectorAll('li[data-value]');
+      if (items.length === 0) {{ activeIdx = -1; return; }}
+      // clamp
+      if (idx < 0) idx = 0;
+      if (idx >= items.length) idx = items.length - 1;
+      // remove old
+      for (var i = 0; i < items.length; i++) {{
+        items[i].classList.remove('cb-active');
+        items[i].setAttribute('aria-selected', 'false');
+      }}
+      activeIdx = idx;
+      items[idx].classList.add('cb-active');
+      items[idx].setAttribute('aria-selected', 'true');
+      inputEl.setAttribute('aria-activedescendant', items[idx].id);
+      // scroll into view
+      items[idx].scrollIntoView({{ block: 'nearest' }});
+    }}
+
+    function selectValue(val) {{
+      inputEl.value = val;
+      closePanel();
+      inputEl.focus();
+    }}
+
+    // Input events
+    inputEl.addEventListener('focus', function() {{
+      if (closeTimer) {{ clearTimeout(closeTimer); closeTimer = null; }}
+      openPanel();
+    }});
+
+    inputEl.addEventListener('click', function() {{
+      if (!isOpen) openPanel();
+    }});
+
+    inputEl.addEventListener('input', function() {{
+      if (!isOpen) openPanel();
+      renderList(inputEl.value);
+    }});
+
+    inputEl.addEventListener('blur', function() {{
+      closeTimer = setTimeout(function() {{ closePanel(); }}, 150);
+    }});
+
+    inputEl.addEventListener('keydown', function(e) {{
+      if (!isOpen) {{
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {{
+          openPanel();
+          e.preventDefault();
+          return;
+        }}
+      }}
+      if (e.key === 'ArrowDown') {{
+        e.preventDefault();
+        setActive(activeIdx + 1);
+      }} else if (e.key === 'ArrowUp') {{
+        e.preventDefault();
+        setActive(activeIdx - 1);
+      }} else if (e.key === 'Enter') {{
+        var items = listEl.querySelectorAll('li[data-value]');
+        if (isOpen && activeIdx >= 0 && activeIdx < items.length) {{
+          e.preventDefault();
+          selectValue(items[activeIdx].dataset.value);
+        }}
+        // else allow form submit
+      }} else if (e.key === 'Escape') {{
+        e.preventDefault();
+        closePanel();
+      }} else if (e.key === 'Tab') {{
+        closePanel();
+      }}
+    }});
+
+    // Chevron click
+    chevronEl.addEventListener('click', function() {{
+      if (isOpen) {{
+        closePanel();
+      }} else {{
+        inputEl.focus();
+        openPanel();
+      }}
+    }});
+
+    // Close on outside click
+    document.addEventListener('mousedown', function(e) {{
+      if (!panelEl.parentElement.contains(e.target)) {{
+        closePanel();
+      }}
+    }});
+  }}
+
+  // Init both fields
+  initCombobox(
+    document.getElementById('project_tag'),
+    document.getElementById('pt-panel'),
+    document.getElementById('pt-chevron'),
+    document.getElementById('pt-list'),
+    PROJECTTAG_OPTIONS
+  );
+  initCombobox(
+    document.getElementById('client_name'),
+    document.getElementById('cn-panel'),
+    document.getElementById('cn-chevron'),
+    document.getElementById('cn-list'),
+    CLIENTNAME_OPTIONS
+  );
+
+  // Submit loading state
+  document.getElementById('report-form').addEventListener('submit', function() {{
     var btn = document.getElementById('submit-btn');
     btn.disabled = true;
     btn.textContent = 'Generating...';
-});
+  }});
+}})();
 </script>
-""")
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -563,7 +900,7 @@ def render_analytics_index():
 def render_telus_weekly_form(error=None, project_tag=None, client_name=None,
                              project_tags=None, client_names=None):
     return page_shell(
-        TELUS_WEEKLY_FORM_TEMPLATE.render(
+        _telus_weekly_form_html(
             error=error,
             project_tag=project_tag,
             client_name=client_name,

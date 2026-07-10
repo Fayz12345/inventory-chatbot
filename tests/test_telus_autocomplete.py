@@ -1,4 +1,4 @@
-"""Tests for Telus Weekly ProjectTag and Client Name autocomplete (dropdown datalist)."""
+"""Tests for Telus Weekly ProjectTag and Client Name custom autocomplete combobox."""
 import app as app_module
 from analytics import db as analytics_db, templates as analytics_templates
 
@@ -24,71 +24,88 @@ def _login(c):
 # Template unit tests — no DB, no route layer
 # ---------------------------------------------------------------------------
 
-def test_template_renders_project_tag_datalist():
-    """render_telus_weekly_form with project_tags list must include datalist element."""
+def test_template_renders_combobox_container():
+    """render_telus_weekly_form must include combobox wrapper and listbox panel."""
     tags = ['TW1626', 'TW1725', 'TW1825']
     with app_module.chatbot_app.test_request_context('/analytics/telus-weekly'):
         html = analytics_templates.render_telus_weekly_form(project_tags=tags)
-    assert '<datalist id="projecttag-options">' in html
+    assert 'role="combobox"' in html
+    assert 'role="listbox"' in html
+    # Both combobox wrap containers present
+    assert 'id="pt-wrap"' in html
+    assert 'id="cn-wrap"' in html
 
 
-def test_template_renders_project_tag_options():
-    """Each ProjectTag value must appear as a datalist option."""
+def test_template_no_datalist():
+    """Custom combobox must NOT use native <datalist> elements."""
+    tags = ['TW1626', 'TW1725', 'TW1825']
+    names = ['Telus', 'OSL']
+    with app_module.chatbot_app.test_request_context('/analytics/telus-weekly'):
+        html = analytics_templates.render_telus_weekly_form(
+            project_tags=tags, client_names=names
+        )
+    assert '<datalist' not in html
+
+
+def test_template_project_tag_options_in_js():
+    """ProjectTag option values must appear in the embedded JS options array."""
     tags = ['TW1626', 'TW1725', 'TW1825']
     with app_module.chatbot_app.test_request_context('/analytics/telus-weekly'):
         html = analytics_templates.render_telus_weekly_form(project_tags=tags)
+    # Values are JSON-serialised into PROJECTTAG_OPTIONS = [...]
+    assert 'PROJECTTAG_OPTIONS' in html
     for tag in tags:
-        assert f'value="{tag}"' in html
+        assert tag in html
 
 
-def test_template_project_tag_input_has_list_attribute():
-    """ProjectTag input must carry list="projecttag-options"."""
-    with app_module.chatbot_app.test_request_context('/analytics/telus-weekly'):
-        html = analytics_templates.render_telus_weekly_form(project_tags=['TW1626'])
-    assert 'list="projecttag-options"' in html
-
-
-def test_template_renders_client_name_datalist():
-    """render_telus_weekly_form with client_names list must include datalist element."""
+def test_template_client_name_options_in_js():
+    """Client name option values must appear in the embedded JS options array."""
     names = ['Telus', 'Bridge Wireless', 'OSL']
     with app_module.chatbot_app.test_request_context('/analytics/telus-weekly'):
         html = analytics_templates.render_telus_weekly_form(client_names=names)
-    assert '<datalist id="clientname-options">' in html
-
-
-def test_template_renders_client_name_options():
-    """Each client name must appear as a datalist option."""
-    names = ['Telus', 'Bridge Wireless', 'OSL']
-    with app_module.chatbot_app.test_request_context('/analytics/telus-weekly'):
-        html = analytics_templates.render_telus_weekly_form(client_names=names)
+    assert 'CLIENTNAME_OPTIONS' in html
     for name in names:
-        assert f'value="{name}"' in html
+        assert name in html
 
 
-def test_template_client_name_input_has_list_attribute():
-    """Client Name input must carry list="clientname-options"."""
+def test_template_aria_attributes_present():
+    """Combobox inputs must carry ARIA attributes for accessibility."""
     with app_module.chatbot_app.test_request_context('/analytics/telus-weekly'):
-        html = analytics_templates.render_telus_weekly_form(client_names=['Telus'])
-    assert 'list="clientname-options"' in html
+        html = analytics_templates.render_telus_weekly_form(
+            project_tags=['TW1626'], client_names=['Telus']
+        )
+    assert 'aria-autocomplete="list"' in html
+    assert 'aria-expanded="false"' in html
+    assert 'aria-controls="pt-panel"' in html
+    assert 'aria-controls="cn-panel"' in html
+
+
+def test_template_listbox_panels_present():
+    """Both listbox panels must be rendered in the HTML."""
+    with app_module.chatbot_app.test_request_context('/analytics/telus-weekly'):
+        html = analytics_templates.render_telus_weekly_form(
+            project_tags=['TW1626'], client_names=['Telus']
+        )
+    assert 'id="pt-panel"' in html
+    assert 'id="cn-panel"' in html
 
 
 def test_template_empty_lists_still_renders():
-    """Form renders without error when both lists are empty (plain inputs)."""
+    """Form renders without error when both lists are empty."""
     with app_module.chatbot_app.test_request_context('/analytics/telus-weekly'):
         html = analytics_templates.render_telus_weekly_form(project_tags=[], client_names=[])
-    # datalist elements still present (empty), form submittable
-    assert 'id="projecttag-options"' in html
-    assert 'id="clientname-options"' in html
     assert 'name="project_tag"' in html
     assert 'name="client_name"' in html
+    assert 'role="combobox"' in html
+    assert '<datalist' not in html
 
 
 def test_template_defaults_to_empty_lists():
     """render_telus_weekly_form() with no args must not raise."""
     with app_module.chatbot_app.test_request_context('/analytics/telus-weekly'):
         html = analytics_templates.render_telus_weekly_form()
-    assert 'id="projecttag-options"' in html
-    assert 'id="clientname-options"' in html
+    assert 'name="project_tag"' in html
+    assert 'name="client_name"' in html
 
 
 # ---------------------------------------------------------------------------
@@ -106,8 +123,8 @@ def test_route_get_returns_200(monkeypatch):
     assert resp.status_code == 200
 
 
-def test_route_get_contains_datalist(monkeypatch):
-    """GET /analytics/telus-weekly response HTML contains datalist for both fields."""
+def test_route_get_contains_combobox(monkeypatch):
+    """GET /analytics/telus-weekly response HTML contains combobox markup."""
     monkeypatch.setattr(analytics_db, 'get_telus_project_tags', lambda: ['TW1626', 'TW1725'])
     monkeypatch.setattr(analytics_db, 'get_telus_client_names', lambda: ['Telus', 'OSL'])
 
@@ -116,9 +133,11 @@ def test_route_get_contains_datalist(monkeypatch):
     resp = client.get('/analytics/telus-weekly')
     body = resp.data.decode('utf-8')
 
-    assert '<datalist' in body
-    assert 'id="projecttag-options"' in body
-    assert 'id="clientname-options"' in body
+    assert 'role="combobox"' in body
+    assert 'role="listbox"' in body
+    assert 'id="pt-panel"' in body
+    assert 'id="cn-panel"' in body
+    assert '<datalist' not in body
 
 
 def test_route_get_contains_option_values(monkeypatch):
@@ -131,10 +150,11 @@ def test_route_get_contains_option_values(monkeypatch):
     resp = client.get('/analytics/telus-weekly')
     body = resp.data.decode('utf-8')
 
-    assert 'value="TW1626"' in body
-    assert 'value="TW1725"' in body
-    assert 'value="Telus"' in body
-    assert 'value="OSL"' in body
+    # Values appear inside the embedded JS arrays
+    assert 'TW1626' in body
+    assert 'TW1725' in body
+    assert 'Telus' in body
+    assert 'OSL' in body
 
 
 def test_route_get_requires_login(monkeypatch):
