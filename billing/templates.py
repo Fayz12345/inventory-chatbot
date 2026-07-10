@@ -27,17 +27,32 @@ _BILLING_PAGE_TEMPLATE = """
       <button id="csv" class="secondary" disabled>Download CSV</button>
       <button id="raw" class="secondary">Download Raw Data</button>
     </div>
+    <div class="tab-nav">
+      <button class="tab-btn active" data-tab="billing">Billing Report</button>
+      <button class="tab-btn" data-tab="flat">Flat Table Data</button>
+    </div>
     <div id="error" class="err"></div>
-    <div id="result"></div>
-    <div id="diagnostics"></div>
-    <p class="hint">Manual line items are editable. The grand total updates as you type.
-       Validate against the Excel report before invoicing.</p>
+
+    <div id="tab-billing" class="tab-panel active">
+      <div id="result"></div>
+      <div id="diagnostics"></div>
+      <p class="hint">Manual line items are editable. The grand total updates as you type.
+         Validate against the Excel report before invoicing.</p>
+    </div>
+
+    <div id="tab-flat" class="tab-panel">
+      <div id="flat-result">
+        <p class="hint">Generate a billing report, then open this tab to see the underlying
+           <b>dbo.ReportingInventoryFlat_TMS</b> device rows for that month.</p>
+      </div>
+    </div>
   </div>
 
 <script>
 const SCHEDULE = {schedule_json};
 const ENDPOINT = "{endpoint}";
 const RAW_ENDPOINT = "{raw_endpoint}";
+const FLAT_ENDPOINT = "/billing/tms/flat";
 const CSV_PREFIX = "{csv_prefix}";
 const MONTHS = ["January","February","March","April","May","June","July","August",
                 "September","October","November","December"];
@@ -62,6 +77,8 @@ function initControls() {{
 function money(n) {{ return '$' + Number(n).toFixed(2); }}
 
 let lastReport = null;
+let lastGenYear = null, lastGenMonth = null, lastGenLabel = null;
+let flatLoadedFor = null;
 
 function recompute() {{
   if (!lastReport) return;
@@ -177,6 +194,63 @@ function tableRows() {{
   return rows;
 }}
 
+function escFlat(s) {{
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}}
+
+async function loadFlat() {{
+  const slot = document.getElementById('flat-result');
+  if (!lastGenLabel) {{
+    slot.innerHTML = '<p class="hint">Generate a billing report first — the flat-table ' +
+      'data loads for the same month.</p>';
+    return;
+  }}
+  if (flatLoadedFor === lastGenLabel) return;
+  slot.innerHTML = '<div class="loader"><div class="spinner"></div> Loading flat-table data for ' +
+    lastGenLabel + '...</div>';
+  try {{
+    const resp = await fetch(FLAT_ENDPOINT + '?year=' + lastGenYear + '&month=' + lastGenMonth);
+    const data = await resp.json();
+    if (!data.ok) {{ slot.innerHTML = '<div class="err">' + (data.error || 'Error') + '</div>'; return; }}
+    renderFlat(data);
+    flatLoadedFor = lastGenLabel;
+  }} catch (e) {{
+    slot.innerHTML = '<div class="err">' + String(e) + '</div>';
+  }}
+}}
+
+function renderFlat(data) {{
+  const slot = document.getElementById('flat-result');
+  if (!data.rows || !data.rows.length) {{
+    slot.innerHTML = '<p class="hint">No devices touched ' + lastGenLabel + '.</p>';
+    return;
+  }}
+  let html = '<h2>' + lastGenLabel + ' &mdash; Flat Table (dbo.ReportingInventoryFlat_TMS)</h2>';
+  html += '<p class="hint">' + data.total + ' device row(s)' +
+          (data.truncated ? ' &mdash; showing the first ' + data.rows.length +
+           '. Use <b>Download Raw Data</b> for the full set.' : '') + '</p>';
+  html += '<div class="flat-scroll"><table class="flat-table"><thead><tr>';
+  data.columns.forEach(c => {{ html += '<th>' + escFlat(c) + '</th>'; }});
+  html += '</tr></thead><tbody>';
+  data.rows.forEach(r => {{
+    html += '<tr>';
+    r.forEach(v => {{ html += '<td>' + escFlat(v === null || v === undefined ? '' : v) + '</td>'; }});
+    html += '</tr>';
+  }});
+  html += '</tbody></table></div>';
+  slot.innerHTML = html;
+}}
+
+document.querySelectorAll('.tab-btn').forEach(btn => {{
+  btn.addEventListener('click', () => {{
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'flat') loadFlat();
+  }});
+}});
+
 document.addEventListener('DOMContentLoaded', () => {{
   initControls();
   document.getElementById('generate').addEventListener('click', async () => {{
@@ -185,6 +259,10 @@ document.addEventListener('DOMContentLoaded', () => {{
     const month = document.getElementById('month').value;
     const btn = document.getElementById('generate');
     const monthLabel = MONTHS[parseInt(month, 10) - 1] + ' ' + year;
+    lastGenYear = year; lastGenMonth = month; lastGenLabel = monthLabel;
+    flatLoadedFor = null;
+    document.getElementById('flat-result').innerHTML =
+      '<p class="hint">Loading when you open this tab...</p>';
     // show loading state
     btn.disabled = true;
     btn.textContent = 'Generating...';
@@ -206,6 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {{
         return;
       }}
       renderReport(data.report);
+      if (document.querySelector('.tab-btn[data-tab="flat"]').classList.contains('active')) loadFlat();
     }} catch (e) {{
       document.getElementById('result').innerHTML = '';
       document.getElementById('error').textContent = String(e);

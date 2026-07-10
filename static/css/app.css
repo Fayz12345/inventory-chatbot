@@ -355,3 +355,10 @@ input.manual { width: 80px; padding: 6px 8px; }
 .cat-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .btn.ai-btn, button.ai-btn { background: #7c3aed; color: #fff; }
 .btn.ai-btn:hover, button.ai-btn:hover { background: #6d28d9; }
+
+/* TMS flat-table data tab */
+.flat-scroll { max-height: 60vh; overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; }
+.flat-table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+.flat-table th { position: sticky; top: 0; background: #f8fafc; z-index: 1; text-align: left;
+                 padding: 6px 10px; border-bottom: 1px solid #e5e7eb; font-weight: 600; }
+.flat-table td { padding: 5px 10px; border-bottom: 1px solid #f1f5f9; }

@@ -1,4 +1,6 @@
 import calendar
+import datetime
+import decimal
 
 from flask import Blueprint, request, jsonify, session, redirect, url_for, Response
 
@@ -79,6 +81,45 @@ def tms_generate():
 @billing_bp.route('/tms/raw')
 def tms_raw():
     return _raw_download(tms, 'TMS_Raw', 'TMS Raw Data')
+
+
+FLAT_ROW_CAP = 1000
+
+
+def _jsonsafe_cell(v):
+    # datetime is a subclass of date — check it first.
+    if isinstance(v, datetime.datetime):
+        return v.isoformat(sep=' ')
+    if isinstance(v, datetime.date):
+        return v.isoformat()
+    if isinstance(v, decimal.Decimal):
+        return float(v)
+    return v
+
+
+@billing_bp.route('/tms/flat')
+def tms_flat():
+    """JSON view of the raw ReportingInventoryFlat_TMS rows for a month, for the
+    on-page 'Flat Table Data' tab. Read-only. Caps rendered rows at FLAT_ROW_CAP;
+    the full set is still available via the /tms/raw Excel download."""
+    if not session.get('logged_in'):
+        return jsonify({'ok': False, 'error': 'Not logged in'}), 401
+    year, month, err = _parse_year_month(request.args)
+    if err:
+        return jsonify({'ok': False, 'error': err}), 400
+    try:
+        columns, rows = tms.get_raw_rows(year, month)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    total = len(rows)
+    out_rows = [[_jsonsafe_cell(c) for c in r] for r in rows[:FLAT_ROW_CAP]]
+    return jsonify({
+        'ok': True,
+        'columns': columns,
+        'rows': out_rows,
+        'total': total,
+        'truncated': total > FLAT_ROW_CAP,
+    })
 
 
 @billing_bp.route('/osl')
