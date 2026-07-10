@@ -11,7 +11,7 @@ markup, `{{ }}`/`{name}` expressions, ids, classes, and inline <script> intact.
 from flask import has_request_context, session
 from markupsafe import escape
 
-_CSS_VERSION = "10"
+_CSS_VERSION = "11"
 
 
 def _nav_link(href, label, active, key):
@@ -63,5 +63,6 @@ def page_shell(body_html, title="Bridge Platform", active=None, back=None):
         + _topnav(active)
         + back_html
         + body_html
+        + '<script src="/static/js/nav-loading.js?v=1"></script>'
         + "</body></html>"
     )

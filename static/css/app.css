@@ -362,3 +362,16 @@ input.manual { width: 80px; padding: 6px 8px; }
 .flat-table th { position: sticky; top: 0; background: #f8fafc; z-index: 1; text-align: left;
                  padding: 6px 10px; border-bottom: 1px solid #e5e7eb; font-weight: 600; }
 .flat-table td { padding: 5px 10px; border-bottom: 1px solid #f1f5f9; }
+
+/* Global route/navigation loader — spinner shown while a page loads */
+.route-loader { position: fixed; inset: 0; z-index: 3000; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(15,23,42,.42); backdrop-filter: blur(2px); }
+.route-loader.active { display: flex; animation: fade .15s ease; }
+.route-loader__box { display: flex; flex-direction: column; align-items: center; gap: 14px;
+  padding: 26px 34px; background: #fff; border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(2,6,23,.28); }
+.route-loader__spinner { width: 40px; height: 40px;
+  border: 4px solid var(--border-strong, #cbd5e1); border-top-color: var(--brand, #2563eb);
+  border-radius: 50%; animation: spin .7s linear infinite; }
+.route-loader__label { color: var(--muted, #64748b); font-size: 13px; font-weight: 500; }

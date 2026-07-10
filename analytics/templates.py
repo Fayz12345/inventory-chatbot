@@ -119,7 +119,7 @@ TELUS_WEEKLY_REPORT_TEMPLATE = Template("""
     </div>
 
     <div class="actions" style="margin-top: 16px;">
-        <form method="POST" action="/analytics/telus-weekly/export" style="margin:0;">
+        <form method="POST" action="/analytics/telus-weekly/export" style="margin:0;" data-no-loading>
             <input type="hidden" name="project_tag" value="{{ project_tag }}">
             <input type="hidden" name="client_name" value="{{ client_name or '' }}">
             <button type="submit" class="btn btn-primary">Export to Excel</button>
