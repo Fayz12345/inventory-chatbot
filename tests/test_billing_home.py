@@ -40,7 +40,7 @@ def test_billing_home_requires_login():
 
 
 def test_billing_home_content():
-    """Page must contain heading, all three style names, report slots, endpoints."""
+    """Page must contain heading, Stepper selector, compare control, report slots, endpoints."""
     client = _make_client()
     _login(client)
     resp = client.get('/billing/')
@@ -49,10 +49,15 @@ def test_billing_home_content():
     # Page heading
     assert 'Billing' in body
 
-    # Three selector style names
-    assert 'Stepper' in body
-    assert 'Quick Months' in body
-    assert 'Calendar' in body
+    # Stepper selector is present
+    assert 'Stepper' in body or 'bha-stepper' in body
+
+    # Compare control is present
+    assert 'Compare' in body
+
+    # The old selectors are gone
+    assert 'Quick Months' not in body
+    assert 'Calendar' not in body
 
     # Report slot IDs
     assert 'id="tms-report"' in body

@@ -690,15 +690,8 @@ def render_billing_home_page():
         '<div class="container">'
         '<div class="page-head"><h1>Billing</h1></div>'
 
-        # --- Selector-style switcher ---
-        '<div class="bh-style-switcher" role="group" aria-label="Month selector style">'
-        '<button class="bh-style-btn bh-active" data-style="stepper">Stepper</button>'
-        '<button class="bh-style-btn" data-style="quickmonths">Quick Months</button>'
-        '<button class="bh-style-btn" data-style="calendar">Calendar</button>'
-        '</div>'
-
-        # === Selector A: Stepper ===
-        '<div class="bh-selector-wrap bh-visible" id="bh-sel-stepper">'
+        # === Stepper selector (always visible) ===
+        '<div class="bha-toolbar-outer">'
         '<div class="bha-toolbar">'
         '<div class="bha-stepper" id="bha-root" role="group" aria-label="Month selector">'
         '<button class="bha-stepper__btn" id="bha-prev" aria-label="Previous month" title="Previous month">'
@@ -730,65 +723,51 @@ def render_billing_home_page():
         'This month'
         '</button>'
         '</div>'
+        # Divider + compare trigger
+        '<span class="bhac-divider" aria-hidden="true"></span>'
+        '<button class="bhac-trigger" id="bhac-trigger" type="button" aria-expanded="false" aria-controls="bhac-row">'
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>'
+        'Compare month'
+        '</button>'
         '</div>'
 
-        # === Selector B: Quick Months ===
-        '<div class="bh-selector-wrap" id="bh-sel-quickmonths">'
-        '<div class="bhb-bar" role="group" aria-label="Select billing period">'
-        '<span class="bhb-label">Period</span>'
-        '<div class="bhb-chips" id="bhb-chips" role="radiogroup" aria-label="Quick month select"></div>'
-        '<span class="bhb-divider" aria-hidden="true"></span>'
-        '<div class="bhb-anchor" id="bhb-anchor">'
-        '<button class="bhb-pick-btn" id="bhb-pick-btn" aria-haspopup="true" aria-expanded="false" aria-controls="bhb-popover" type="button">'
-        'Pick month'
-        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>'
-        '</button>'
-        '<div class="bhb-popover" id="bhb-popover" role="dialog" aria-label="Month picker" aria-modal="false">'
-        '<div class="bhb-year-row">'
-        '<button class="bhb-year-btn" id="bhb-year-prev" aria-label="Previous year" type="button">'
+        # Compare row (hidden until triggered)
+        '<div class="bhac-row" id="bhac-row" aria-label="Comparison period">'
+        '<span class="bhac-vs-label">vs</span>'
+        '<div class="bha-toolbar">'
+        '<div class="bhac-stepper" id="bhac-root" role="group" aria-label="Compare month selector">'
+        '<button class="bhac-stepper__btn" id="bhac-prev" aria-label="Previous compare month" title="Previous month">'
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>'
         '</button>'
-        '<span class="bhb-year-label" id="bhb-year-label"></span>'
-        '<button class="bhb-year-btn" id="bhb-year-next" aria-label="Next year" type="button">'
+        '<button class="bhac-label" id="bhac-trigger-pill" aria-haspopup="true" aria-expanded="false" aria-controls="bhac-popover">'
+        '<span id="bhac-label-text"></span>'
+        '<svg class="bhac-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>'
+        '</button>'
+        '<button class="bhac-stepper__btn" id="bhac-next" aria-label="Next compare month" title="Next month">'
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>'
+        '</button>'
+        '<div class="bhac-popover" id="bhac-popover" role="dialog" aria-label="Compare month picker" aria-hidden="true">'
+        '<div class="bhac-year-row">'
+        '<button class="bhac-year-btn" id="bhac-year-prev" aria-label="Previous year" title="Previous year">'
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>'
+        '</button>'
+        '<span class="bhac-year-display" id="bhac-year-display" aria-live="polite"></span>'
+        '<button class="bhac-year-btn" id="bhac-year-next" aria-label="Next year" title="Next year">'
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>'
         '</button>'
         '</div>'
-        '<div class="bhb-month-grid" id="bhb-month-grid" role="listbox" aria-label="Select month"></div>'
+        '<div class="bhac-month-grid" id="bhac-month-grid" role="listbox" aria-label="Select compare month"></div>'
         '</div>'
         '</div>'
         '</div>'
-        '</div>'
-
-        # === Selector C: Calendar ===
-        '<div class="bh-selector-wrap" id="bh-sel-calendar">'
-        '<div class="bhc-wrap" id="bhc-wrap">'
-        '<button class="bhc-trigger" id="bhc-trigger" aria-haspopup="true" aria-expanded="false" aria-controls="bhc-popover" title="Select billing period">'
-        '<svg class="bhc-trigger__icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>'
-        '<span id="bhc-trigger-label"></span>'
-        '<svg class="bhc-trigger__chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>'
+        '<button class="bhac-remove" id="bhac-remove" type="button" aria-label="Remove comparison">'
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
         '</button>'
-        '<div class="bhc-popover" id="bhc-popover" role="dialog" aria-modal="false" aria-label="Select billing period">'
-        '<div class="bhc-year-nav">'
-        '<button class="bhc-year-nav__btn" id="bhc-prev-year" aria-label="Previous year">'
-        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>'
-        '</button>'
-        '<div style="text-align:center"><div class="bhc-year-nav__year" id="bhc-year-display"></div></div>'
-        '<button class="bhc-year-nav__btn" id="bhc-next-year" aria-label="Next year">'
-        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>'
-        '</button>'
-        '</div>'
-        '<div class="bhc-month-grid" id="bhc-month-grid" role="group" aria-label="Select month"></div>'
-        '<div class="bhc-preset-row">'
-        '<button class="bhc-preset-btn" id="bhc-this-month">This month</button>'
-        '<button class="bhc-preset-btn" id="bhc-last-month">Last month</button>'
-        '</div>'
-        '</div>'
-        '</div>'
         '</div>'
 
         # --- Period label + checkboxes ---
         '<div class="bh-period-row">'
-        '<div class="bh-period-label">Showing: <span id="bh-period-text"></span></div>'
+        '<div class="bh-period-label"><span id="bh-period-prefix">Showing:</span> <span id="bh-period-text"></span></div>'
         '<div class="bh-checks">'
         '<label><input type="checkbox" id="bh-chk-tms" checked> TMS</label>'
         '<label><input type="checkbox" id="bh-chk-osl" checked> OSL</label>'
@@ -817,7 +796,7 @@ def render_billing_home_page():
   var CURRENT_MONTH = _today.getMonth(); // 0-based
 
   // Default to the previous (last completed) month — current month has no data yet
-  var _defDate     = new Date(CURRENT_YEAR, CURRENT_MONTH - 1, 1); // handles Jan→Dec rollover
+  var _defDate     = new Date(CURRENT_YEAR, CURRENT_MONTH - 1, 1); // handles Jan->Dec rollover
   var DEFAULT_YEAR  = _defDate.getFullYear();
   var DEFAULT_MONTH = _defDate.getMonth(); // 0-based
 
@@ -840,8 +819,11 @@ def render_billing_home_page():
      BillingPage controller
      ====================================================== */
   window.BillingPage = {
-    year:  DEFAULT_YEAR,
-    month: DEFAULT_MONTH + 1, // 1-based; defaults to previous completed month
+    year:       DEFAULT_YEAR,
+    month:      DEFAULT_MONTH + 1, // 1-based; defaults to previous completed month
+    compareOn:  false,
+    cmpYear:    DEFAULT_YEAR,
+    cmpMonth:   DEFAULT_MONTH,     // 0-based (will be set when compare activated)
 
     setPeriod: function(y, m) {
       this.year  = y;
@@ -850,38 +832,73 @@ def render_billing_home_page():
       this.refresh();
     },
 
+    setComparePeriod: function(y, m) {
+      // m is 0-based here
+      this.cmpYear  = y;
+      this.cmpMonth = m;
+      updatePeriodLabel();
+      this.refresh();
+    },
+
     refresh: function() {
-      var tmsChk = document.getElementById('bh-chk-tms');
-      var oslChk = document.getElementById('bh-chk-osl');
+      var tmsChk  = document.getElementById('bh-chk-tms');
+      var oslChk  = document.getElementById('bh-chk-osl');
       var tmsSlot = document.getElementById('tms-report');
       var oslSlot = document.getElementById('osl-report');
-      if (tmsChk && tmsChk.checked) {
-        loadReport('tms', tmsSlot, BillingPage.year, BillingPage.month);
-      } else if (tmsSlot) {
-        tmsSlot.innerHTML = '';
-        tmsSlot.style.display = 'none';
-      }
-      if (oslChk && oslChk.checked) {
-        loadReport('osl', oslSlot, BillingPage.year, BillingPage.month);
-      } else if (oslSlot) {
-        oslSlot.innerHTML = '';
-        oslSlot.style.display = 'none';
+
+      if (this.compareOn) {
+        // Compare mode: side-by-side for each checked report
+        if (tmsChk && tmsChk.checked) {
+          loadReportCompare('tms', tmsSlot,
+            this.year, this.month,
+            this.cmpYear, this.cmpMonth + 1);
+        } else if (tmsSlot) {
+          tmsSlot.innerHTML = ''; tmsSlot.style.display = 'none';
+        }
+        if (oslChk && oslChk.checked) {
+          loadReportCompare('osl', oslSlot,
+            this.year, this.month,
+            this.cmpYear, this.cmpMonth + 1);
+        } else if (oslSlot) {
+          oslSlot.innerHTML = ''; oslSlot.style.display = 'none';
+        }
+      } else {
+        // Single mode
+        if (tmsChk && tmsChk.checked) {
+          loadReport('tms', tmsSlot, this.year, this.month);
+        } else if (tmsSlot) {
+          tmsSlot.innerHTML = ''; tmsSlot.style.display = 'none';
+        }
+        if (oslChk && oslChk.checked) {
+          loadReport('osl', oslSlot, this.year, this.month);
+        } else if (oslSlot) {
+          oslSlot.innerHTML = ''; oslSlot.style.display = 'none';
+        }
       }
     }
   };
 
   function updatePeriodLabel() {
-    var el = document.getElementById('bh-period-text');
-    if (el) el.textContent = fmtPeriod(BillingPage.year, BillingPage.month);
+    var prefix = document.getElementById('bh-period-prefix');
+    var text   = document.getElementById('bh-period-text');
+    if (BillingPage.compareOn) {
+      if (prefix) prefix.textContent = 'Comparing:';
+      if (text)   text.textContent   = fmtPeriod(BillingPage.year, BillingPage.month)
+        + ' vs ' + fmtPeriod(BillingPage.cmpYear, BillingPage.cmpMonth + 1);
+    } else {
+      if (prefix) prefix.textContent = 'Showing:';
+      if (text)   text.textContent   = fmtPeriod(BillingPage.year, BillingPage.month);
+    }
   }
 
   /* ======================================================
-     loadReport / renderReport
+     loadReport / renderReport — single mode
      ====================================================== */
   function loadReport(kind, slot, year, month) {
     if (!slot) return;
     slot.style.display = '';
-    slot.innerHTML = '<div class="bh-slot-loader"><div class="spinner" aria-hidden="true"></div><span>Loading ' + fmtPeriod(year, month) + '...</span></div>';
+    slot.innerHTML = '<div class="bh-slot-loader"><div class="spinner" aria-hidden="true"></div>'
+      + '<span>Loading ' + fmtPeriod(year, month) + '...</span></div>';
     var endpoint = kind === 'tms' ? '/billing/tms/generate' : '/billing/osl/generate';
     fetch(endpoint, {
       method: 'POST',
@@ -943,20 +960,127 @@ def render_billing_home_page():
   }
 
   /* ======================================================
-     Selector-style switcher
+     loadReportCompare / renderReportCompare — compare mode
      ====================================================== */
-  var styleBtns = document.querySelectorAll('.bh-style-btn');
-  var styleWraps = document.querySelectorAll('.bh-selector-wrap');
+  function loadReportCompare(kind, slot, primYear, primMonth, cmpYear, cmpMonth) {
+    if (!slot) return;
+    slot.style.display = '';
+    var kindLabel = kind === 'tms' ? 'TMS' : 'OSL';
+    slot.innerHTML = '<div class="bh-slot-loader"><div class="spinner" aria-hidden="true"></div>'
+      + '<span>Loading ' + kindLabel + ' comparison...</span></div>';
+    var endpoint = kind === 'tms' ? '/billing/tms/generate' : '/billing/osl/generate';
 
-  styleBtns.forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      styleBtns.forEach(function(b) { b.classList.remove('bh-active'); });
-      styleWraps.forEach(function(w) { w.classList.remove('bh-visible'); });
-      btn.classList.add('bh-active');
-      var wrap = document.getElementById('bh-sel-' + btn.dataset.style);
-      if (wrap) wrap.classList.add('bh-visible');
+    var primResp = null, cmpResp = null;
+
+    function tryRender() {
+      if (primResp !== null && cmpResp !== null) {
+        renderReportCompare(slot, primResp, cmpResp, kind, primYear, primMonth, cmpYear, cmpMonth);
+      }
+    }
+
+    fetch(endpoint, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({year: primYear, month: primMonth})
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      primResp = data; tryRender();
+    }).catch(function(e) {
+      slot.innerHTML = '<div class="bh-slot-error">Primary fetch failed: ' + esc(String(e)) + '</div>';
     });
-  });
+
+    fetch(endpoint, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({year: cmpYear, month: cmpMonth})
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      cmpResp = data; tryRender();
+    }).catch(function(e) {
+      slot.innerHTML = '<div class="bh-slot-error">Compare fetch failed: ' + esc(String(e)) + '</div>';
+    });
+  }
+
+  function buildColHtml(reportData, kind, colClass, badgeClass, badgeText) {
+    var kindLabel = kind === 'tms' ? 'TMS' : 'OSL';
+    var fullLink  = kind === 'tms' ? '/billing/tms' : '/billing/osl';
+
+    var html = '<div class="bh-compare-col-head ' + colClass + '">'
+             + '<h3>' + esc(reportData.period_label) + ' — ' + kindLabel + '</h3>'
+             + '<span class="bh-compare-badge ' + badgeClass + '">' + badgeText + '</span>'
+             + '</div>';
+
+    html += '<div class="table-wrap"><table>';
+    html += '<thead><tr>'
+          + '<th>Section / Line Item</th>'
+          + '<th class="num">Units</th>'
+          + '<th class="num">Fee</th>'
+          + '<th class="num">Charge</th>'
+          + '</tr></thead><tbody>';
+
+    (reportData.sections || []).forEach(function(sec) {
+      html += '<tr class="bh-section-row"><td colspan="3">' + esc(sec.name) + '</td>'
+            + '<td class="num">' + money(sec.section_total) + '</td></tr>';
+      (sec.line_items || []).forEach(function(li) {
+        var units, fee;
+        if (li.mode === 'sum_repair_fee') {
+          units = '-'; fee = 'SUM';
+        } else if (li.mode === 'manual') {
+          units = '—';
+          fee = (li.fee == null) ? '—' : money(li.fee);
+        } else {
+          units = (li.units == null ? '' : li.units);
+          fee   = money(li.fee);
+        }
+        html += '<tr><td>&nbsp;&nbsp;' + esc(li.label) + '</td>'
+              + '<td class="num">' + esc(String(units)) + '</td>'
+              + '<td class="num">' + esc(String(fee)) + '</td>'
+              + '<td class="num">' + money(li.charge) + '</td></tr>';
+      });
+    });
+
+    html += '<tr class="bh-total-row">'
+          + '<td colspan="3">Auto total (excl. manual items)</td>'
+          + '<td class="num">' + money(reportData.grand_total_auto) + '</td></tr>';
+    html += '</tbody></table></div>';
+    html += '<p class="bh-note"><a href="' + esc(fullLink) + '">Open full ' + kindLabel + ' report →</a></p>';
+    return html;
+  }
+
+  function renderReportCompare(slot, primData, cmpData, kind, primYear, primMonth, cmpYear, cmpMonth) {
+    var kindLabel = kind === 'tms' ? 'TMS' : 'OSL';
+
+    // Handle fetch errors per column
+    var primHtml, cmpHtml;
+    if (!primData.ok) {
+      primHtml = '<div class="bh-slot-error">Primary: ' + esc(primData.error || 'Error') + '</div>';
+    } else {
+      primHtml = buildColHtml(primData.report, kind, 'bh-primary', 'bh-primary', 'Primary');
+    }
+    if (!cmpData.ok) {
+      cmpHtml = '<div class="bh-slot-error">Compare: ' + esc(cmpData.error || 'Error') + '</div>';
+    } else {
+      cmpHtml = buildColHtml(cmpData.report, kind, 'bh-compare-side', 'bh-compare-side', 'Compare');
+    }
+
+    // Delta row
+    var deltaHtml = '';
+    if (primData.ok && cmpData.ok) {
+      var primTotal = Number(primData.report.grand_total_auto);
+      var cmpTotal  = Number(cmpData.report.grand_total_auto);
+      var delta     = cmpTotal - primTotal;
+      var sign      = delta >= 0 ? '+' : '';
+      var cls       = delta >= 0 ? 'bh-delta-pos' : 'bh-delta-neg';
+      deltaHtml = '<div class="bh-compare-delta ' + cls + '">'
+        + kindLabel + ' Auto total delta (Compare − Primary): '
+        + '<strong>' + sign + money(delta) + '</strong></div>';
+    }
+
+    slot.innerHTML = '<div class="bh-compare-pair">'
+      + '<div class="bh-compare-cols">'
+      + '<div class="bh-primary-col">' + primHtml + '</div>'
+      + '<div class="bh-compare-col">'  + cmpHtml  + '</div>'
+      + '</div>'
+      + deltaHtml
+      + '</div>';
+    slot.style.display = '';
+  }
 
   /* ======================================================
      Checkbox toggle
@@ -967,7 +1091,7 @@ def render_billing_home_page():
   });
 
   /* ======================================================
-     SELECTOR A — Stepper
+     SELECTOR A — Stepper (primary)
      ====================================================== */
   (function() {
     var selA = { month: DEFAULT_MONTH, year: DEFAULT_YEAR };
@@ -1060,11 +1184,7 @@ def render_billing_home_page():
       closePopA();
       updateLabelA();
       updateThisMonA();
-      // Only call BillingPage if this selector is visible
-      var wrap = document.getElementById('bh-sel-stepper');
-      if (wrap && wrap.classList.contains('bh-visible')) {
-        BillingPage.setPeriod(y, m + 1);
-      }
+      BillingPage.setPeriod(y, m + 1);
     }
 
     if (triggerA) triggerA.addEventListener('click', function(e) {
@@ -1098,231 +1218,155 @@ def render_billing_home_page():
   })();
 
   /* ======================================================
-     SELECTOR B — Quick Months
+     SELECTOR AC — Compare month stepper
      ====================================================== */
   (function() {
-    var selB = { month: DEFAULT_MONTH, year: DEFAULT_YEAR };
-    var pickerYearB = DEFAULT_YEAR;
-    var popOpenB = false;
+    var selAC = { month: DEFAULT_MONTH, year: DEFAULT_YEAR }; // will be set on show
+    var browseYearAC = DEFAULT_YEAR;
+    var popOpenAC = false;
 
-    var chipsEl  = document.getElementById('bhb-chips');
-    var pickBtn  = document.getElementById('bhb-pick-btn');
-    var popoverB = document.getElementById('bhb-popover');
-    var yrLabel  = document.getElementById('bhb-year-label');
-    var yrPrevB  = document.getElementById('bhb-year-prev');
-    var yrNextB  = document.getElementById('bhb-year-next');
-    var gridB    = document.getElementById('bhb-month-grid');
-    var anchorB  = document.getElementById('bhb-anchor');
+    var rootAC    = document.getElementById('bhac-root');
+    var triggerAC = document.getElementById('bhac-trigger-pill');
+    var labelAC   = document.getElementById('bhac-label-text');
+    var prevAC    = document.getElementById('bhac-prev');
+    var nextAC    = document.getElementById('bhac-next');
+    var popoverAC = document.getElementById('bhac-popover');
+    var yearDispAC = document.getElementById('bhac-year-display');
+    var yrPrevAC  = document.getElementById('bhac-year-prev');
+    var yrNextAC  = document.getElementById('bhac-year-next');
+    var gridAC    = document.getElementById('bhac-month-grid');
 
-    function chipWindow() {
-      var chips = [];
-      for (var i = 5; i >= 0; i--) {
-        var m = CURRENT_MONTH - i, y = CURRENT_YEAR;
-        if (m < 0) { m += 12; y -= 1; }
-        chips.push({year: y, month: m});
-      }
-      return chips;
+    // Compare show/hide controls
+    var cmpTrigger = document.getElementById('bhac-trigger');
+    var cmpRow     = document.getElementById('bhac-row');
+    var cmpRemove  = document.getElementById('bhac-remove');
+
+    function fmtAC(m, y) { return MONTHS_LONG[m] + ' ' + y; }
+
+    function updateLabelAC() {
+      if (labelAC) labelAC.textContent = fmtAC(selAC.month, selAC.year);
     }
 
-    function renderChipsB() {
-      if (!chipsEl) return;
-      chipsEl.innerHTML = '';
-      var win = chipWindow();
-      win.forEach(function(item, idx) {
+    function renderGridAC() {
+      if (!gridAC || !yearDispAC) return;
+      yearDispAC.textContent = browseYearAC;
+      gridAC.innerHTML = '';
+      MONTHS_SHORT.forEach(function(abbr, idx) {
         var btn = document.createElement('button');
+        btn.className = 'bhac-month-btn';
         btn.type = 'button';
-        btn.className = 'bhb-chip';
-        btn.setAttribute('role', 'radio');
-        var showYear = idx === 0 || item.year !== win[idx-1].year;
-        if (showYear) {
-          btn.textContent = MONTHS_SHORT[item.month] + " '" + String(item.year).slice(2);
-          btn.classList.add('bhb-year-shown');
-        } else {
-          btn.textContent = MONTHS_SHORT[item.month];
-        }
-        if (selB.year === item.year && selB.month === item.month) {
-          btn.classList.add('bhb-active');
-          btn.setAttribute('aria-checked', 'true');
-        } else {
-          btn.setAttribute('aria-checked', 'false');
-        }
-        btn.addEventListener('click', function() { selectMonthB(item.year, item.month); });
-        chipsEl.appendChild(btn);
-      });
-    }
-
-    function renderPopoverB() {
-      if (!yrLabel || !gridB) return;
-      yrLabel.textContent = pickerYearB;
-      if (yrPrevB) yrPrevB.disabled = pickerYearB <= 2020;
-      if (yrNextB) yrNextB.disabled = pickerYearB >= CURRENT_YEAR;
-      gridB.innerHTML = '';
-      MONTHS_SHORT.forEach(function(abbr, m) {
-        var btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'bhb-month-cell';
+        btn.textContent = abbr;
         btn.setAttribute('role', 'option');
-        btn.textContent = abbr;
-        var isActive  = selB.year === pickerYearB && selB.month === m;
-        var isFuture  = pickerYearB === CURRENT_YEAR && m > CURRENT_MONTH;
-        if (isActive)  { btn.classList.add('bhb-selected'); btn.setAttribute('aria-selected','true'); }
-        if (isFuture)  { btn.classList.add('bhb-future'); btn.setAttribute('aria-disabled','true'); }
-        if (!isFuture) {
-          btn.addEventListener('click', function() { selectMonthB(pickerYearB, m); closePopB(); });
+        if (idx === selAC.month && browseYearAC === selAC.year) {
+          btn.classList.add('bhac-selected');
+          btn.setAttribute('aria-selected', 'true');
+        } else {
+          btn.setAttribute('aria-selected', 'false');
         }
-        gridB.appendChild(btn);
+        if (idx === CURRENT_MONTH && browseYearAC === CURRENT_YEAR) {
+          btn.classList.add('bhac-today');
+          btn.setAttribute('aria-label', abbr + ' (current month)');
+        }
+        btn.addEventListener('click', function() { selectMonthAC(idx, browseYearAC); });
+        btn.addEventListener('keydown', function(e) {
+          var ni = idx;
+          if (e.key==='ArrowRight') ni=(idx+1)%12;
+          else if (e.key==='ArrowLeft') ni=(idx+11)%12;
+          else if (e.key==='ArrowDown') ni=Math.min(idx+3,11);
+          else if (e.key==='ArrowUp')   ni=Math.max(idx-3,0);
+          else return;
+          e.preventDefault();
+          var btns = gridAC.querySelectorAll('.bhac-month-btn');
+          if (btns[ni]) btns[ni].focus();
+        });
+        gridAC.appendChild(btn);
       });
     }
 
-    function openPopB() {
-      pickerYearB = selB.year;
-      renderPopoverB();
-      if (popoverB) popoverB.classList.add('bhb-open');
-      if (pickBtn)  pickBtn.setAttribute('aria-expanded','true');
-      popOpenB = true;
-      var first = gridB && gridB.querySelector('.bhb-month-cell:not(.bhb-future)');
-      if (first) first.focus();
-    }
-
-    function closePopB() {
-      if (popoverB) popoverB.classList.remove('bhb-open');
-      if (pickBtn)  pickBtn.setAttribute('aria-expanded','false');
-      popOpenB = false;
-    }
-
-    function selectMonthB(y, m) {
-      selB = {year: y, month: m};
-      renderChipsB();
-      renderPopoverB();
-      var wrap = document.getElementById('bh-sel-quickmonths');
-      if (wrap && wrap.classList.contains('bh-visible')) {
-        BillingPage.setPeriod(y, m + 1);
-      }
-    }
-
-    if (pickBtn) pickBtn.addEventListener('click', function(e) {
-      e.stopPropagation(); if (popOpenB) closePopB(); else openPopB();
-    });
-    if (yrPrevB) yrPrevB.addEventListener('click', function(e) {
-      e.stopPropagation();
-      pickerYearB = Math.max(2020, pickerYearB - 1); renderPopoverB();
-    });
-    if (yrNextB) yrNextB.addEventListener('click', function(e) {
-      e.stopPropagation();
-      pickerYearB = Math.min(CURRENT_YEAR, pickerYearB + 1); renderPopoverB();
-    });
-    if (popoverB) popoverB.addEventListener('click', function(e) { e.stopPropagation(); });
-
-    document.addEventListener('click', function(e) {
-      if (popOpenB && anchorB && !anchorB.contains(e.target)) closePopB();
-    });
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape' && popOpenB) { closePopB(); if (pickBtn) pickBtn.focus(); }
-    });
-
-    // Init
-    renderChipsB();
-  })();
-
-  /* ======================================================
-     SELECTOR C — Calendar
-     ====================================================== */
-  (function() {
-    var selC = { month: DEFAULT_MONTH, year: DEFAULT_YEAR };
-    var browseYearC = DEFAULT_YEAR;
-    var popOpenC = false;
-
-    var wrapC    = document.getElementById('bhc-wrap');
-    var triggerC = document.getElementById('bhc-trigger');
-    var popoverC = document.getElementById('bhc-popover');
-    var yearC    = document.getElementById('bhc-year-display');
-    var gridC    = document.getElementById('bhc-month-grid');
-    var prevYrC  = document.getElementById('bhc-prev-year');
-    var nextYrC  = document.getElementById('bhc-next-year');
-    var thisMonC = document.getElementById('bhc-this-month');
-    var lastMonC = document.getElementById('bhc-last-month');
-    var labelC   = document.getElementById('bhc-trigger-label');
-
-    function updateLabelC() {
-      if (labelC) labelC.textContent = MONTHS_LONG[selC.month] + ' ' + selC.year;
-    }
-
-    function renderGridC() {
-      if (!gridC || !yearC) return;
-      yearC.textContent = browseYearC;
-      gridC.innerHTML = '';
-      MONTHS_SHORT.forEach(function(abbr, m) {
-        var btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'bhc-month-btn';
-        btn.textContent = abbr;
-        btn.setAttribute('aria-label', MONTHS_LONG[m] + ' ' + browseYearC);
-        if (m === CURRENT_MONTH && browseYearC === CURRENT_YEAR) btn.classList.add('bhc-today');
-        if (m === selC.month && browseYearC === selC.year) btn.classList.add('bhc-selected');
-        btn.addEventListener('click', function() { selectMonthC(browseYearC, m); });
-        gridC.appendChild(btn);
+    function openPopAC() {
+      browseYearAC = selAC.year;
+      renderGridAC();
+      if (popoverAC) { popoverAC.classList.add('bhac-open'); popoverAC.setAttribute('aria-hidden','false'); }
+      if (triggerAC) triggerAC.setAttribute('aria-expanded','true');
+      popOpenAC = true;
+      requestAnimationFrame(function() {
+        var s = gridAC && gridAC.querySelector('.bhac-selected, .bhac-month-btn');
+        if (s) s.focus();
       });
     }
 
-    function openPopC() {
-      browseYearC = selC.year;
-      renderGridC();
-      if (popoverC) popoverC.classList.add('bhc-open');
-      if (triggerC) triggerC.setAttribute('aria-expanded','true');
-      popOpenC = true;
-      var first = gridC && gridC.querySelector('.bhc-month-btn');
-      if (first) setTimeout(function() { first.focus(); }, 60);
+    function closePopAC() {
+      if (popoverAC) { popoverAC.classList.remove('bhac-open'); popoverAC.setAttribute('aria-hidden','true'); }
+      if (triggerAC) triggerAC.setAttribute('aria-expanded','false');
+      popOpenAC = false;
     }
 
-    function closePopC() {
-      if (popoverC) popoverC.classList.remove('bhc-open');
-      if (triggerC) triggerC.setAttribute('aria-expanded','false');
-      popOpenC = false;
-      if (triggerC) triggerC.focus();
+    function selectMonthAC(m, y) {
+      selAC = {month: m, year: y};
+      closePopAC();
+      updateLabelAC();
+      BillingPage.setComparePeriod(y, m);
     }
 
-    function selectMonthC(y, m) {
-      selC = {year: y, month: m};
-      closePopC();
-      updateLabelC();
-      var wrap = document.getElementById('bh-sel-calendar');
-      if (wrap && wrap.classList.contains('bh-visible')) {
-        BillingPage.setPeriod(y, m + 1);
-      }
+    function showCompare() {
+      // Default compare month = one month before primary
+      var cm = BillingPage.month - 2; // BillingPage.month is 1-based, make 0-based then subtract 1
+      var cy = BillingPage.year;
+      if (cm < 0) { cm += 12; cy--; }
+      selAC = {month: cm, year: cy};
+      BillingPage.compareOn = true;
+      BillingPage.cmpYear  = cy;
+      BillingPage.cmpMonth = cm;
+      if (cmpRow)     cmpRow.classList.add('bhac-visible');
+      if (cmpTrigger) cmpTrigger.setAttribute('aria-expanded','true');
+      updateLabelAC();
+      updatePeriodLabel();
+      BillingPage.refresh();
     }
 
-    if (triggerC) triggerC.addEventListener('click', function(e) {
-      e.stopPropagation(); if (popOpenC) closePopC(); else openPopC();
+    function hideCompare() {
+      BillingPage.compareOn = false;
+      if (cmpRow)     cmpRow.classList.remove('bhac-visible');
+      if (cmpTrigger) cmpTrigger.setAttribute('aria-expanded','false');
+      closePopAC();
+      updatePeriodLabel();
+      BillingPage.refresh();
+    }
+
+    if (cmpTrigger) cmpTrigger.addEventListener('click', showCompare);
+    if (cmpRemove)  cmpRemove.addEventListener('click', hideCompare);
+
+    if (triggerAC) triggerAC.addEventListener('click', function(e) {
+      e.stopPropagation(); if (popOpenAC) closePopAC(); else openPopAC();
     });
-    if (prevYrC) prevYrC.addEventListener('click', function() { browseYearC--; renderGridC(); });
-    if (nextYrC) nextYrC.addEventListener('click', function() { browseYearC++; renderGridC(); });
-    if (thisMonC) thisMonC.addEventListener('click', function() {
-      selectMonthC(CURRENT_YEAR, CURRENT_MONTH);
+    if (prevAC) prevAC.addEventListener('click', function() {
+      var m = selAC.month - 1, y = selAC.year;
+      if (m < 0) { m = 11; y--; } selectMonthAC(m, y);
     });
-    if (lastMonC) lastMonC.addEventListener('click', function() {
-      var d = new Date(CURRENT_YEAR, CURRENT_MONTH - 1, 1);
-      selectMonthC(d.getFullYear(), d.getMonth());
+    if (nextAC) nextAC.addEventListener('click', function() {
+      var m = selAC.month + 1, y = selAC.year;
+      if (m > 11) { m = 0; y++; } selectMonthAC(m, y);
     });
+    if (yrPrevAC) yrPrevAC.addEventListener('click', function(e) { e.stopPropagation(); browseYearAC--; renderGridAC(); });
+    if (yrNextAC) yrNextAC.addEventListener('click', function(e) { e.stopPropagation(); browseYearAC++; renderGridAC(); });
+    if (popoverAC) popoverAC.addEventListener('click', function(e) { e.stopPropagation(); });
 
     document.addEventListener('click', function(e) {
-      if (popOpenC && wrapC && !wrapC.contains(e.target)) closePopC();
+      if (popOpenAC && rootAC && !rootAC.contains(e.target)) closePopAC();
     });
     document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape' && popOpenC) closePopC();
+      if (e.key === 'Escape' && popOpenAC) { closePopAC(); if (triggerAC) triggerAC.focus(); }
     });
 
     // Popover tab-trap
-    if (popoverC) popoverC.addEventListener('keydown', function(e) {
+    if (popoverAC) popoverAC.addEventListener('keydown', function(e) {
       if (e.key !== 'Tab') return;
-      var focusable = Array.from(popoverC.querySelectorAll('button:not([disabled])'));
+      var focusable = Array.from(popoverAC.querySelectorAll('button:not([disabled])'));
       if (!focusable.length) return;
       var first = focusable[0], last = focusable[focusable.length - 1];
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     });
-
-    // Init
-    updateLabelC();
   })();
 
   /* ======================================================
