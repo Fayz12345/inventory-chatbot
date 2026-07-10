@@ -13,6 +13,7 @@ import logging
 
 from flask import Blueprint, jsonify, redirect, request, session, url_for
 
+import admin_audit
 import roles
 from ecommerce import db
 from ecommerce.listings import amazon as amazon_listings
@@ -280,6 +281,15 @@ def approve():
         msg = f"{product_name} approved AND posted to {marketplace} ({env}) at ${price:.2f}."
     else:
         msg = f"{product_name} approved for {marketplace} at ${price:.2f} (preview only — paste manually)."
+    try:
+        admin_audit.log_action(
+            approved_by,
+            'ecommerce_approve',
+            target=f"{product['Manufacturer']} {product['Model']} {product.get('Colour', '')} Grade {product['Grade']}".strip(),
+            detail=f"${price:.2f} on {marketplace}" + (f" — posted ({env})" if posted else " — preview only"),
+        )
+    except Exception:
+        log.exception("Audit logging failed for ecommerce approve (rec %s)", rec_id)
     return jsonify({
         "ok":          True,
         "message":     msg,
@@ -316,4 +326,13 @@ def reject():
         return jsonify({"ok": False, "error": "Already being processed or decided."}), 409
 
     product_name = f"{rec['Manufacturer']} {rec['Model']} Grade {rec['Grade']}"
+    try:
+        admin_audit.log_action(
+            session.get('username'),
+            'ecommerce_reject',
+            target=f"{rec['Manufacturer']} {rec['Model']} {rec.get('Colour', '')} Grade {rec['Grade']}".strip(),
+            detail=f"${float(rec['RecommendedPrice']):.2f} on {rec['RecommendedMarketplace']}",
+        )
+    except Exception:
+        log.exception("Audit logging failed for ecommerce reject (rec %s)", rec_id)
     return jsonify({"ok": True, "message": f"{product_name} rejected."})
