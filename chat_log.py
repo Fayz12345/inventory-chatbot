@@ -29,6 +29,40 @@ def init_db():
         input_tokens INTEGER,
         output_tokens INTEGER
     )''')
+    # --- LiteLLM multi-provider config + shared per-call usage ledger ---
+    # Mirrors the tables created on the bridge SQL Server, kept here so the app
+    # can run fully on local SQLite (keeps chat's bridge access read-only).
+    c.execute('''CREATE TABLE IF NOT EXISTS llm_provider (
+        provider     TEXT PRIMARY KEY,            -- 'gemini' | 'anthropic' | 'openai'
+        api_key_enc  TEXT NOT NULL,               -- ENCRYPTED at rest (never plaintext)
+        enabled      INTEGER NOT NULL DEFAULT 1,
+        updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS llm_task_model (
+        task               TEXT PRIMARY KEY,       -- 'chat_sql' | 'chat_answer' | 'scrape_extract'
+        provider           TEXT NOT NULL,
+        model_id           TEXT NOT NULL,
+        fallback_provider  TEXT,
+        fallback_model     TEXT,
+        monthly_budget_usd REAL,
+        enabled            INTEGER NOT NULL DEFAULT 1
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS llm_call_log (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        feature        TEXT NOT NULL,              -- 'chat' | 'scrape'
+        task           TEXT NOT NULL,              -- 'chat_sql' | 'chat_answer' | 'scrape_extract'
+        provider       TEXT,
+        model          TEXT,
+        input_tokens   INTEGER,
+        output_tokens  INTEGER,
+        cost_usd       REAL,                       -- straight from LiteLLM response_cost
+        latency_ms     INTEGER,
+        ok             INTEGER,
+        ref_id         TEXT                        -- chat question id / scrape-job id
+    )''')
+    c.execute('''CREATE INDEX IF NOT EXISTS ix_llm_call_log_created
+        ON llm_call_log (created_at, feature, task)''')
     c.commit()
     c.close()
 
