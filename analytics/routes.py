@@ -33,7 +33,18 @@ def telus_weekly_form():
     redir = _require_login()
     if redir:
         return redir
-    return templates.render_telus_weekly_form()
+    try:
+        project_tags = db.get_telus_project_tags()
+    except Exception:
+        project_tags = []
+    try:
+        client_names = db.get_telus_client_names()
+    except Exception:
+        client_names = []
+    return templates.render_telus_weekly_form(
+        project_tags=project_tags,
+        client_names=client_names,
+    )
 
 
 @analytics_bp.route('/telus-weekly/report', methods=['POST'])

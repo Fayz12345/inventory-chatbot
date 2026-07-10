@@ -1,3 +1,4 @@
+import html as _html
 from jinja2 import Template
 from ui.shell import page_shell
 
@@ -47,12 +48,28 @@ TELUS_WEEKLY_FORM_TEMPLATE = Template("""
         <form method="POST" action="/analytics/telus-weekly/report" id="report-form">
             <label for="project_tag">ProjectTag</label>
             <input type="text" id="project_tag" name="project_tag" placeholder="e.g. TW1626"
-                   value="{{ project_tag or '' }}" required>
+                   value="{{ project_tag or '' }}" list="projecttag-options" autocomplete="off" required>
+            {% if project_tags %}
+            <datalist id="projecttag-options">
+                {% for tag in project_tags %}<option value="{{ tag | e }}">
+                {% endfor %}
+            </datalist>
+            {% else %}
+            <datalist id="projecttag-options"></datalist>
+            {% endif %}
             <div class="hint">Version = 000, ProjectName = Telus Weekly</div>
 
             <label for="client_name">Client Name (optional)</label>
             <input type="text" id="client_name" name="client_name" placeholder="e.g. Telus"
-                   value="{{ client_name or '' }}">
+                   value="{{ client_name or '' }}" list="clientname-options" autocomplete="off">
+            {% if client_names %}
+            <datalist id="clientname-options">
+                {% for name in client_names %}<option value="{{ name | e }}">
+                {% endfor %}
+            </datalist>
+            {% else %}
+            <datalist id="clientname-options"></datalist>
+            {% endif %}
 
             <button type="submit" class="btn btn-primary btn-block" id="submit-btn">Generate Report</button>
         </form>
@@ -543,9 +560,16 @@ def render_analytics_index():
     return page_shell(ANALYTICS_INDEX_TEMPLATE.render(), title="Analytics", active="analytics")
 
 
-def render_telus_weekly_form(error=None, project_tag=None, client_name=None):
+def render_telus_weekly_form(error=None, project_tag=None, client_name=None,
+                             project_tags=None, client_names=None):
     return page_shell(
-        TELUS_WEEKLY_FORM_TEMPLATE.render(error=error, project_tag=project_tag, client_name=client_name),
+        TELUS_WEEKLY_FORM_TEMPLATE.render(
+            error=error,
+            project_tag=project_tag,
+            client_name=client_name,
+            project_tags=project_tags or [],
+            client_names=client_names or [],
+        ),
         title="Telus Weekly Report", active="analytics", back=("/analytics/", "Analytics"),
     )
 

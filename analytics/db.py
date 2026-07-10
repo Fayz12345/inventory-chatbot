@@ -180,3 +180,49 @@ def delete_pricing_model(model_id):
                    (model_id,))
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Telus Weekly autocomplete helpers
+# ---------------------------------------------------------------------------
+
+def get_telus_project_tags():
+    """Return distinct non-empty ProjectTags from ReceiveDetail where Version='000'."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT ProjectTag
+            FROM dbo.ReceiveDetail
+            WHERE Version = '000'
+              AND ProjectTag IS NOT NULL
+              AND LTRIM(RTRIM(ProjectTag)) <> ''
+            ORDER BY ProjectTag
+        """)
+        rows = [row[0].strip() for row in cursor.fetchall() if row[0] and row[0].strip()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
+def get_telus_client_names():
+    """Return distinct non-empty CompanyNames linked to Version='000' ReceiveDetail rows."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT LTRIM(RTRIM(c.CompanyName)) AS CompanyName
+            FROM dbo.ReceiveDetail rd
+            LEFT JOIN dbo.ClientLocation cl ON cl.ClientLocationID = rd.ClientLocationID
+            LEFT JOIN dbo.Client c ON c.ClientID = cl.ClientID
+            WHERE rd.Version = '000'
+              AND c.CompanyName IS NOT NULL
+              AND LTRIM(RTRIM(c.CompanyName)) <> ''
+            ORDER BY CompanyName
+        """)
+        rows = [row[0] for row in cursor.fetchall() if row[0] and row[0].strip()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
