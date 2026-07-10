@@ -55,6 +55,14 @@ def _parse_year_month(data):
     return year, month, None
 
 
+@billing_bp.route('/')
+def billing_home():
+    redir = _require_login()
+    if redir:
+        return redir
+    return templates.render_billing_home_page()
+
+
 @billing_bp.route('/tms')
 def tms_page():
     redir = _require_login()

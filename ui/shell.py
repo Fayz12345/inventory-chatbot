@@ -11,7 +11,7 @@ markup, `{{ }}`/`{name}` expressions, ids, classes, and inline <script> intact.
 from flask import has_request_context, session
 from markupsafe import escape
 
-_CSS_VERSION = "11"
+_CSS_VERSION = "12"
 
 
 def _nav_link(href, label, active, key):
@@ -27,6 +27,7 @@ def _topnav(active=None):
         _nav_link("/chat", "Chatbot", active, "chat"),
         _nav_link("/ecommerce/dashboard", "Ecommerce", active, "ecommerce"),
         _nav_link("/analytics/", "Analytics", active, "analytics"),
+        _nav_link("/billing/", "Billing", active, "billing"),
     ]
     if is_admin:
         links.append(_nav_link("/admin/users", "Users", active, "admin"))
