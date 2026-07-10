@@ -37,10 +37,25 @@ ANALYTICS_INDEX_TEMPLATE = Template("""
 # Telus Weekly — ProjectTag input form (custom combobox, no datalist)
 # ---------------------------------------------------------------------------
 
+def _safe_json_for_script(value):
+    """json.dumps, then neutralize sequences that could break out of a <script>
+    block (</script>, <!--) or the JS parser (U+2028/U+2029). Safe to embed
+    directly in an inline <script>. Values here are operator-entered free text
+    from the DB, so this guards against stored XSS."""
+    return (
+        _json.dumps(value)
+        .replace('<', '\\u003c')
+        .replace('>', '\\u003e')
+        .replace('&', '\\u0026')
+        .replace(' ', '\\u2028')
+        .replace(' ', '\\u2029')
+    )
+
+
 def _telus_weekly_form_html(error, project_tag, client_name, project_tags, client_names):
     """Return the inner HTML for the Telus Weekly Generate Report form."""
-    pt_json = _json.dumps(project_tags)
-    cn_json = _json.dumps(client_names)
+    pt_json = _safe_json_for_script(project_tags)
+    cn_json = _safe_json_for_script(client_names)
     error_block = ''
     if error:
         error_block = f'<div class="error">{_html.escape(error)}</div>'

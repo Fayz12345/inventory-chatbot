@@ -36,6 +36,20 @@ def test_template_renders_combobox_container():
     assert 'id="cn-wrap"' in html
 
 
+def test_option_values_are_script_safe():
+    """DB-sourced option values are embedded in an inline <script>; a value
+    containing </script> must not break out of the script block (stored-XSS)."""
+    payload = '</script><script>alert(1)</script>'
+    with app_module.chatbot_app.test_request_context('/analytics/telus-weekly'):
+        html = analytics_templates.render_telus_weekly_form(
+            project_tags=[payload], client_names=['A & B'])
+    # No live breakout — the raw injected script tag must not appear.
+    assert '<script>alert(1)' not in html
+    # The value is still embedded, just unicode-escaped.
+    assert 'alert(1)' in html
+    assert '\\u003c' in html
+
+
 def test_template_no_datalist():
     """Custom combobox must NOT use native <datalist> elements."""
     tags = ['TW1626', 'TW1725', 'TW1825']
