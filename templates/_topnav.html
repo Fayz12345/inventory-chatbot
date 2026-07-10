@@ -5,7 +5,6 @@
     {% if perms is not defined or perms.chat %}<a href="/chat" class="{{ 'active' if active == 'chat' }}">Chatbot</a>{% endif %}
     {% if perms is not defined or perms.ecommerce %}<a href="/ecommerce/dashboard" class="{{ 'active' if active == 'ecommerce' }}">Ecommerce</a>{% endif %}
     {% if perms is not defined or perms.analytics %}<a href="/analytics/" class="{{ 'active' if active == 'analytics' }}">Analytics</a>{% endif %}
-    {% if perms is not defined or perms.billing %}<a href="/billing/tms" class="{{ 'active' if active == 'billing' }}">Billing</a>{% endif %}
     {% if is_admin %}<a href="/admin/users" class="{{ 'active' if active == 'admin' }}">Users</a>{% endif %}
     {% if is_admin %}<a href="/admin/audit" class="{{ 'active' if active == 'audit' }}">Audit</a>{% endif %}
   </nav>

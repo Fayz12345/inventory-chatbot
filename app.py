@@ -47,7 +47,8 @@ def require_module(module):
         def wrapper(*a, **kw):
             if not session.get('logged_in'):
                 return redirect(url_for('login'))
-            if not roles.role_allows(session.get('role', 'user'), module):
+            role = roles.effective_role(session.get('role'), session.get('is_admin'))
+            if not roles.role_allows(role, module):
                 return redirect(url_for('home'))
             return fn(*a, **kw)
         return wrapper
@@ -56,7 +57,7 @@ def require_module(module):
 
 def _perms():
     """Return a perms dict for the current session role (for nav gating)."""
-    role = session.get('role', 'user')
+    role = roles.effective_role(session.get('role'), session.get('is_admin'))
     return {m: roles.role_allows(role, m) for m in roles.MODULES}
 
 # Initialise local SQLite user database

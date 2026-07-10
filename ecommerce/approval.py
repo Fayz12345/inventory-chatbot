@@ -29,7 +29,7 @@ approval_bp = Blueprint("ecommerce", __name__, url_prefix="/ecommerce")
 
 @approval_bp.before_request
 def _gate_ecommerce():
-    role = session.get('role', 'user')
+    role = roles.effective_role(session.get('role'), session.get('is_admin'))
     if session.get('logged_in') and not roles.role_allows(role, 'ecommerce'):
         return redirect(url_for('home'))
 

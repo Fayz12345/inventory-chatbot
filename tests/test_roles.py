@@ -62,3 +62,24 @@ def test_admin_can_access_ecommerce_dashboard():
         s['is_admin'] = True
     resp = client.get('/ecommerce/dashboard')
     assert resp.status_code != 302 or '/home' not in resp.headers.get('Location', '')
+
+
+def test_effective_role_falls_back_to_is_admin():
+    assert roles.effective_role(None, True) == 'admin'      # stale admin session
+    assert roles.effective_role(None, False) == 'user'      # stale non-admin -> safe
+    assert roles.effective_role('', True) == 'admin'
+    assert roles.effective_role('viewer', True) == 'viewer'  # explicit role wins over is_admin
+    assert roles.effective_role('manager', False) == 'manager'
+
+
+def test_stale_admin_session_without_role_can_access_ecommerce():
+    """Session with is_admin=True but NO 'role' key (logged in before roles
+    existed) must resolve to admin and be ALLOWED — this is the exact
+    ecommerce/billing lockout bug. Must NOT redirect to /home."""
+    client = _make_client()
+    with client.session_transaction() as s:
+        s['logged_in'] = True
+        s['is_admin'] = True
+        # deliberately no 'role' key
+    resp = client.get('/ecommerce/dashboard')
+    assert resp.status_code != 302 or '/home' not in resp.headers.get('Location', '')

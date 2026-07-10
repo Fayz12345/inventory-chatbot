@@ -13,3 +13,11 @@ _MATRIX = {
 
 def role_allows(role, module):
     return module in _MATRIX.get(role, set())
+
+
+def effective_role(role, is_admin):
+    """Resolve a session's effective role. Falls back to the legacy `is_admin`
+    flag when no `role` is set — so sessions created before roles existed (and
+    any is_admin account) keep full access instead of being demoted to 'user'.
+    Still fail-safe: a non-admin session with no role resolves to 'user'."""
+    return role or ('admin' if is_admin else 'user')
