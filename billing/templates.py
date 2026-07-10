@@ -816,6 +816,11 @@ def render_billing_home_page():
   var CURRENT_YEAR  = _today.getFullYear();
   var CURRENT_MONTH = _today.getMonth(); // 0-based
 
+  // Default to the previous (last completed) month — current month has no data yet
+  var _defDate     = new Date(CURRENT_YEAR, CURRENT_MONTH - 1, 1); // handles Jan→Dec rollover
+  var DEFAULT_YEAR  = _defDate.getFullYear();
+  var DEFAULT_MONTH = _defDate.getMonth(); // 0-based
+
   /* ---- HTML escape helper ---- */
   function esc(s) {
     return String(s == null ? '' : s)
@@ -835,8 +840,8 @@ def render_billing_home_page():
      BillingPage controller
      ====================================================== */
   window.BillingPage = {
-    year:  CURRENT_YEAR,
-    month: CURRENT_MONTH + 1, // 1-based
+    year:  DEFAULT_YEAR,
+    month: DEFAULT_MONTH + 1, // 1-based; defaults to previous completed month
 
     setPeriod: function(y, m) {
       this.year  = y;
@@ -965,8 +970,8 @@ def render_billing_home_page():
      SELECTOR A — Stepper
      ====================================================== */
   (function() {
-    var selA = { month: CURRENT_MONTH, year: CURRENT_YEAR };
-    var browseYearA = CURRENT_YEAR;
+    var selA = { month: DEFAULT_MONTH, year: DEFAULT_YEAR };
+    var browseYearA = DEFAULT_YEAR;
     var popOpenA = false;
 
     var rootA     = document.getElementById('bha-root');
@@ -1096,8 +1101,8 @@ def render_billing_home_page():
      SELECTOR B — Quick Months
      ====================================================== */
   (function() {
-    var selB = { month: CURRENT_MONTH, year: CURRENT_YEAR };
-    var pickerYearB = CURRENT_YEAR;
+    var selB = { month: DEFAULT_MONTH, year: DEFAULT_YEAR };
+    var pickerYearB = DEFAULT_YEAR;
     var popOpenB = false;
 
     var chipsEl  = document.getElementById('bhb-chips');
@@ -1223,8 +1228,8 @@ def render_billing_home_page():
      SELECTOR C — Calendar
      ====================================================== */
   (function() {
-    var selC = { month: CURRENT_MONTH, year: CURRENT_YEAR };
-    var browseYearC = CURRENT_YEAR;
+    var selC = { month: DEFAULT_MONTH, year: DEFAULT_YEAR };
+    var browseYearC = DEFAULT_YEAR;
     var popOpenC = false;
 
     var wrapC    = document.getElementById('bhc-wrap');
