@@ -47,11 +47,20 @@ class Queries:
 
     @property
     def lookup_product_catalog_query(self):
-        """Look up ASIN, UPC, and eBay EPID from EcommerceProductCatalog."""
+        """Look up ASIN, UPC, and eBay EPID from EcommerceProductCatalog.
+
+        Match is space- and case-insensitive: catalog Model strings drift from the
+        storefront spelling (e.g. catalog "iPhone 16 Pro Max 256GB" vs inventory
+        "256 GB", or "R895(Galaxy..." vs "R895 (Galaxy..."), and an exact `=` join
+        silently orphans those rows. Stripping spaces + uppercasing both sides makes
+        the seeded UPC/ASIN findable regardless of spacing/case. The table is tiny
+        (catalog seeding), so the non-sargable comparison is fine."""
         return """
             SELECT AmazonASIN, UPC, EbayEPID
             FROM EcommerceProductCatalog
-            WHERE Manufacturer = ? AND Model = ? AND Colour = ?
+            WHERE REPLACE(UPPER(Manufacturer), ' ', '') = REPLACE(UPPER(?), ' ', '')
+              AND REPLACE(UPPER(Model), ' ', '')        = REPLACE(UPPER(?), ' ', '')
+              AND REPLACE(UPPER(Colour), ' ', '')       = REPLACE(UPPER(?), ' ', '')
         """
     
     @property
