@@ -12,6 +12,7 @@ taking the floor.
 
 import logging
 import re
+import time
 
 from ecommerce.pricing import apify_client
 from ecommerce.pricing.filters import is_accessory
@@ -21,6 +22,14 @@ log = logging.getLogger(__name__)
 ACTOR_ID = 'khadinakbar/ebay-all-in-one-scraper'
 
 DEFAULT_MIN_PRICE = 30.0
+
+# eBay.ca antibot rate-limits the shared residential proxy pool when hit with a
+# rapid burst of runs (Batch #17: 160/172 keyword runs came back 403-blocked and
+# empty). The runs are already sequential (one per keyword); this cooldown between
+# them keeps the burst under eBay's radar. Paired with run_actor(retry_on_empty=True)
+# so a blocked (SUCCEEDED-but-empty) run is retried on a fresh proxy.
+INTER_KEYWORD_DELAY = 1.5   # seconds between eBay keyword runs
+EMPTY_RETRIES = 2           # retries when a run returns 0 items (suspected block)
 
 # Map internal grades to acceptable eBay condition substrings (case-insensitive).
 # Vocabulary observed from this actor: "Brand New", "New (Other)", "Pre-Owned",
@@ -69,7 +78,9 @@ def scrape_and_return_all(keywords_list, min_price=DEFAULT_MIN_PRICE, max_result
         dict mapping keyword -> list of result dicts (title, price, condition, url).
     """
     grouped = {}
-    for keyword in keywords_list:
+    for i, keyword in enumerate(keywords_list):
+        if i:
+            time.sleep(INTER_KEYWORD_DELAY)   # cooldown so eBay doesn't rate-limit the proxy pool
         grouped[keyword] = _scrape_one(keyword, min_price, max_results)
     return grouped
 
@@ -85,7 +96,10 @@ def _scrape_one(keyword, min_price, max_results):
     if min_price is not None:
         run_input['minPrice'] = int(min_price)
 
-    rows = apify_client.run_actor(ACTOR_ID, run_input)
+    # retry_on_empty: this actor exits SUCCEEDED with [] when eBay antibot-blocks it,
+    # so an empty result is retried on a fresh proxy instead of silently accepted.
+    rows = apify_client.run_actor(ACTOR_ID, run_input,
+                                  max_retries=EMPTY_RETRIES, retry_on_empty=True)
 
     results = []
     for row in rows:

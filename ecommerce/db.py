@@ -184,6 +184,43 @@ def update_batch_status(batch_id, status):
     conn.close()
 
 
+def save_pricing_batch(recommendations):
+    """Persist a whole pricing batch — batch row + all recommendations + status
+    'ready' — over ONE connection in a single transaction. Returns the batch_id.
+
+    Replaces the create_pricing_batch() / insert_recommendation()-per-row /
+    update_batch_status() sequence, which opened one DB login PER recommendation
+    (~300-400 per weekly run). SQL Server throttled that login storm, so the final
+    update_batch_status connection failed and large batches were stranded 'pending'
+    (batches #1 and #12-#18). One connection + one commit fixes that and makes the
+    batch all-or-nothing (no partially-persisted batch on an error mid-way)."""
+    ins = qrery.insert_recommendation_query
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        batch_id = int(
+            cursor.execute(qrery.create_pricing_batch_returning_id_query).fetchone()[0]
+        )
+        for rec in recommendations:
+            product = rec['product']
+            cursor.execute(ins, (
+                batch_id,
+                product['Manufacturer'], product['Model'],
+                product['Colour'], product['Grade'], product['Quantity'],
+                rec.get('marketplace'), rec.get('price'),
+                rec.get('amazon_price'), rec.get('ebay_price'),
+                rec.get('bestbuy_price'), rec.get('reebelo_price'),
+                rec.get('device_cost'),
+                1 if rec.get('margin_ok') else 0,
+                rec.get('skip_reason'),
+            ))
+        cursor.execute(qrery.update_batch_status_query, ('ready', batch_id))
+        conn.commit()
+        return batch_id
+    finally:
+        conn.close()
+
+
 def get_latest_batch():
     """Return the most recent pricing batch."""
     sql = qrery.get_latest_batch_query

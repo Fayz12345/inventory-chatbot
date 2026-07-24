@@ -103,6 +103,17 @@ class Queries:
             INSERT INTO EcommercePricingBatch (Status)
             VALUES ('pending')
         """
+
+    @property
+    def create_pricing_batch_returning_id_query(self):
+        """Create a pricing batch and return its new ID in one round-trip.
+        OUTPUT INSERTED.ID is reliable regardless of scope/commit ordering (unlike
+        a separate SELECT SCOPE_IDENTITY() after a commit)."""
+        return """
+            INSERT INTO EcommercePricingBatch (Status)
+            OUTPUT INSERTED.ID
+            VALUES ('pending')
+        """
         
     @property
     def insert_recommendation_query(self):

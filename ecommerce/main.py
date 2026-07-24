@@ -7,9 +7,11 @@ Usage:
 Runs the full weekly pipeline:
     1. Fetch products from Ecommerce Storefront
     2. Build clean shopper-style search queries from Manufacturer + Model
-    3. Fetch competitive prices across 4 CA marketplaces:
-         Amazon CA, eBay CA, Reebelo CA (Apify) + Best Buy CA (Mirakl P11 API)
-    4. Run pricing algorithm (highest floor price across 4 marketplaces)
+    3. Fetch competitive prices across CA marketplaces:
+         Amazon CA, eBay CA (Apify) + Best Buy CA (Mirakl P11 API).
+         Reebelo CA is DISABLED — its actor is non-functional (times out on
+         batches / returns 0 products); re-enable once the actor is reworked.
+    4. Run pricing algorithm (highest floor price across marketplaces)
     5. Sanity check margins
     6. Persist recommendations to DB (viewable on /ecommerce/dashboard)
 """
@@ -21,7 +23,8 @@ from ecommerce import db
 from ecommerce.pricing import amazon as amazon_pricing
 from ecommerce.pricing import bestbuy as bestbuy_pricing
 from ecommerce.pricing import ebay as ebay_pricing
-from ecommerce.pricing import reebelo as reebelo_pricing
+# reebelo pricing is disabled — the adminbridge/reebelo-ca-scraper actor is broken
+# (times out on batches / returns 0 products). Module kept for when it is reworked.
 from ecommerce.pricing.algorithm import recommend
 from ecommerce.pricing.query import clean_search_query
 
@@ -86,8 +89,8 @@ def run_pipeline(limit=None, dry_run=False):
              len(bestbuy_upc_by_group), len(products),
              len(set(bestbuy_upc_by_group.values())))
 
-    # Step 3: Fetch prices (Amazon/eBay/Reebelo via Apify, Best Buy via Mirakl)
-    log.info("Step 3: Fetching prices (Amazon/eBay/Reebelo via Apify, Best Buy via Mirakl)...")
+    # Step 3: Fetch prices (Amazon/eBay via Apify, Best Buy via Mirakl)
+    log.info("Step 3: Fetching prices (Amazon/eBay via Apify, Best Buy via Mirakl)...")
 
     # Amazon CA — keyword search, marketplace CA (one actor run per keyword)
     amazon_raw = amazon_pricing.scrape_prices_by_keyword(search_keywords)
@@ -98,27 +101,31 @@ def run_pipeline(limit=None, dry_run=False):
     # Best Buy CA — Mirakl P11 seller API, keyed by UPC (read-only, $0 Apify cost)
     bestbuy_raw = bestbuy_pricing.fetch_prices(sorted(set(bestbuy_upc_by_group.values())))
 
-    # Reebelo CA — custom reebelo.ca actor
-    reebelo_raw = reebelo_pricing.scrape_prices(search_keywords)
-
     # Per-marketplace coverage — makes a silent scrape failure (e.g. an actor
-    # timeout that the client swallows as []) visible in the run log instead of
-    # quietly writing every floor as NULL.
+    # timeout or antibot block that the client swallows as []) visible in the run
+    # log instead of quietly writing every floor as NULL.
     def _coverage(d):
         return sum(1 for v in d.values() if v is not None)
 
     n_kw = len(search_keywords)
+    # eBay is keyed by keyword -> list of listings; count keywords that returned any.
+    ebay_hits = sum(1 for kw in search_keywords if ebay_results.get(kw))
     coverage = {
         'Amazon': _coverage(amazon_raw),
-        'Reebelo': _coverage(reebelo_raw),
+        'eBay': ebay_hits,
     }
     log.info("Scrape coverage (of %d keywords): %s", n_kw,
              ', '.join('%s %d' % (k, v) for k, v in coverage.items()))
     for market, hits in coverage.items():
-        if hits == 0:
-            log.warning("%s returned 0 prices for all %d keywords — likely an actor "
-                        "failure/timeout, not 'no listings'. Check the Apify run.",
-                        market, n_kw)
+        if n_kw and hits == 0:
+            log.warning("%s returned prices for 0/%d keywords — likely an actor "
+                        "failure/timeout or antibot block, not 'no listings'. "
+                        "Check the Apify run.", market, n_kw)
+    # eBay antibot warning even on a partial blackout (Batch #17 was ~93 pct empty).
+    if n_kw and 0 < ebay_hits < n_kw // 2:
+        log.warning("eBay returned listings for only %d/%d keywords (under half) — eBay "
+                    "likely antibot-throttled the proxy pool; check the eBay actor runs.",
+                    ebay_hits, n_kw)
 
     # Best Buy CA is UPC-keyed (Mirakl P11), so it has its own denominator.
     bestbuy_hits = _coverage(bestbuy_raw)
@@ -149,14 +156,14 @@ def run_pipeline(limit=None, dry_run=False):
         # eBay CA — filter by condition matching our grade
         ebay_price = ebay_pricing.get_floor_price_for_grade(ebay_results, keyword, grade)
 
-        # Best Buy CA (UPC-keyed via Mirakl P11) + Reebelo CA (keyword-keyed)
+        # Best Buy CA (UPC-keyed via Mirakl P11); Reebelo disabled -> always None
         bestbuy_price = bestbuy_raw.get(bestbuy_upc_by_group.get((manufacturer, model, colour)))
-        reebelo_price = reebelo_raw.get(keyword)
+        reebelo_price = None
 
         # Device cost for margin check
         device_cost = db.fetch_device_cost(manufacturer, model, grade)
 
-        # Run pricing algorithm across all 4 marketplaces
+        # Run pricing algorithm across the active marketplaces
         rec = recommend(product, amazon_price, ebay_price, bestbuy_price,
                         reebelo_price, device_cost)
         recommendations.append(rec)
@@ -178,11 +185,14 @@ def run_pipeline(limit=None, dry_run=False):
         return recommendations
 
     log.info("Step 5: Saving recommendations to database...")
-    batch_id = db.create_pricing_batch()
-    for rec in recommendations:
-        db.insert_recommendation(batch_id, rec)
-    db.update_batch_status(batch_id, 'ready')
-    log.info("Batch #%d saved with %d recommendations.", batch_id, len(recommendations))
+    # Single transactional save over ONE connection (batch + all recs + status
+    # 'ready'). The old create/insert-per-row/update opened a DB login per
+    # recommendation (~300-400/run); SQL Server throttled that login storm so the
+    # final status update failed and large batches were stranded 'pending'
+    # (batches #1, #12-#18). One connection + one commit fixes that.
+    batch_id = db.save_pricing_batch(recommendations)
+    log.info("Batch #%d saved with %d recommendations (status: ready).",
+             batch_id, len(recommendations))
 
     log.info("=" * 60)
     log.info("Pipeline complete: %d recommended, %d skipped — view at /ecommerce/dashboard/%d",

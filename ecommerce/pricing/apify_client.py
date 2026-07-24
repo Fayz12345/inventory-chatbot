@@ -53,18 +53,27 @@ def _run_actor_once(client, actor_id, run_input, timeout_secs):
     return items
 
 
-def run_actor(actor_id, run_input, timeout_secs=600, max_retries=1):
+def run_actor(actor_id, run_input, timeout_secs=600, max_retries=1, retry_on_empty=False):
     """
-    Run an Apify actor and return the results, with one transient-failure retry.
+    Run an Apify actor and return the results, with transient-failure retries.
 
     Args:
         actor_id: actor slug (e.g. 'automation-lab/amazon-scraper')
         run_input: dict of input parameters for the actor
         timeout_secs: max wait time per attempt in seconds (default 10 min)
-        max_retries: retries on non-SUCCEEDED status. Default 1 = one retry
+        max_retries: retries on a failed attempt. Default 1 = one retry
             after RETRY_BACKOFF_SECONDS (handles transient marketplace
             rate-limits, e.g. eBay/Reebelo intermittently 403-ing the proxy
             pool). Set 0 to disable.
+        retry_on_empty: if True, a run that finishes SUCCEEDED but returns 0
+            items is ALSO treated as a failed attempt and retried. Some
+            marketplace scrapers (notably the eBay actor) exit SUCCEEDED with an
+            empty dataset when the marketplace antibot blocks the proxy pool — so
+            an empty result there means "blocked", not "no listings", and a retry
+            on a fresh proxy often recovers it (this was the Batch #17 eBay
+            blackout: 160/172 runs SUCCEEDED-empty and were never retried).
+            Leave False for actors where empty legitimately means "no match"
+            (Amazon by ASIN, Best Buy by UPC) so we don't pay for pointless retries.
 
     Returns:
         list of dicts (result items), or empty list on failure after all retries.
@@ -80,10 +89,14 @@ def run_actor(actor_id, run_input, timeout_secs=600, max_retries=1):
             time.sleep(RETRY_BACKOFF_SECONDS)
         try:
             items = _run_actor_once(client, actor_id, run_input, timeout_secs)
-            if items is not None:
+            if items is None:
+                continue  # non-SUCCEEDED / no dataset — retry
+            if items or not retry_on_empty:
                 return items
+            log.warning("Apify actor '%s' returned 0 items (SUCCEEDED) — treating as a "
+                        "suspected antibot block and retrying.", actor_id)
         except Exception as e:
             log.error("Apify actor '%s' raised: %s", actor_id, e)
 
-    log.error("Apify actor '%s' failed after %d attempt(s).", actor_id, max_retries + 1)
+    log.error("Apify actor '%s' failed/empty after %d attempt(s).", actor_id, max_retries + 1)
     return []
