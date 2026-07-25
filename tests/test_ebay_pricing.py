@@ -80,6 +80,22 @@ def test_grades_ordered_and_single_comp(mock_ac):
     assert single("A+") == single("C") == 300.0            # single comp -> same for all grades
 
 
+@patch("ecommerce.pricing.ebay.time.sleep", lambda *a: None)
+@patch("ecommerce.pricing.ebay.apify_client")
+def test_plus_keyword_matches_plus_titles(mock_ac):
+    # Regression (Batch #20): "Edge+" lost its "+" in _normalize, so every genuine
+    # "Edge Plus" sold comp was over-filtered by the qualifier-parity gate -> 0 comps.
+    mock_ac.run_actor.return_value = [
+        _row("Motorola Moto Edge Plus 2023 XT2301-1 512GB Unlocked", 375.0),   # keep (Edge Plus)
+        _row("Motorola Moto Edge Plus 5G (2023) 512GB Unlocked", 563.83),      # keep (Edge Plus)
+        _row("Motorola Moto Edge 5G 2023 512GB Unlocked", 300.0),              # drop (non-plus Edge)
+    ]
+    kw = "Motorola Moto Edge+ 2023 512GB"
+    items = ebay.scrape_and_return_all([kw])[kw]
+    assert {i["price"] for i in items} == {375.0, 563.83}      # both Plus comps, non-plus dropped
+    assert all("Plus" in i["title"] for i in items)
+
+
 def test_empty_keywords():
     assert ebay.scrape_and_return_all([]) == {}
 

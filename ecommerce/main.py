@@ -81,7 +81,7 @@ def run_pipeline(limit=None, dry_run=False):
     products, scope = categorize.apply_scope(products, cats, mode, top_n)
     log.info("Scrape scope: %d/%d groups kept | categories=%s mode=%s top_n=%s | %d models %s",
              scope['groups_after'], total_available, cats, mode,
-             (top_n if mode == 'top' else '-'), scope['models'], scope['by_category'])
+             (top_n if mode in ('top', 'top_sku') else '-'), scope['models'], scope['by_category'])
     log.info("Found %d product groups to process.", len(products))
 
     if not products:

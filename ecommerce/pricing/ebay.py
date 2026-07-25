@@ -164,7 +164,11 @@ def _excluded(title):
 
 
 def _normalize(s):
-    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+    # Map "+" to the word "plus" BEFORE squashing punctuation, so an "Edge+"/"S24+" keyword
+    # keeps a "plus" token and matches "Edge Plus"/"S24 Plus" titles — while still rejecting the
+    # non-plus model via the qualifier-parity check. Without this the "+" is silently dropped and
+    # every genuine "... Plus ..." sold comp is over-filtered (Batch #20: Moto Edge+ 2023 -> 0 comps).
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower().replace("+", " plus ")).strip()
 
 
 def _match_tokens(keyword):
