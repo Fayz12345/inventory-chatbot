@@ -49,6 +49,21 @@ def _resolve(env_name, prod_key, sandbox_key, default=""):
     return _env(sandbox_key, default)
 
 
+# ---------------------------------------------------------------------------
+# Apify residential proxy (for datacenter-IP-blocked price fetches)
+# ---------------------------------------------------------------------------
+# Apify's *proxy* password (Console -> Proxy), NOT the API token. Used to route
+# plain HTTP price GETs through Apify's residential pool so a blocked datacenter
+# IP is rotated out. See ecommerce/pricing/proxy.py.
+APIFY_PROXY_PASSWORD = _env("APIFY_PROXY_PASSWORD", "")
+
+# reebelo.ca blocks datacenter IPs -> route through Apify residential by default.
+REEBELO_USE_APIFY_PROXY = _env("REEBELO_USE_APIFY_PROXY", "true").lower() != "false"
+# Best Buy P11 is an authenticated Mirakl API -> direct by default; flip to "true"
+# only if EC2's datacenter IP gets blocked (the run log will show the block).
+BESTBUY_USE_APIFY_PROXY = _env("BESTBUY_USE_APIFY_PROXY", "false").lower() == "true"
+
+
 # Amazon SP-API
 AMAZON_ENV               = _env("AMAZON_ENV", "sandbox").lower()
 AMAZON_MARKETPLACE_ID    = _env("AMAZON_MARKETPLACE_ID", "A2EUQ1WTGCTBG2")

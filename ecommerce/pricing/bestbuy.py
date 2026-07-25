@@ -22,6 +22,7 @@ import time
 import requests
 
 from ecommerce import config
+from ecommerce.pricing import proxy
 
 log = logging.getLogger(__name__)
 
@@ -80,15 +81,16 @@ def fetch_prices(upc_list):
                     "pricing for %d UPC(s).", len(upcs))
         return prices
 
-    log.info("Fetching Best Buy CA prices via Mirakl P11 for %d UPC(s)...", len(upcs))
+    proxies, via = proxy.proxies_for(config.BESTBUY_USE_APIFY_PROXY, "bestbuy")
+    log.info("Fetching Best Buy CA prices via Mirakl P11 for %d UPC(s) (%s)...", len(upcs), via)
     for idx, upc in enumerate(upcs):
         if idx:
             time.sleep(REQUEST_DELAY)
         try:
-            offers = _fetch_offers(upc, all_offers=False)
+            offers = _fetch_offers(upc, all_offers=False, proxies=proxies, via=via)
             mode = "active"
             if offers is not None and len(offers) < ACTIVE_MIN_OFFERS:
-                fallback = _fetch_offers(upc, all_offers=True)
+                fallback = _fetch_offers(upc, all_offers=True, proxies=proxies, via=via)
                 if fallback is not None:
                     offers, mode = fallback, "all_offers"
         except _AuthError as e:
@@ -113,9 +115,12 @@ def fetch_prices(upc_list):
     return prices
 
 
-def _fetch_offers(upc, all_offers):
+def _fetch_offers(upc, all_offers, proxies=None, via="direct(datacenter-IP)"):
     """One P11 GET. Returns the flattened offers list (possibly empty) on success,
-    or None on a transient failure. Raises _AuthError on 401/403."""
+    or None on a transient failure. Raises _AuthError on 401/403.
+
+    `proxies`/`via` optionally route through the Apify residential proxy (default
+    direct — Best Buy is an authenticated API); `via` is threaded into block logs."""
     params = {
         "product_references": f"{config.BESTBUY_PRODUCT_ID_TYPE}|{upc}",
         "all_offers": "true" if all_offers else "false",
@@ -123,7 +128,8 @@ def _fetch_offers(upc, all_offers):
     url = f"{config.BESTBUY_API_BASE}/products/offers"
     for attempt in range(RETRIES + 1):
         try:
-            r = requests.get(url, headers=_headers(), params=params, timeout=REQUEST_TIMEOUT)
+            r = requests.get(url, headers=_headers(), params=params, proxies=proxies,
+                             timeout=REQUEST_TIMEOUT)
         except requests.RequestException as e:
             if attempt < RETRIES:
                 time.sleep(2 * (attempt + 1))
@@ -132,8 +138,12 @@ def _fetch_offers(upc, all_offers):
             return None
 
         if r.status_code in (401, 403):
-            raise _AuthError(f"{r.status_code} {r.text[:120]}")
+            # 403 could be a datacenter-IP/anti-bot block OR a bad key/scope; 401 is auth.
+            if r.status_code == 403:
+                proxy.log_block("bestbuy", r.status_code, via, r.text)
+            raise _AuthError(f"{r.status_code} {r.text[:120]} (via {via})")
         if r.status_code == 429 or r.status_code >= 500:
+            proxy.log_block("bestbuy", r.status_code, via, r.text)
             if attempt < RETRIES:
                 time.sleep(2 * (attempt + 1))
                 continue

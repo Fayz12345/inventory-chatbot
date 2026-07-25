@@ -8,9 +8,8 @@ Runs the full weekly pipeline:
     1. Fetch products from Ecommerce Storefront
     2. Build clean shopper-style search queries from Manufacturer + Model
     3. Fetch competitive prices across CA marketplaces:
-         Amazon CA, eBay CA (Apify) + Best Buy CA (Mirakl P11 API).
-         Reebelo CA is DISABLED — its actor is non-functional (times out on
-         batches / returns 0 products); re-enable once the actor is reworked.
+         Amazon CA, eBay CA (Apify), Reebelo CA (reebelo.ca catalog API) +
+         Best Buy CA (Mirakl P11 API).
     4. Run pricing algorithm (highest floor price across marketplaces)
     5. Sanity check margins
     6. Persist recommendations to DB (viewable on /ecommerce/dashboard)
@@ -23,8 +22,7 @@ from ecommerce import db
 from ecommerce.pricing import amazon as amazon_pricing
 from ecommerce.pricing import bestbuy as bestbuy_pricing
 from ecommerce.pricing import ebay as ebay_pricing
-# reebelo pricing is disabled — the adminbridge/reebelo-ca-scraper actor is broken
-# (times out on batches / returns 0 products). Module kept for when it is reworked.
+from ecommerce.pricing import reebelo as reebelo_pricing
 from ecommerce.pricing.algorithm import recommend
 from ecommerce.pricing.query import clean_search_query
 
@@ -89,8 +87,9 @@ def run_pipeline(limit=None, dry_run=False):
              len(bestbuy_upc_by_group), len(products),
              len(set(bestbuy_upc_by_group.values())))
 
-    # Step 3: Fetch prices (Amazon/eBay via Apify, Best Buy via Mirakl)
-    log.info("Step 3: Fetching prices (Amazon/eBay via Apify, Best Buy via Mirakl)...")
+    # Step 3: Fetch prices (Amazon/eBay via Apify, Best Buy via Mirakl, Reebelo via catalog API)
+    log.info("Step 3: Fetching prices (Amazon/eBay via Apify, Best Buy via Mirakl, "
+             "Reebelo via catalog API)...")
 
     # Amazon CA — keyword search, marketplace CA (one actor run per keyword)
     amazon_raw = amazon_pricing.scrape_prices_by_keyword(search_keywords)
@@ -100,6 +99,9 @@ def run_pipeline(limit=None, dry_run=False):
 
     # Best Buy CA — Mirakl P11 seller API, keyed by UPC (read-only, $0 Apify cost)
     bestbuy_raw = bestbuy_pricing.fetch_prices(sorted(set(bestbuy_upc_by_group.values())))
+
+    # Reebelo CA — reebelo.ca first-party catalog API (routed via Apify residential proxy)
+    reebelo_raw = reebelo_pricing.scrape_prices(search_keywords)
 
     # Per-marketplace coverage — makes a silent scrape failure (e.g. an actor
     # timeout or antibot block that the client swallows as []) visible in the run
@@ -113,6 +115,7 @@ def run_pipeline(limit=None, dry_run=False):
     coverage = {
         'Amazon': _coverage(amazon_raw),
         'eBay': ebay_hits,
+        'Reebelo': _coverage(reebelo_raw),
     }
     log.info("Scrape coverage (of %d keywords): %s", n_kw,
              ', '.join('%s %d' % (k, v) for k, v in coverage.items()))
@@ -156,9 +159,9 @@ def run_pipeline(limit=None, dry_run=False):
         # eBay CA — filter by condition matching our grade
         ebay_price = ebay_pricing.get_floor_price_for_grade(ebay_results, keyword, grade)
 
-        # Best Buy CA (UPC-keyed via Mirakl P11); Reebelo disabled -> always None
+        # Best Buy CA (UPC-keyed via Mirakl P11) + Reebelo CA (keyword-keyed)
         bestbuy_price = bestbuy_raw.get(bestbuy_upc_by_group.get((manufacturer, model, colour)))
-        reebelo_price = None
+        reebelo_price = reebelo_raw.get(keyword)
 
         # Device cost for margin check
         device_cost = db.fetch_device_cost(manufacturer, model, grade)
