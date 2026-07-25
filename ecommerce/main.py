@@ -31,6 +31,7 @@ load_dotenv()
 from ecommerce import db
 from ecommerce.pricing import amazon as amazon_pricing
 from ecommerce.pricing import bestbuy as bestbuy_pricing
+from ecommerce.pricing import categorize
 from ecommerce.pricing import ebay as ebay_pricing
 from ecommerce.pricing import reebelo as reebelo_pricing
 from ecommerce.pricing.algorithm import recommend
@@ -63,9 +64,24 @@ def run_pipeline(limit=None, dry_run=False):
     # Step 1: Fetch products
     log.info("Step 1: Fetching products from Ecommerce Storefront...")
     products = db.fetch_all_pending_products()
+    total_available = len(products)
+
+    # Apply the dashboard "Scrape scope" control (ecommerce_settings): which product
+    # categories to scrape (mobile/wearable/tablet/accessory, derived from the Model
+    # string) and whether to cap to the top-N highest-volume *models*. A CLI --limit
+    # overrides the saved top_n for dev/testing. This single choke point scopes the
+    # whole run — every later step (keywords, UPCs, the 4 scrapers, recommendations)
+    # derives from `products`. Logged loudly so a scope cut is never silent.
+    settings = db.get_scrape_settings()
+    cats = settings['categories']
     if limit:
-        products = products[:limit]
-        log.info("Limited to first %d product groups (limit=%d).", len(products), limit)
+        mode, top_n = 'top', limit
+    else:
+        mode, top_n = settings['scope_mode'], settings['top_n']
+    products, scope = categorize.apply_scope(products, cats, mode, top_n)
+    log.info("Scrape scope: %d/%d groups kept | categories=%s mode=%s top_n=%s | %d models %s",
+             scope['groups_after'], total_available, cats, mode,
+             (top_n if mode == 'top' else '-'), scope['models'], scope['by_category'])
     log.info("Found %d product groups to process.", len(products))
 
     if not products:

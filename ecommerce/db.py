@@ -1,8 +1,15 @@
+import json
+import logging
+
 import pyodbc
+
+import ecommerce_settings
 from ecommerce import config
+from ecommerce.pricing import categorize
 from .queries import Queries
 
 qrery = Queries()
+log = logging.getLogger(__name__)
 
 def get_db_connection():
     conn = pyodbc.connect(
@@ -57,6 +64,58 @@ def lookup_device_category(model):
     row = cursor.fetchone()
     conn.close()
     return row.DeviceType if row else None
+
+
+# ---------------------------------------------------------------------------
+# Scrape-scope settings (EcommerceScrapeSettings — single row, Id = 1)
+# ---------------------------------------------------------------------------
+
+def get_scrape_settings():
+    """Read the scrape-scope settings row (which categories to scrape + all-vs-
+    top-N). Returns defaults if the row — or the table — doesn't exist yet, so the
+    pipeline and dashboard keep working before the one-time CREATE TABLE is run."""
+    try:
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(qrery.get_scrape_settings_query)
+            row = cursor.fetchone()
+        finally:
+            conn.close()
+    except Exception as e:
+        log.warning("Could not read EcommerceScrapeSettings (%s) — using defaults. "
+                    "Has the table been created?", e)
+        return dict(ecommerce_settings.DEFAULTS)
+    if not row:
+        return dict(ecommerce_settings.DEFAULTS)
+    try:
+        cats = json.loads(row.Categories)
+    except (ValueError, TypeError):
+        cats = list(ecommerce_settings.DEFAULTS["categories"])
+    return {
+        "categories": [c for c in cats if c in categorize.CATEGORIES],
+        "scope_mode": row.ScopeMode if row.ScopeMode in ("all", "top") else "all",
+        "top_n": int(row.TopN) if row.TopN else 30,
+        "updated_at": row.UpdatedAt,
+        "updated_by": row.UpdatedBy,
+    }
+
+
+def save_scrape_settings(categories, scope_mode, top_n, actor=None):
+    """Upsert the single scrape-scope settings row over ONE connection. Input is
+    sanitised first. Returns the stored {categories, scope_mode, top_n}."""
+    cats, mode, n = ecommerce_settings.sanitize(categories, scope_mode, top_n)
+    payload = json.dumps(cats)
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(qrery.update_scrape_settings_query, (payload, mode, n, actor))
+        if cursor.rowcount == 0:            # no row yet -> insert it
+            cursor.execute(qrery.insert_scrape_settings_query, (payload, mode, n, actor))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"categories": cats, "scope_mode": mode, "top_n": n}
 
 
 def lookup_product_catalog(manufacturer, model, colour):

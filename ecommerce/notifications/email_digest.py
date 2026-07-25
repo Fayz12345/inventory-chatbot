@@ -15,7 +15,40 @@ BATCH_LIST_TEMPLATE = Template("""
 <div class="container">
     <h1>Ecommerce Pricing Dashboard</h1>
 
+    <div class="card scope-card">
+        <h3>Scrape scope</h3>
+        <p class="muted">Controls what the weekly pricing run scrapes. Applies to the next scheduled run (Mon 6 AM) &mdash; devices we can't classify count as Phones.</p>
+
+        <div class="scope-row">
+            <span class="scope-row__label">Categories</span>
+            <div class="bh-checks scope-cats">
+                <label><input type="checkbox" class="scope-cat" value="phone" {{ 'checked' if 'phone' in settings.categories else '' }}> Phones</label>
+                <label><input type="checkbox" class="scope-cat" value="wearable" {{ 'checked' if 'wearable' in settings.categories else '' }}> Wearables</label>
+                <label><input type="checkbox" class="scope-cat" value="tablet" {{ 'checked' if 'tablet' in settings.categories else '' }}> Tablets</label>
+                <label><input type="checkbox" class="scope-cat" value="accessory" {{ 'checked' if 'accessory' in settings.categories else '' }}> Accessories</label>
+            </div>
+        </div>
+
+        <div class="scope-row">
+            <span class="scope-row__label">Products</span>
+            <div class="scope-scope">
+                <label class="scope-radio"><input type="radio" name="scope_mode" value="all" {{ 'checked' if settings.scope_mode != 'top' else '' }}> All products</label>
+                <label class="scope-radio"><input type="radio" name="scope_mode" value="top" {{ 'checked' if settings.scope_mode == 'top' else '' }}> Top
+                    <input type="number" id="scope-topn" min="1" value="{{ settings.top_n or 30 }}"> models by count</label>
+                <button type="button" class="scope-preset" data-n="20">20</button>
+                <button type="button" class="scope-preset" data-n="30">30</button>
+            </div>
+        </div>
+
+        <div class="scope-actions">
+            <button type="button" class="btn btn-primary" id="scope-save">Save</button>
+            <button type="button" class="btn btn-secondary" id="scope-preview-btn">Preview impact</button>
+            <span class="muted" id="scope-preview-out"></span>
+        </div>
+    </div>
+
     {% if batches %}
+    <div class="table-wrap">
     <table>
         <tr>
             <th>Batch</th>
@@ -32,10 +65,82 @@ BATCH_LIST_TEMPLATE = Template("""
         </tr>
         {% endfor %}
     </table>
+    </div>
     {% else %}
     <p class="empty">No pipeline runs yet. The first batch will appear after the weekly cron job runs.</p>
     {% endif %}
 </div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function scopeToast(msg, type) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast toast-' + (type || 'success');
+    t.style.display = 'block';
+    setTimeout(function () { t.style.display = 'none'; }, 3500);
+}
+function scopeCats() {
+    var out = [], boxes = document.querySelectorAll('.scope-cat');
+    for (var i = 0; i < boxes.length; i++) { if (boxes[i].checked) out.push(boxes[i].value); }
+    return out;
+}
+function scopeMode() {
+    var r = document.querySelector('input[name=\"scope_mode\"]:checked');
+    return r ? r.value : 'all';
+}
+function scopeTopN() { return parseInt(document.getElementById('scope-topn').value, 10) || 30; }
+function scopeSyncEnabled() { document.getElementById('scope-topn').disabled = (scopeMode() !== 'top'); }
+
+(function () {
+    var radios = document.querySelectorAll('input[name=\"scope_mode\"]');
+    for (var i = 0; i < radios.length; i++) { radios[i].addEventListener('change', scopeSyncEnabled); }
+
+    var presets = document.querySelectorAll('.scope-preset');
+    for (var j = 0; j < presets.length; j++) {
+        presets[j].addEventListener('click', function () {
+            document.getElementById('scope-topn').value = this.getAttribute('data-n');
+            document.querySelector('input[name=\"scope_mode\"][value=\"top\"]').checked = true;
+            scopeSyncEnabled();
+        });
+    }
+
+    document.getElementById('scope-save').addEventListener('click', function () {
+        var btn = this, cats = scopeCats();
+        if (!cats.length) { scopeToast('Select at least one category', 'error'); return; }
+        var old = btn.textContent;
+        btn.disabled = true; btn.textContent = 'Saving...';
+        fetch('/ecommerce/scrape-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ categories: cats, scope_mode: scopeMode(), top_n: scopeTopN() })
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            btn.disabled = false; btn.textContent = old;
+            if (d.ok) { scopeToast('Scrape scope saved — applies on the next weekly run', 'success'); }
+            else { scopeToast(d.error || 'Save failed', 'error'); }
+        }).catch(function () { btn.disabled = false; btn.textContent = old; scopeToast('Network error', 'error'); });
+    });
+
+    document.getElementById('scope-preview-btn').addEventListener('click', function () {
+        var btn = this, out = document.getElementById('scope-preview-out'), cats = scopeCats();
+        if (!cats.length) { out.textContent = '0 models selected'; return; }
+        btn.disabled = true; out.textContent = 'Calculating...';
+        var qs = 'categories=' + encodeURIComponent(cats.join(',')) +
+                 '&scope_mode=' + encodeURIComponent(scopeMode()) +
+                 '&top_n=' + encodeURIComponent(scopeTopN());
+        fetch('/ecommerce/scrape-preview?' + qs).then(function (r) { return r.json(); }).then(function (d) {
+            btn.disabled = false;
+            if (!d.ok) { out.textContent = d.error || 'Preview failed'; return; }
+            var labels = { phone: 'Phones', wearable: 'Wearables', tablet: 'Tablets', accessory: 'Accessories' }, parts = [];
+            for (var k in labels) { if (d.by_category[k]) { parts.push(labels[k] + ' ' + d.by_category[k]); } }
+            out.textContent = '≈ ' + d.total + ' models will be scraped' + (parts.length ? ' (' + parts.join(' · ') + ')' : '');
+        }).catch(function () { btn.disabled = false; out.textContent = 'Network error'; });
+    });
+
+    scopeSyncEnabled();
+})();
+</script>
 """)
 
 
@@ -375,9 +480,13 @@ document.addEventListener('keydown', function(e) { if (e.key === 'Escape') close
 """)
 
 
-def render_batch_list(batches):
-    """Render the batch list page."""
-    return page_shell(BATCH_LIST_TEMPLATE.render(batches=batches), title="Ecommerce Pricing Dashboard", active="ecommerce")
+def render_batch_list(batches, settings=None):
+    """Render the batch list page (with the scrape-scope control)."""
+    if settings is None:
+        settings = {"categories": ["phone", "wearable", "tablet"], "scope_mode": "all", "top_n": 30}
+    return page_shell(
+        BATCH_LIST_TEMPLATE.render(batches=batches, settings=settings),
+        title="Ecommerce Pricing Dashboard", active="ecommerce")
 
 
 def render_dashboard(batch, recommendations):

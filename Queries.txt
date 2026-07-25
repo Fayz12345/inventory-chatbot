@@ -17,11 +17,23 @@ CREATE TABLE EcommerceListingsLog (
                                                         
   2. EcommerceProductCatalog                            
                                                         
-  CREATE TABLE EcommerceProductCatalog (                
-      Manufacturer    nvarchar(100),                    
-      Model           nvarchar(100),                    
-      Colour          nvarchar(50),                     
-      AmazonASIN      nvarchar(20),                     
-      UPC             nvarchar(20),                     
-      EbayEPID        nvarchar(20)                      
-  )   
+  CREATE TABLE EcommerceProductCatalog (
+      Manufacturer    nvarchar(100),
+      Model           nvarchar(100),
+      Colour          nvarchar(50),
+      AmazonASIN      nvarchar(20),
+      UPC             nvarchar(20),
+      EbayEPID        nvarchar(20)
+  )
+
+  3. EcommerceScrapeSettings  (dashboard "Scrape scope" control — single row, Id = 1)
+
+  CREATE TABLE EcommerceScrapeSettings (
+      Id         INT           NOT NULL PRIMARY KEY DEFAULT 1,
+      Categories NVARCHAR(200) NOT NULL,                 -- JSON, e.g. ["phone","wearable","tablet"]
+      ScopeMode  VARCHAR(10)   NOT NULL DEFAULT 'all',   -- 'all' | 'top'
+      TopN       INT           NOT NULL DEFAULT 30,
+      UpdatedAt  DATETIME      NOT NULL DEFAULT GETDATE(),
+      UpdatedBy  NVARCHAR(100) NULL,
+      CONSTRAINT CK_EcommerceScrapeSettings_Single CHECK (Id = 1)
+  )

@@ -26,7 +26,9 @@ ecommerce/
 │   ├── amazon.py          # Run Amazon actor → floor prices by ASIN
 │   ├── ebay.py            # Run eBay actor → floor prices by keyword
 │   ├── bestbuy.py         # Best Buy CA floor prices via Mirakl P11 seller API (no Apify)
-│   ├── reebelo.py         # Run Reebelo actor → floor prices by keyword
+│   ├── reebelo.py         # Reebelo CA floor prices via reebelo.ca catalog API (Apify residential proxy)
+│   ├── proxy.py           # Apify residential-proxy routing + datacenter-IP block logging
+│   ├── categorize.py      # Classify device (mobile/wearable/tablet/accessory) from Model + scrape-scope filter
 │   └── algorithm.py       # Deterministic highest-floor-price across 4 marketplaces
 ├── listings/
 │   ├── amazon.py          # Amazon SP-API listing creation (1D-ii)

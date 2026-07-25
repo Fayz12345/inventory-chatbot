@@ -26,7 +26,9 @@ ecommerce/
 │   ├── amazon.py          # Run Amazon actor → floor prices by ASIN
 │   ├── ebay.py            # Run eBay actor → floor prices by keyword
 │   ├── bestbuy.py         # Best Buy CA floor prices via Mirakl P11 seller API (no Apify)
-│   ├── reebelo.py         # Run Reebelo actor → floor prices by keyword
+│   ├── reebelo.py         # Reebelo CA floor prices via reebelo.ca catalog API (Apify residential proxy)
+│   ├── proxy.py           # Apify residential-proxy routing + datacenter-IP block logging
+│   ├── categorize.py      # Classify device (mobile/wearable/tablet/accessory) from Model + scrape-scope filter
 │   └── algorithm.py       # Deterministic highest-floor-price across 4 marketplaces
 ├── listings/
 │   ├── amazon.py          # Amazon SP-API listing creation (1D-ii)
@@ -41,6 +43,14 @@ ecommerce/
 The pricing dashboard replaces the email digest. After each weekly pipeline run, recommendations are persisted to `EcommercePricingBatch` / `EcommercePricingRecommendation` tables and viewable at `/ecommerce/dashboard`. Approve/reject actions are handled inline via AJAX.
 
 **Current mode (1D-ii): Preview only** — Approve generates listing copy via Claude and displays it in a preview modal with copy-to-clipboard buttons. No marketplace API calls yet. Once confidence is built, 1D-iii will enable auto-listing via Amazon SP-API / eBay Inventory API.
+
+### Dashboard — Scrape scope control
+
+The batch-list page (`/ecommerce/dashboard`) has a **Scrape scope** card that controls what the weekly run scrapes:
+- **Category toggles** — Phones / Wearables / Tablets / Accessories. Inventory has no category column, so each device is classified from its `Model` string (`ecommerce/pricing/categorize.py`, reusing `listings/ebay._device_type` + `pricing/filters.is_accessory`; accessory is checked first so "watch band" ≠ wearable; unknown → phone).
+- **All vs Top-N by count** — "Top N" = the N highest-volume **models** (colours/grades aggregated → N distinct search keywords).
+
+Choices persist to a single-row **SQL Server** table `EcommerceScrapeSettings` (Id=1), read/written via `ecommerce/db.py` (`get_scrape_settings` / `save_scrape_settings`); pure defaults/validation live in `ecommerce_settings.py`. **One-time setup:** run the `CREATE TABLE` (`ecommerce/queries.py::create_scrape_settings_table_query`, also in `Queries.txt`) on the bridge SQL Server — until then reads fall back to defaults (phones+wearables+tablets, all). `run_pipeline` reads the settings right after `fetch_all_pending_products()` and logs the scope (`Scrape scope: N/M groups kept ...`). **No on-demand trigger** — settings apply on the next weekly cron; **accessories default OFF**. Routes: `POST /ecommerce/scrape-settings` (save), `GET /ecommerce/scrape-preview` (impact counts). A CLI `--limit` still overrides the saved top-N for dev.
 
 ### Key DB Details
 

@@ -16,6 +16,7 @@ from flask import Blueprint, jsonify, redirect, request, session, url_for
 import admin_audit
 import roles
 from ecommerce import db
+from ecommerce.pricing import categorize
 from ecommerce.listings import amazon as amazon_listings
 from ecommerce.listings import bestbuy as bestbuy_listings
 from ecommerce.listings import copy_generator
@@ -79,7 +80,7 @@ def _require_login_json():
 @approval_bp.route("/dashboard")
 def dashboard_index():
     batches = db.get_all_batches()
-    return render_batch_list(batches)
+    return render_batch_list(batches, db.get_scrape_settings())
 
 
 @approval_bp.route("/dashboard/<int:batch_id>")
@@ -89,6 +90,50 @@ def dashboard_detail(batch_id):
         return "<h2>Batch not found.</h2>", 404
     recommendations = db.get_recommendations_for_batch(batch_id)
     return render_dashboard(batch, recommendations)
+
+
+# ---------------------------------------------------------------------------
+# Scrape-scope settings (AJAX from the dashboard's "Scrape scope" card)
+# ---------------------------------------------------------------------------
+
+@approval_bp.route("/scrape-settings", methods=["POST"])
+def scrape_settings_save():
+    """Persist which categories to scrape + all-vs-top-N. The weekly cron
+    (ecommerce/main.py) reads this on its next run — nothing runs now."""
+    guard = _require_login_json()
+    if guard:
+        return guard
+    data = request.get_json(silent=True) or {}
+    saved = db.save_scrape_settings(
+        data.get("categories"), data.get("scope_mode"), data.get("top_n"),
+        actor=session.get("username"))
+    admin_audit.log_action(
+        session.get("username"), "ecommerce_scrape_settings",
+        detail="categories=%s mode=%s top_n=%s" % (
+            saved["categories"], saved["scope_mode"], saved["top_n"]))
+    return jsonify({"ok": True, "settings": saved})
+
+
+@approval_bp.route("/scrape-preview")
+def scrape_preview():
+    """Impact preview for the scope card: how many distinct models the current
+    selection would scrape, broken down by category. On-demand only (a live
+    inventory query), so it never slows the dashboard's initial load."""
+    guard = _require_login_json()
+    if guard:
+        return guard
+    cats = [c for c in (request.args.get("categories") or "").split(",")
+            if c in categorize.CATEGORIES]
+    mode = request.args.get("scope_mode")
+    mode = mode if mode in ("all", "top") else "all"
+    try:
+        top_n = int(request.args.get("top_n") or 30)
+    except (TypeError, ValueError):
+        top_n = 30
+    products = db.fetch_all_pending_products()
+    _, scope = categorize.apply_scope(products, cats, mode, top_n)
+    return jsonify({"ok": True, "total": scope["models"],
+                    "groups": scope["groups_after"], "by_category": scope["by_category"]})
 
 
 # ---------------------------------------------------------------------------

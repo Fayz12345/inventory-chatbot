@@ -45,6 +45,47 @@ class Queries:
             WHERE Model = ?
         """
 
+    # -- Scrape-scope settings (single row, Id = 1) -------------------------
+    @property
+    def create_scrape_settings_table_query(self):
+        """DDL for the scrape-scope settings table. Run ONCE on the bridge SQL
+        Server (the app has no local DB). A single row (Id = 1) holds which
+        product categories the weekly pipeline scrapes + all-vs-top-N-by-model."""
+        return """
+            CREATE TABLE EcommerceScrapeSettings (
+                Id         INT           NOT NULL PRIMARY KEY DEFAULT 1,
+                Categories NVARCHAR(200) NOT NULL,   -- JSON, e.g. ["phone","wearable","tablet"]
+                ScopeMode  VARCHAR(10)   NOT NULL DEFAULT 'all',   -- 'all' | 'top'
+                TopN       INT           NOT NULL DEFAULT 30,
+                UpdatedAt  DATETIME      NOT NULL DEFAULT GETDATE(),
+                UpdatedBy  NVARCHAR(100) NULL,
+                CONSTRAINT CK_EcommerceScrapeSettings_Single CHECK (Id = 1)
+            );
+        """
+
+    @property
+    def get_scrape_settings_query(self):
+        return """
+            SELECT TOP 1 Categories, ScopeMode, TopN, UpdatedAt, UpdatedBy
+            FROM EcommerceScrapeSettings
+            WHERE Id = 1
+        """
+
+    @property
+    def update_scrape_settings_query(self):
+        return """
+            UPDATE EcommerceScrapeSettings
+            SET Categories = ?, ScopeMode = ?, TopN = ?, UpdatedAt = GETDATE(), UpdatedBy = ?
+            WHERE Id = 1
+        """
+
+    @property
+    def insert_scrape_settings_query(self):
+        return """
+            INSERT INTO EcommerceScrapeSettings (Id, Categories, ScopeMode, TopN, UpdatedAt, UpdatedBy)
+            VALUES (1, ?, ?, ?, GETDATE(), ?)
+        """
+
     @property
     def lookup_product_catalog_query(self):
         """Look up ASIN, UPC, and eBay EPID from EcommerceProductCatalog.
