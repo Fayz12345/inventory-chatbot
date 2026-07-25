@@ -1,8 +1,9 @@
-"""Unit tests for the Best Buy (Mirakl P11) pricing module.
+"""Unit tests for the Best Buy pricing module (bestbuy.ca search API).
 
-The read path (auth/base URL) is verified live against the production account;
-these lock the UPC validation, the active->all_offers fallback, the floor
-computation, and the auth-abort behaviour with the network mocked.
+The read path (endpoint/JSON shape) is verified live; these lock the refurb-only
+filter, carrier-financing + accessory exclusion, title matching, grade->condition
+floor, and block handling with the network mocked. Proxy is disabled in tests (config
+flag) so requests go 'direct'.
 """
 from unittest.mock import MagicMock, patch
 
@@ -13,121 +14,127 @@ from ecommerce import config
 def _resp(status, payload=None):
     m = MagicMock()
     m.status_code = status
-    m.json.return_value = payload or {}
+    m.json.return_value = payload if payload is not None else {}
     m.text = str(payload or "")
     return m
 
 
-def _offer(price, shipping=0.0, total=None, currency="CAD", active=True):
-    o = {"shop_name": "Reseller", "price": price, "min_shipping_price": shipping,
-         "currency_iso_code": currency, "active": active, "state_code": "11"}
-    if total is not None:
-        o["total_price"] = total
-    return o
+def _prod(name, sale=None, reg=None, mkt=True, sku="1"):
+    return {"name": name, "salePrice": sale, "regularPrice": reg,
+            "isMarketplace": mkt, "sku": sku}
 
 
-def _p11(offers):
-    return {"products": [{"product_sku": "SKU", "product_title": "T",
-                          "total_count": len(offers), "offers": offers}]}
+def _search(*prods):
+    return {"products": list(prods), "total": len(prods)}
 
 
-def _creds(monkeypatch):
-    monkeypatch.setattr(config, "BESTBUY_API_KEY", "test-key")
-    monkeypatch.setattr(config, "BESTBUY_API_BASE", "https://marketplace.bestbuy.ca/api")
-    monkeypatch.setattr(config, "BESTBUY_PRODUCT_ID_TYPE", "UPC-A")
+def _direct(monkeypatch):
+    monkeypatch.setattr(config, "BESTBUY_USE_APIFY_PROXY", False)
 
 
-# --- valid_upc ---------------------------------------------------------------
-
-def test_valid_upc_accepts_real_gtin():
-    assert bestbuy.valid_upc("0887276667041")
-
-
-def test_valid_upc_rejects_placeholder_and_junk():
-    for bad in ("999004088797", "", None, "abc", "12345", "88727666704123456"):
-        assert not bestbuy.valid_upc(bad), bad
-
-
-# --- credential / filtering guards ------------------------------------------
-
-def test_no_creds_returns_all_none(monkeypatch):
-    monkeypatch.setattr(config, "BESTBUY_API_KEY", "")
-    assert bestbuy.fetch_prices(["0887276667041"]) == {"0887276667041": None}
-
-
+@patch("ecommerce.pricing.bestbuy.time.sleep", lambda *a: None)
 @patch("ecommerce.pricing.bestbuy.requests")
-def test_invalid_upcs_skipped_without_network(mock_requests, monkeypatch):
-    _creds(monkeypatch)
-    assert bestbuy.fetch_prices(["999004088797", "", None, "abc"]) == {}
-    mock_requests.get.assert_not_called()
-
-
-# --- fetch_prices happy paths -----------------------------------------------
-
-@patch("ecommerce.pricing.bestbuy.requests")
-def test_active_offers_floor_no_fallback(mock_requests, monkeypatch):
-    _creds(monkeypatch)
-    mock_requests.get.return_value = _resp(
-        200, _p11([_offer(200.0, total=200.0), _offer(150.0, total=150.0)]))
-    out = bestbuy.fetch_prices(["0887276667041"])
-    assert out == {"0887276667041": 150.0}
-    assert mock_requests.get.call_count == 1        # active had offers, no fallback
+def test_keeps_refurb_only_and_grade_floor(mock_requests, monkeypatch):
+    _direct(monkeypatch)
+    mock_requests.get.return_value = _resp(200, _search(
+        _prod("Refurbished (Excellent) - Apple iPhone 13 128GB - Midnight - Unlocked", 429.99, 659.99),
+        _prod("Refurbished (Good) - Apple iPhone 13 128GB - Midnight", 380.0, 669.0),
+        _prod("Rogers Apple iPhone 13 128GB - Midnight - Monthly Financing", 29.97, 29.97, mkt=False),
+        _prod("Open Box - Phone Case for Apple iPhone 13 128GB", 55.0),            # accessory
+        _prod("Apple iPhone 13 128GB - Blue - Unlocked", 699.0, 699.0),            # new, not refurb
+    ))
+    res = bestbuy.scrape_and_return_all(["Apple iPhone 13 128GB"])
+    items = res["Apple iPhone 13 128GB"]
+    assert len(items) == 2 and all("Refurbished" in i["title"] for i in items)
+    # grade A -> excellent floor; grade B -> good
+    assert bestbuy.get_floor_price_for_grade(res, "Apple iPhone 13 128GB", "A") == 429.99
+    assert bestbuy.get_floor_price_for_grade(res, "Apple iPhone 13 128GB", "B") == 380.0
     params = mock_requests.get.call_args.kwargs["params"]
-    assert params["product_references"] == "UPC-A|0887276667041"
-    assert params["all_offers"] == "false"          # string, not a bool
+    assert params["query"] == "Apple iPhone 13 128GB" and params["lang"] == "en-CA"
 
 
+@patch("ecommerce.pricing.bestbuy.time.sleep", lambda *a: None)
 @patch("ecommerce.pricing.bestbuy.requests")
-def test_falls_back_to_all_offers_when_no_active(mock_requests, monkeypatch):
-    _creds(monkeypatch)
-    mock_requests.get.side_effect = [
-        _resp(200, _p11([])),                                    # active: none in stock
-        _resp(200, _p11([_offer(129.96, total=129.96, active=False)])),  # all_offers
-    ]
-    out = bestbuy.fetch_prices(["0887276667041"])
-    assert out == {"0887276667041": 129.96}
-    assert mock_requests.get.call_count == 2
-    assert mock_requests.get.call_args.kwargs["params"]["all_offers"] == "true"
+def test_title_match_rejects_wrong_variants(mock_requests, monkeypatch):
+    _direct(monkeypatch)
+    mock_requests.get.return_value = _resp(200, _search(
+        _prod("Refurbished (Good) - Samsung Galaxy Watch5 Pro 45mm - Black", 250.0),   # Pro/45mm -> reject
+        _prod("Refurbished (Good) - Samsung Galaxy Watch5 44mm - Blue", 132.0),         # match
+    ))
+    res = bestbuy.scrape_and_return_all(["Samsung Galaxy Watch5 44mm"])
+    items = res["Samsung Galaxy Watch5 44mm"]
+    assert len(items) == 1 and "44mm" in items[0]["title"]
 
 
+@patch("ecommerce.pricing.bestbuy.time.sleep", lambda *a: None)
 @patch("ecommerce.pricing.bestbuy.requests")
-def test_not_in_catalog_returns_none(mock_requests, monkeypatch):
-    _creds(monkeypatch)
-    mock_requests.get.return_value = _resp(200, {"products": []})
-    assert bestbuy.fetch_prices(["0887276667041"]) == {"0887276667041": None}
+def test_carrier_financing_and_min_price_excluded(mock_requests, monkeypatch):
+    _direct(monkeypatch)
+    mock_requests.get.return_value = _resp(200, _search(
+        _prod("Open Box - Fido Apple iPhone 13 128GB Monthly Financing", 55.0),  # refurb+carrier -> drop
+        _prod("Refurbished (Good) - Apple iPhone 13 128GB", 25.0),               # refurb but < min_price
+    ))
+    res = bestbuy.scrape_and_return_all(["Apple iPhone 13 128GB"], min_price=50.0)
+    assert res["Apple iPhone 13 128GB"] == []
 
 
+@patch("ecommerce.pricing.bestbuy.time.sleep", lambda *a: None)
 @patch("ecommerce.pricing.bestbuy.requests")
-def test_dedupes_repeated_upcs(mock_requests, monkeypatch):
-    _creds(monkeypatch)
-    mock_requests.get.return_value = _resp(200, _p11([_offer(100.0, total=100.0)]))
-    out = bestbuy.fetch_prices(["0887276667041", "0887276667041"])
-    assert out == {"0887276667041": 100.0}
-    assert mock_requests.get.call_count == 1
+def test_off_grade_fallback_to_overall_floor(mock_requests, monkeypatch):
+    _direct(monkeypatch)
+    mock_requests.get.return_value = _resp(200, _search(
+        _prod("Refurbished (Fair) - Apple iPhone 13 128GB", 300.0),   # only Fair available
+    ))
+    res = bestbuy.scrape_and_return_all(["Apple iPhone 13 128GB"])
+    # grade A prefers excellent/open box (none) -> falls back to the overall refurb floor
+    assert bestbuy.get_floor_price_for_grade(res, "Apple iPhone 13 128GB", "A") == 300.0
 
 
+@patch("ecommerce.pricing.bestbuy.time.sleep", lambda *a: None)
 @patch("ecommerce.pricing.bestbuy.requests")
-def test_auth_error_aborts_run(mock_requests, monkeypatch):
-    _creds(monkeypatch)
-    mock_requests.get.return_value = _resp(403, {"message": "forbidden"})
-    out = bestbuy.fetch_prices(["0887276667041", "0887276667042"])
-    assert out == {"0887276667041": None, "0887276667042": None}
-    assert mock_requests.get.call_count == 1        # stops after the first 403
+def test_block_retries_then_empty(mock_requests, monkeypatch):
+    _direct(monkeypatch)
+    mock_requests.get.return_value = _resp(403, {"error": "blocked"})
+    res = bestbuy.scrape_and_return_all(["Apple iPhone 13 128GB"])
+    assert res == {"Apple iPhone 13 128GB": []}
+    assert mock_requests.get.call_count == bestbuy.RETRIES + 1   # retried on block
 
 
-# --- floor / price helpers ---------------------------------------------------
+@patch("ecommerce.pricing.bestbuy.time.sleep", lambda *a: None)
+@patch("ecommerce.pricing.bestbuy.requests")
+def test_non_json_returns_empty(mock_requests, monkeypatch):
+    _direct(monkeypatch)
+    bad = MagicMock(); bad.status_code = 200; bad.json.side_effect = ValueError("nope"); bad.text = "<html>"
+    mock_requests.get.return_value = bad
+    assert bestbuy.scrape_and_return_all(["Apple iPhone 13 128GB"]) == {"Apple iPhone 13 128GB": []}
 
-def test_offer_price_precedence():
-    assert bestbuy._offer_price({"total_price": 100.0, "price": 90.0}) == 100.0
-    assert bestbuy._offer_price({"price": 90.0, "min_shipping_price": 5.0}) == 95.0
-    assert bestbuy._offer_price({"applicable_pricing": {"price": 80.0}}) == 80.0
-    assert bestbuy._offer_price({}) is None
+
+@patch("ecommerce.pricing.bestbuy.time.sleep", lambda *a: None)
+@patch("ecommerce.pricing.bestbuy.requests")
+def test_new_only_returns_empty(mock_requests, monkeypatch):
+    _direct(monkeypatch)
+    mock_requests.get.return_value = _resp(200, _search(
+        _prod("Apple iPhone 13 128GB - Blue - Unlocked", 699.0),   # new, no refurb marker
+    ))
+    assert bestbuy.scrape_and_return_all(["Apple iPhone 13 128GB"])["Apple iPhone 13 128GB"] == []
 
 
-def test_floor_skips_non_cad_and_nonpositive():
-    offers = [
-        {"total_price": 50.0, "currency_iso_code": "USD"},    # skipped (not CAD)
-        {"total_price": 0.0, "currency_iso_code": "CAD"},     # skipped (<= 0)
-        {"total_price": 120.0, "currency_iso_code": "CAD"},   # kept
-    ]
-    assert bestbuy._floor_from_offers(offers) == 120.0
+def test_empty_keywords():
+    assert bestbuy.scrape_and_return_all([]) == {}
+
+
+def test_floor_no_items_returns_none():
+    assert bestbuy.get_floor_price_for_grade({"kw": []}, "kw", "A") is None
+
+
+def test_condition_extraction():
+    assert bestbuy._condition("Refurbished (Excellent) - iPhone") == "excellent"
+    assert bestbuy._condition("Refurbished (Good) - x") == "good"
+    assert bestbuy._condition("Open Box - x") == "open box"
+    assert bestbuy._condition("Pre-Owned x") == "pre-owned"
+
+
+def test_price_prefers_saleprice():
+    assert bestbuy._price({"salePrice": 100.0, "regularPrice": 200.0}) == 100.0
+    assert bestbuy._price({"salePrice": None, "regularPrice": 200.0}) == 200.0
+    assert bestbuy._price({"salePrice": 0, "regularPrice": 0}) is None

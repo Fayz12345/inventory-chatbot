@@ -4,7 +4,7 @@ Flask-based AI inventory chatbot running on Linux EC2 (Ubuntu 24.04, Public IP: 
 
 ## Ecommerce Pipeline (Phase 1D) — Apify Cloud Scraping
 
-Pricing modules gather competitive prices across 4 Canadian marketplaces: Amazon, eBay, and Reebelo via Apify cloud actors, and Best Buy CA via the Mirakl P11 seller API (read-only, no Apify). The approval Blueprint is registered in `app.py`. Pricing runs weekly (Monday 6 AM EST).
+Pricing modules gather competitive prices across 4 Canadian marketplaces: Amazon and eBay via Apify cloud actors, and Reebelo + Best Buy CA via their first-party search APIs (keyword-based, no Apify — Best Buy uses bestbuy.ca's refurb search; the old Mirakl P11-by-UPC path was retired because that marketplace carried almost none of our variants). The approval Blueprint is registered in `app.py`. Pricing runs weekly (Monday 6 AM EST).
 
 ### Remaining Deployment Tasks
 
@@ -25,7 +25,7 @@ ecommerce/
 │   ├── apify_client.py    # Apify SDK wrapper — run actors, retrieve datasets
 │   ├── amazon.py          # Run Amazon actor → floor prices by ASIN
 │   ├── ebay.py            # Run eBay actor → floor prices by keyword
-│   ├── bestbuy.py         # Best Buy CA floor prices via Mirakl P11 seller API (no Apify)
+│   ├── bestbuy.py         # Best Buy CA refurb floor via bestbuy.ca search API (keyword, no Apify)
 │   ├── reebelo.py         # Reebelo CA floor prices via reebelo.ca catalog API (Apify residential proxy)
 │   ├── proxy.py           # Apify residential-proxy routing + datacenter-IP block logging
 │   ├── categorize.py      # Classify device (mobile/wearable/tablet/accessory) from Model + scrape-scope filter

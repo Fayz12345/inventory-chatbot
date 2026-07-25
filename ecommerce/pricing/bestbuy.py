@@ -1,201 +1,253 @@
 """
-Best Buy Canada competitor pricing via the Mirakl seller API (endpoint P11).
+Best Buy Canada competitor pricing via bestbuy.ca's front-end search API.
 
-Replaces the Google Shopping Apify actor as the Best Buy price source. That actor
-was ~66% of the ecommerce Apify bill and the least reliable of the four (see
-docs/apify-cost-optimization.md); P11 is a plain read-only REST GET at $0 Apify cost.
+Replaces the Mirakl **P11** seller API (UPC-keyed), which only saw the sparse
+third-party *marketplace* and returned 0 products for most of our devices (a
+measurement across iPhone 13 / Moto G Stylus / Galaxy Watch5 confirmed ~0 coverage
+even with valid GTINs). bestbuy.ca's own search API is **keyword-based** and surfaces
+Best Buy's large **refurbished / open-box** inventory — the right competitor set for
+our used devices, and no UPC required (same shape as Reebelo/eBay):
 
-`GET /api/products/offers?product_references=UPC-A|<upc>&all_offers=<bool>` returns
-every marketplace seller's offer for a Best Buy catalog product, matched by UPC. The
-offers are third-party open-box / refurbished resellers priced in CAD — the right
-competitor set for our used devices. We take the lowest total price (price + shipping)
-across the offers as the Best Buy floor.
+    GET https://www.bestbuy.ca/api/v2/json/search?query=<kw>&lang=en-CA&pageSize=N
+      -> { "products": [ { "name", "salePrice", "regularPrice", "sku",
+                           "isMarketplace" }, ... ], "total": N }
 
-Auth reuses the same production key as ecommerce/listings/bestbuy.py — Best Buy CA is a
-single production instance with no sandbox, but this path is strictly read-only (GET),
-so it never mutates a listing.
+We keep only refurbished/open-box listings (dropping carrier-financing and
+accessories), title-match the model, filter by condition→grade, and take the lowest
+price. Routed through the Apify RESIDENTIAL proxy by default (BESTBUY_USE_APIFY_PROXY):
+bestbuy.ca is Akamai-fronted and blocks datacenter IPs, so a blocked EC2 IP is rotated
+out on retry. See ecommerce/pricing/proxy.py. Blocks are logged loudly, not silently zeroed.
 """
 
 import logging
+import re
 import time
 
 import requests
 
 from ecommerce import config
 from ecommerce.pricing import proxy
+from ecommerce.pricing.filters import is_accessory
 
 log = logging.getLogger(__name__)
 
-REQUEST_TIMEOUT = 30       # seconds, matches listings/bestbuy.py
-REQUEST_DELAY = 0.4        # seconds between per-UPC calls (rate-limit courtesy)
-RETRIES = 2                # extra attempts on 429/5xx/network before giving up
+SEARCH_URL = "https://www.bestbuy.ca/api/v2/json/search"
 
-# When the in-stock (active) lookup yields fewer offers than this, retry once with
-# all_offers=true. Best Buy resellers frequently sit at ZERO_QUANTITY (inactive) yet
-# still advertise a price, so without the fallback coverage is near zero.
-ACTIVE_MIN_OFFERS = 1
+DEFAULT_MIN_PRICE = 50.0   # also filters out carrier "$15-30/mo" financing entries
+REQUEST_TIMEOUT = 30
+REQUEST_DELAY = 0.5        # seconds between keyword queries
+RETRIES = 2                # retry on block/transport error (a residential retry = fresh IP)
+PAGE_SIZE = 24             # search results per keyword (relevance-sorted first page)
+
+_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"),
+    "Accept": "application/json",
+    "Accept-Language": "en-CA",
+}
+
+# Carrier names -> a monthly-financing/contract listing (the shown price is a
+# per-month payment, not the device price). From the retired google_shopping.py.
+_CARRIER_NAMES = ("telus", "koodo", "bell", "rogers", "fido", "virgin",
+                  "public mobile", "chatr", "freedom")
+
+# The used competitor set we compare against. Anything else (new, financing) is dropped.
+_REFURB_MARKERS = ("refurbished", "open box", "open-box", "pre-owned", "preowned",
+                   "geek squad")
+
+# Map internal grade -> acceptable Best Buy condition markers (substring, lowercase).
+# Best Buy conditions seen: "Refurbished (Excellent|Good|Fair)", "Open Box", "Pre-Owned".
+GRADE_CONDITION_MAP = {
+    "NEW": ("open box", "excellent"),
+    "A+":  ("excellent", "open box"),
+    "A":   ("excellent", "open box"),
+    "B":   ("good", "open box", "pre-owned"),
+    "C":   ("fair", "acceptable", "good", "pre-owned"),
+}
+
+# Title-matching (mirrors ecommerce/pricing/reebelo.py): drop brand words, require every
+# significant keyword token as a substring, and require model qualifiers on both sides or
+# neither so "Watch5 44mm" != "Watch5 Pro 45mm" and "Stylus 2024" != "Stylus 2022".
+_BRANDS = {"apple", "samsung", "google", "motorola", "moto", "sonim", "tcl",
+           "huawei", "alcatel", "lg", "oneplus", "nokia"}
+_MODEL_QUALIFIERS = {"mini", "pro", "max", "plus", "ultra", "se", "fe", "air",
+                     "classic", "lite", "neo", "active"}
 
 
-class _AuthError(Exception):
-    """Raised on a 401/403 so a bad/unscoped key stops the whole run early."""
-
-
-def valid_upc(upc):
-    """True if `upc` looks like a real GTIN we can query Best Buy with.
-
-    Rejects blanks, non-numeric values, out-of-range lengths, and the known
-    '999...' internal placeholders seeded into EcommerceProductCatalog.
-    """
-    if not upc:
-        return False
-    u = str(upc).strip()
-    if not u.isdigit() or not (10 <= len(u) <= 14):
-        return False
-    if u.startswith('999') or set(u) == {'9'}:
-        return False
-    return True
-
-
-def _headers():
-    # GET only — no Content-Type needed (mirrors listings/bestbuy.py auth).
-    return {"Authorization": config.BESTBUY_API_KEY, "Accept": "application/json"}
-
-
-def _have_creds():
-    return bool(config.BESTBUY_API_KEY and config.BESTBUY_API_BASE)
-
-
-def fetch_prices(upc_list):
-    """Fetch the Best Buy competitive floor price for each UPC via Mirakl P11.
+def scrape_and_return_all(keywords_list, min_price=DEFAULT_MIN_PRICE, max_results=PAGE_SIZE):
+    """Search bestbuy.ca once per keyword; return refurbished/open-box listings.
 
     Returns:
-        dict mapping upc -> lowest total price (float) or None.
+        dict mapping keyword -> list of {title, price, condition, sku}.
     """
-    upcs = [u for u in dict.fromkeys(upc_list or []) if valid_upc(u)]
-    prices = {u: None for u in upcs}
-    if not upcs:
-        return prices
-
-    if not _have_creds():
-        log.warning("Best Buy (Mirakl) API key not configured — skipping Best Buy "
-                    "pricing for %d UPC(s).", len(upcs))
-        return prices
+    keywords = list(dict.fromkeys(keywords_list or []))
+    grouped = {kw: [] for kw in keywords}
+    if not keywords:
+        return grouped
 
     proxies, via = proxy.proxies_for(config.BESTBUY_USE_APIFY_PROXY, "bestbuy")
-    log.info("Fetching Best Buy CA prices via Mirakl P11 for %d UPC(s) (%s)...", len(upcs), via)
-    for idx, upc in enumerate(upcs):
-        if idx:
+    log.info("Fetching Best Buy CA prices via bestbuy.ca search for %d keyword(s) (%s)...",
+             len(keywords), via)
+
+    for i, kw in enumerate(keywords):
+        if i:
             time.sleep(REQUEST_DELAY)
-        try:
-            offers = _fetch_offers(upc, all_offers=False, proxies=proxies, via=via)
-            mode = "active"
-            if offers is not None and len(offers) < ACTIVE_MIN_OFFERS:
-                fallback = _fetch_offers(upc, all_offers=True, proxies=proxies, via=via)
-                if fallback is not None:
-                    offers, mode = fallback, "all_offers"
-        except _AuthError as e:
-            log.error("Best Buy P11 auth failed (%s) — aborting Best Buy pricing; "
-                      "check BESTBUY_API_KEY scope.", e)
-            break
+        grouped[kw] = _search_one(kw, min_price, max_results, proxies, via)
 
-        if offers is None:
-            continue  # request failed (already logged)
-        if not offers:
-            log.info("Best Buy CA: no offers for UPC %s (not in catalog).", upc)
+    hits = sum(1 for v in grouped.values() if v)
+    log.info("Best Buy CA (bestbuy.ca search): %d/%d keywords with refurb listings.",
+             hits, len(keywords))
+    if keywords and hits == 0:
+        log.warning("Best Buy returned 0 refurb listings for all %d keywords — bestbuy.ca "
+                    "may be blocking (%s). Check the block warnings above.", len(keywords), via)
+    return grouped
+
+
+def _search_one(keyword, min_price, max_results, proxies, via):
+    products = _search(keyword, max_results, proxies, via)
+    if products is None:
+        return []
+
+    tokens = _match_tokens(keyword)
+    out = []
+    for p in products:
+        name = p.get("name") or ""
+        if is_accessory(name) or not _is_refurb(name):
             continue
+        price = _price(p)
+        if price is None or (min_price and price < min_price):
+            continue                       # drops carrier "$/mo" financing prices too
+        if _is_carrier_financing(name):
+            continue
+        if not _title_matches(name, tokens):
+            continue
+        out.append({"title": name, "price": price,
+                    "condition": _condition(name), "sku": p.get("sku")})
+    log.info("Best Buy CA: %d refurb match(es) for '%s'.", len(out), keyword)
+    return out
 
-        floor = _floor_from_offers(offers)
-        if floor is not None:
-            prices[upc] = floor
-            log.info("Best Buy CA floor for UPC %s: $%.2f (%s, %d offer(s)).",
-                     upc, floor, mode, len(offers))
 
-    found = sum(1 for v in prices.values() if v is not None)
-    log.info("Best Buy CA (Mirakl P11): %d/%d UPCs with prices.", found, len(upcs))
-    return prices
-
-
-def _fetch_offers(upc, all_offers, proxies=None, via="direct(datacenter-IP)"):
-    """One P11 GET. Returns the flattened offers list (possibly empty) on success,
-    or None on a transient failure. Raises _AuthError on 401/403.
-
-    `proxies`/`via` optionally route through the Apify residential proxy (default
-    direct — Best Buy is an authenticated API); `via` is threaded into block logs."""
-    params = {
-        "product_references": f"{config.BESTBUY_PRODUCT_ID_TYPE}|{upc}",
-        "all_offers": "true" if all_offers else "false",
-    }
-    url = f"{config.BESTBUY_API_BASE}/products/offers"
+def _search(keyword, max_results, proxies, via):
+    """One search request. Returns the products list (possibly empty), or None on failure.
+    Retries on a block/transport error — a residential retry gets a fresh exit IP."""
+    params = {"query": keyword, "lang": "en-CA", "page": 1, "pageSize": max_results}
     for attempt in range(RETRIES + 1):
+        if attempt:
+            time.sleep(2 * attempt)
         try:
-            r = requests.get(url, headers=_headers(), params=params, proxies=proxies,
-                             timeout=REQUEST_TIMEOUT)
+            r = requests.get(SEARCH_URL, params=params, headers=_HEADERS,
+                             proxies=proxies, timeout=REQUEST_TIMEOUT)
         except requests.RequestException as e:
-            if attempt < RETRIES:
-                time.sleep(2 * (attempt + 1))
-                continue
-            log.warning("Best Buy P11 request error for UPC %s: %s", upc, e)
-            return None
-
-        if r.status_code in (401, 403):
-            # 403 could be a datacenter-IP/anti-bot block OR a bad key/scope; 401 is auth.
-            if r.status_code == 403:
-                proxy.log_block("bestbuy", r.status_code, via, r.text)
-            raise _AuthError(f"{r.status_code} {r.text[:120]} (via {via})")
-        if r.status_code == 429 or r.status_code >= 500:
+            log.warning("[bestbuy] request error via %s for '%s' (attempt %d/%d): %s",
+                        via, keyword, attempt + 1, RETRIES + 1, e)
+            continue
+        if proxy.looks_blocked(r.status_code):
             proxy.log_block("bestbuy", r.status_code, via, r.text)
-            if attempt < RETRIES:
-                time.sleep(2 * (attempt + 1))
-                continue
-            log.warning("Best Buy P11 HTTP %s for UPC %s (giving up).", r.status_code, upc)
-            return None
+            continue  # retry -> fresh residential IP
         if r.status_code != 200:
-            log.warning("Best Buy P11 HTTP %s for UPC %s: %s", r.status_code, upc, r.text[:120])
+            log.info("[bestbuy] HTTP %s for '%s' (not a block).", r.status_code, keyword)
             return None
-
         try:
-            data = r.json()
+            return (r.json() or {}).get("products") or []
         except ValueError:
-            log.warning("Best Buy P11 non-JSON body for UPC %s.", upc)
+            log.warning("[bestbuy] non-JSON response for '%s'.", keyword)
             return None
-
-        offers = []
-        for product in (data.get("products") or []):
-            offers.extend(product.get("offers") or [])
-        return offers
     return None
 
 
-def _floor_from_offers(offers):
-    """Lowest total price (price + shipping) across the offers, in CAD."""
-    floor = None
-    for offer in offers:
-        price = _offer_price(offer)
-        if price is None or price <= 0:
+def get_floor_price_for_grade(grouped_results, keyword, grade):
+    """Lowest Best Buy refurb price for a keyword whose condition matches the grade.
+
+    Prefers a grade-matched listing; falls back to the overall refurb floor so a
+    device with only off-grade refurb stock still gets a competitor signal.
+    Returns float or None.
+    """
+    items = grouped_results.get(keyword) or []
+    acceptable = GRADE_CONDITION_MAP.get(grade, GRADE_CONDITION_MAP["C"])
+
+    graded, overall = None, None
+    for it in items:
+        price = it.get("price")
+        if not price or price <= 0:
             continue
-        currency = offer.get("currency_iso_code")
-        if currency and currency != "CAD":
-            continue
-        if floor is None or price < floor:
-            floor = price
+        if overall is None or price < overall:
+            overall = price
+        cond = it.get("condition") or ""
+        if any(m in cond for m in acceptable) and (graded is None or price < graded):
+            graded = price
+
+    floor = graded if graded is not None else overall
+    if floor is not None:
+        log.info("Best Buy CA floor for '%s' Grade %s: $%.2f%s",
+                 keyword, grade, floor, "" if graded is not None else " (off-grade fallback)")
+    else:
+        log.info("Best Buy CA: no refurb match for '%s' Grade %s.", keyword, grade)
     return floor
 
 
-def _offer_price(offer):
-    """A single offer's total price. Prefers `total_price`, then price+shipping,
-    then the applicable_pricing block."""
-    total = offer.get("total_price")
-    if isinstance(total, (int, float)):
-        return float(total)
+# --- helpers ---------------------------------------------------------------
 
-    price = offer.get("price")
-    if isinstance(price, (int, float)):
-        shipping = offer.get("min_shipping_price")
-        shipping = float(shipping) if isinstance(shipping, (int, float)) else 0.0
-        return float(price) + shipping
-
-    applicable = offer.get("applicable_pricing") or {}
-    ap_price = applicable.get("price")
-    if isinstance(ap_price, (int, float)):
-        return float(ap_price)
+def _price(product):
+    """A listing's price: prefer salePrice, fall back to regularPrice."""
+    for key in ("salePrice", "regularPrice"):
+        v = product.get(key)
+        if isinstance(v, (int, float)) and v > 0:
+            return float(v)
+        if isinstance(v, str):
+            m = re.search(r"[\d,]+\.?\d*", v.replace(",", ""))
+            if m:
+                try:
+                    f = float(m.group())
+                    if f > 0:
+                        return f
+                except ValueError:
+                    pass
     return None
+
+
+def _is_refurb(name):
+    n = (name or "").lower()
+    return any(m in n for m in _REFURB_MARKERS)
+
+
+def _is_carrier_financing(name):
+    """A carrier-named listing is a monthly-financing/contract price, not a device price."""
+    n = (name or "").lower()
+    return any(c in n for c in _CARRIER_NAMES) or "monthly financing" in n
+
+
+def _condition(name):
+    """Extract a lowercase condition token from the listing name."""
+    n = (name or "").lower()
+    m = re.search(r"refurbished\s*\(([^)]+)\)", n)
+    if m:
+        return m.group(1).strip()          # 'excellent' | 'good' | 'fair'
+    if "open box" in n or "open-box" in n:
+        return "open box"
+    if "pre-owned" in n or "preowned" in n:
+        return "pre-owned"
+    if "geek squad" in n:
+        return "excellent"
+    return "refurbished"
+
+
+def _normalize(s):
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
+def _match_tokens(keyword):
+    return [t for t in _normalize(keyword).split() if t not in _BRANDS and len(t) >= 2]
+
+
+def _title_matches(title, tokens):
+    if not tokens:
+        return False
+    norm = _normalize(title)
+    if not all(t in norm for t in tokens):
+        return False
+    kw = set(tokens)
+    title_words = set(norm.split())
+    for q in _MODEL_QUALIFIERS:
+        if (q in kw) != (q in title_words):
+            return False
+    return True

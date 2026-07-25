@@ -8,8 +8,8 @@ Runs the full weekly pipeline:
     1. Fetch products from Ecommerce Storefront
     2. Build clean shopper-style search queries from Manufacturer + Model
     3. Fetch competitive prices across CA marketplaces:
-         Amazon CA, eBay CA (Apify), Reebelo CA (reebelo.ca catalog API) +
-         Best Buy CA (Mirakl P11 API).
+         Amazon CA, eBay CA (Apify actors), Reebelo CA (reebelo.ca catalog API) +
+         Best Buy CA (bestbuy.ca search API) — all keyword-based.
     4. Run pricing algorithm (highest floor price across marketplaces)
     5. Sanity check margins
     6. Persist recommendations to DB (viewable on /ecommerce/dashboard)
@@ -99,23 +99,10 @@ def run_pipeline(limit=None, dry_run=False):
     log.info("Built %d unique search queries from %d product groups.",
              len(search_keywords), len(products))
 
-    # Step 2b: Resolve Best Buy UPCs per product group. Best Buy uses the Mirakl P11
-    # API, which is keyed by UPC (not keyword) — so map each group to its catalog UPC.
-    # Groups with no usable UPC in EcommerceProductCatalog get no Best Buy price
-    # (logged), the same gap as Amazon's ASIN.
-    bestbuy_upc_by_group = {}
-    for p in products:
-        info = db.lookup_product_catalog(p['Manufacturer'], p['Model'], p['Colour'])
-        upc = (info or {}).get('upc')
-        if bestbuy_pricing.valid_upc(upc):
-            bestbuy_upc_by_group[(p['Manufacturer'], p['Model'], p['Colour'])] = str(upc).strip()
-    log.info("Resolved Best Buy UPCs for %d/%d product groups (%d unique UPCs).",
-             len(bestbuy_upc_by_group), len(products),
-             len(set(bestbuy_upc_by_group.values())))
-
-    # Step 3: Fetch prices (Amazon/eBay via Apify, Best Buy via Mirakl, Reebelo via catalog API)
-    log.info("Step 3: Fetching prices (Amazon/eBay via Apify, Best Buy via Mirakl, "
-             "Reebelo via catalog API)...")
+    # Step 3: Fetch prices — Amazon/eBay via Apify actors; Best Buy + Reebelo via
+    # first-party search APIs (keyword-based, routed through the Apify residential proxy).
+    log.info("Step 3: Fetching prices (Amazon/eBay via Apify, Best Buy + Reebelo via "
+             "first-party search APIs)...")
 
     # Amazon CA — keyword search, marketplace CA (one actor run per keyword)
     amazon_raw = amazon_pricing.scrape_prices_by_keyword(search_keywords)
@@ -123,8 +110,8 @@ def run_pipeline(limit=None, dry_run=False):
     # eBay CA — keyword search via khadinakbar actor, returns results w/ condition
     ebay_results = ebay_pricing.scrape_and_return_all(search_keywords)
 
-    # Best Buy CA — Mirakl P11 seller API, keyed by UPC (read-only, $0 Apify cost)
-    bestbuy_raw = bestbuy_pricing.fetch_prices(sorted(set(bestbuy_upc_by_group.values())))
+    # Best Buy CA — bestbuy.ca search API, keyword refurb listings ($0 Apify)
+    bestbuy_results = bestbuy_pricing.scrape_and_return_all(search_keywords)
 
     # Reebelo CA — reebelo.ca first-party catalog API (routed via Apify residential proxy)
     reebelo_raw = reebelo_pricing.scrape_prices(search_keywords)
@@ -136,34 +123,26 @@ def run_pipeline(limit=None, dry_run=False):
         return sum(1 for v in d.values() if v is not None)
 
     n_kw = len(search_keywords)
-    # eBay is keyed by keyword -> list of listings; count keywords that returned any.
+    # eBay/Best Buy are keyed by keyword -> list of listings; count keywords that returned any.
     ebay_hits = sum(1 for kw in search_keywords if ebay_results.get(kw))
+    bestbuy_hits = sum(1 for kw in search_keywords if bestbuy_results.get(kw))
     coverage = {
         'Amazon': _coverage(amazon_raw),
         'eBay': ebay_hits,
+        'Best Buy': bestbuy_hits,
         'Reebelo': _coverage(reebelo_raw),
     }
     log.info("Scrape coverage (of %d keywords): %s", n_kw,
              ', '.join('%s %d' % (k, v) for k, v in coverage.items()))
     for market, hits in coverage.items():
         if n_kw and hits == 0:
-            log.warning("%s returned prices for 0/%d keywords — likely an actor "
-                        "failure/timeout or antibot block, not 'no listings'. "
-                        "Check the Apify run.", market, n_kw)
+            log.warning("%s returned prices for 0/%d keywords — likely a scrape "
+                        "failure/timeout or antibot block, not 'no listings'.", market, n_kw)
     # eBay antibot warning even on a partial blackout (Batch #17 was ~93 pct empty).
     if n_kw and 0 < ebay_hits < n_kw // 2:
         log.warning("eBay returned listings for only %d/%d keywords (under half) — eBay "
                     "likely antibot-throttled the proxy pool; check the eBay actor runs.",
                     ebay_hits, n_kw)
-
-    # Best Buy CA is UPC-keyed (Mirakl P11), so it has its own denominator.
-    bestbuy_hits = _coverage(bestbuy_raw)
-    log.info("Best Buy CA (Mirakl P11) coverage: %d/%d UPCs priced.",
-             bestbuy_hits, len(bestbuy_raw))
-    if bestbuy_raw and bestbuy_hits == 0:
-        log.warning("Best Buy returned 0 prices for all %d UPCs — check the Mirakl API "
-                    "key/scope, or whether those UPCs exist in Best Buy's catalog.",
-                    len(bestbuy_raw))
 
     # Step 4: Build recommendations
     log.info("Step 4: Running pricing algorithm...")
@@ -185,8 +164,8 @@ def run_pipeline(limit=None, dry_run=False):
         # eBay CA — filter by condition matching our grade
         ebay_price = ebay_pricing.get_floor_price_for_grade(ebay_results, keyword, grade)
 
-        # Best Buy CA (UPC-keyed via Mirakl P11) + Reebelo CA (keyword-keyed)
-        bestbuy_price = bestbuy_raw.get(bestbuy_upc_by_group.get((manufacturer, model, colour)))
+        # Best Buy CA — refurb floor matching grade (keyword-keyed) + Reebelo CA
+        bestbuy_price = bestbuy_pricing.get_floor_price_for_grade(bestbuy_results, keyword, grade)
         reebelo_price = reebelo_raw.get(keyword)
 
         # Device cost for margin check

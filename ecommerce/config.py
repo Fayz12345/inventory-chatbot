@@ -61,7 +61,9 @@ APIFY_PROXY_PASSWORD = _env("APIFY_PROXY_PASSWORD", "")
 REEBELO_USE_APIFY_PROXY = _env("REEBELO_USE_APIFY_PROXY", "true").lower() != "false"
 # Best Buy P11 is an authenticated Mirakl API -> direct by default; flip to "true"
 # only if EC2's datacenter IP gets blocked (the run log will show the block).
-BESTBUY_USE_APIFY_PROXY = _env("BESTBUY_USE_APIFY_PROXY", "false").lower() == "true"
+# Default ON: Best Buy pricing now hits bestbuy.ca's search API (Akamai-fronted,
+# blocks datacenter IPs), so route through the Apify residential proxy like Reebelo.
+BESTBUY_USE_APIFY_PROXY = _env("BESTBUY_USE_APIFY_PROXY", "true").lower() != "false"
 
 
 # Amazon SP-API
