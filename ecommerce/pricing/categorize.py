@@ -26,11 +26,23 @@ TABLET = "tablet"
 ACCESSORY = "accessory"
 CATEGORIES = (PHONE, WEARABLE, TABLET, ACCESSORY)
 
+# Human-readable labels for the dashboard "Preview impact" breakdown (Task 2).
+CATEGORY_LABELS = {
+    PHONE: "Phones",
+    WEARABLE: "Wearables",
+    TABLET: "Tablets",
+    ACCESSORY: "Accessories",
+}
+
 # Default scope when no settings row exists yet: scrape phones + wearables +
 # tablets (skip accessories), all products (no top-N cap).
 DEFAULT_CATEGORIES = [PHONE, WEARABLE, TABLET]
 
 _AUDIO_ACCESSORY_KEYS = ("airpod", "buds", "earbud", "earphone", "headphone")
+# Item/Bluetooth trackers (Apple AirTag, Samsung Galaxy SmartTag, Motorola Moto
+# Tag) are accessories, not phones — otherwise they fall through to the `phone`
+# default and inflate the phone scope.
+_TRACKER_ACCESSORY_KEYS = ("airtag", "smarttag", "smart tag", "moto tag", "mototag")
 _TABLET_KEYS = ("ipad", "tablet", "galaxy tab", "tab s", "tab a")
 
 
@@ -41,7 +53,8 @@ def categorize(manufacturer, model):
     an accessory, not a wearable. Everything unrecognised falls through to `phone`.
     """
     m = (model or "").lower()
-    if is_accessory(m) or any(k in m for k in _AUDIO_ACCESSORY_KEYS):
+    if (is_accessory(m) or any(k in m for k in _AUDIO_ACCESSORY_KEYS)
+            or any(k in m for k in _TRACKER_ACCESSORY_KEYS)):
         return ACCESSORY
     if "watch" in m:
         return WEARABLE
@@ -109,3 +122,90 @@ def apply_scope(products, categories, scope_mode="all", top_n=None):
         "by_category": by_category,
     }
     return kept, summary
+
+
+def preview_breakdown(products, categories, scope_mode="all", top_n=None,
+                      top_models_cap=50):
+    """Rich impact preview for the dashboard's expandable "Scrape scope" card.
+
+    Reuses `apply_scope` for the scoping, then aggregates the kept rows into
+    per-category and per-model detail. Scraping is per model/keyword, so a
+    "model" here is a distinct (Manufacturer, Model) — colours/grades of the
+    same device collapse into one model but each remains a separate inventory
+    row ("group").
+
+    Args:
+        products:       list of dicts (Manufacturer/Model/Colour/Grade/Quantity).
+        categories:     iterable of category keys to KEEP.
+        scope_mode:     'all' or 'top' (see apply_scope).
+        top_n:          model cap when scope_mode == 'top'.
+        top_models_cap: max models returned in `top_models`.
+
+    Returns:
+        dict shaped exactly like the /scrape-preview response body minus `ok`:
+        total, groups, units, by_category, detail, top_models,
+        top_models_truncated.
+    """
+    kept, summary = apply_scope(products, categories, scope_mode, top_n)
+
+    # Aggregate per distinct (Manufacturer, Model): unit total + row count.
+    per_model = {}
+    for p in kept:
+        key = _model_key(p)
+        agg = per_model.get(key)
+        if agg is None:
+            agg = {
+                "manufacturer": p.get("Manufacturer") or "",
+                "model": p.get("Model") or "",
+                "category": categorize(p.get("Manufacturer"), p.get("Model")),
+                "units": 0,
+                "groups": 0,
+            }
+            per_model[key] = agg
+        agg["units"] += (p.get("Quantity") or 0)
+        agg["groups"] += 1
+
+    # Roll models up into per-category totals.
+    cat_totals = {}
+    for agg in per_model.values():
+        c = cat_totals.setdefault(agg["category"],
+                                  {"models": 0, "units": 0, "groups": 0})
+        c["models"] += 1
+        c["units"] += agg["units"]
+        c["groups"] += agg["groups"]
+
+    # detail: one row per category PRESENT in scope, in canonical order.
+    detail = [
+        {
+            "key": cat,
+            "label": CATEGORY_LABELS[cat],
+            "models": cat_totals[cat]["models"],
+            "units": cat_totals[cat]["units"],
+            "groups": cat_totals[cat]["groups"],
+        }
+        for cat in CATEGORIES if cat in cat_totals
+    ]
+
+    # top_models: units desc, deterministic tie-break by (manufacturer, model).
+    ranked = sorted(per_model.values(),
+                    key=lambda a: (-a["units"], a["manufacturer"], a["model"]))
+    top_models = [
+        {
+            "manufacturer": a["manufacturer"],
+            "model": a["model"],
+            "category": a["category"],
+            "units": a["units"],
+            "groups": a["groups"],
+        }
+        for a in ranked[:top_models_cap]
+    ]
+
+    return {
+        "total": summary["models"],
+        "groups": summary["groups_after"],
+        "units": sum(a["units"] for a in per_model.values()),
+        "by_category": summary["by_category"],
+        "detail": detail,
+        "top_models": top_models,
+        "top_models_truncated": len(per_model) > top_models_cap,
+    }

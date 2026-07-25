@@ -29,10 +29,28 @@ log = logging.getLogger(__name__)
 approval_bp = Blueprint("ecommerce", __name__, url_prefix="/ecommerce")
 
 
+# Endpoints that self-guard with _require_login_json (they answer the AJAX
+# caller with a JSON 401). The before_request gate must NOT bounce these to the
+# HTML login page — an XHR expects a JSON body, not a 302 redirect.
+_SELF_GUARDED_JSON_ENDPOINTS = {
+    "ecommerce.scrape_settings_save",
+    "ecommerce.scrape_preview",
+    "ecommerce.approve",
+    "ecommerce.reject",
+}
+
+
 @approval_bp.before_request
 def _gate_ecommerce():
+    # Unauthenticated: send page requests to the login screen. The JSON/AJAX
+    # endpoints fall through to their own _require_login_json guard so they
+    # still answer with a 401 JSON body instead of an HTML redirect.
+    if not session.get('logged_in'):
+        if request.endpoint in _SELF_GUARDED_JSON_ENDPOINTS:
+            return None
+        return redirect(url_for('login'))
     role = roles.effective_role(session.get('role'), session.get('is_admin'))
-    if session.get('logged_in') and not roles.role_allows(role, 'ecommerce'):
+    if not roles.role_allows(role, 'ecommerce'):
         return redirect(url_for('home'))
 
 # Marketplaces that auto-post on approve. Best Buy CA (Mirakl, 1D.11) posts only
@@ -131,9 +149,8 @@ def scrape_preview():
     except (TypeError, ValueError):
         top_n = 30
     products = db.fetch_all_pending_products()
-    _, scope = categorize.apply_scope(products, cats, mode, top_n)
-    return jsonify({"ok": True, "total": scope["models"],
-                    "groups": scope["groups_after"], "by_category": scope["by_category"]})
+    return jsonify({"ok": True,
+                    **categorize.preview_breakdown(products, cats, mode, top_n)})
 
 
 # ---------------------------------------------------------------------------

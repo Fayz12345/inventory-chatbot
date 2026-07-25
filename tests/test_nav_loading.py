@@ -9,14 +9,14 @@ ROOT = os.path.dirname(os.path.abspath(app_module.__file__))
 def test_page_shell_wires_loader_and_bumped_css():
     html = page_shell('<div>body</div>', title='T', active='analytics')
     assert '/static/js/nav-loading.js' in html
-    assert 'app.css?v=12' in html
+    assert 'app.css?v=14' in html
 
 
 def test_base_template_wires_loader_and_bumped_css():
     with open(os.path.join(ROOT, 'templates', '_base.html')) as f:
         src = f.read()
     assert 'nav-loading.js' in src
-    assert 'app.css?v=12' in src
+    assert 'app.css?v=14' in src
     assert 'app.css?v=11' not in src
 
 

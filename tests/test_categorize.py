@@ -30,6 +30,16 @@ def test_categorize_unknown_defaults_to_phone():
     assert cz.categorize(None, None) == "phone"
 
 
+def test_categorize_item_trackers_are_accessories():
+    # Trackers were falling through to the 'phone' default (e.g. Moto Tag showed
+    # up as a top phone model). They're accessories.
+    assert cz.categorize("Motorola", "XT2445-1 (Moto Tag)") == "accessory"
+    assert cz.categorize("Apple", "AirTag") == "accessory"
+    assert cz.categorize("Samsung", "Galaxy SmartTag2") == "accessory"
+    # a real phone is unaffected
+    assert cz.categorize("Motorola", "XT2417-1 (Moto G 5G (2024))") == "phone"
+
+
 def test_scope_all_keeps_only_selected_categories():
     prods = [_p("Apple", "iPhone 15"), _p("Samsung", "Galaxy Watch 7"), _p("Samsung", "Galaxy Buds2")]
     kept, s = cz.apply_scope(prods, ["phone", "wearable"], "all", None)

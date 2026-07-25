@@ -34,9 +34,7 @@ BATCH_LIST_TEMPLATE = Template("""
             <div class="scope-scope">
                 <label class="scope-radio"><input type="radio" name="scope_mode" value="all" {{ 'checked' if settings.scope_mode != 'top' else '' }}> All products</label>
                 <label class="scope-radio"><input type="radio" name="scope_mode" value="top" {{ 'checked' if settings.scope_mode == 'top' else '' }}> Top
-                    <input type="number" id="scope-topn" min="1" value="{{ settings.top_n or 30 }}"> models by count</label>
-                <button type="button" class="scope-preset" data-n="20">20</button>
-                <button type="button" class="scope-preset" data-n="30">30</button>
+                    <input type="number" id="scope-topn" min="1" value="{{ settings.top_n or 30 }}"> models</label>
             </div>
         </div>
 
@@ -44,6 +42,36 @@ BATCH_LIST_TEMPLATE = Template("""
             <button type="button" class="btn btn-primary" id="scope-save">Save</button>
             <button type="button" class="btn btn-secondary" id="scope-preview-btn">Preview impact</button>
             <span class="muted" id="scope-preview-out"></span>
+            <button type="button" class="scope-toggle" id="scope-details-toggle" aria-expanded="false" aria-controls="scope-details" hidden>
+                <span class="scope-toggle__label">Show details</span>
+                <span class="scope-toggle__caret" aria-hidden="true">▸</span>
+            </button>
+        </div>
+
+        <div class="scope-details" id="scope-details" hidden>
+            <div class="scope-details__block">
+                <div class="scope-details__title">Impact by category</div>
+                <div class="table-wrap scope-details__scroll">
+                    <table>
+                        <thead>
+                            <tr><th>Category</th><th class="num">Models</th><th class="num">Units</th><th class="num">Groups</th></tr>
+                        </thead>
+                        <tbody id="scope-detail-rows"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="scope-details__block">
+                <div class="scope-details__title">Top models</div>
+                <div class="table-wrap scope-details__scroll">
+                    <table>
+                        <thead>
+                            <tr><th>Model</th><th>Category</th><th class="num">Units</th></tr>
+                        </thead>
+                        <tbody id="scope-topmodels-rows"></tbody>
+                    </table>
+                </div>
+                <p class="muted scope-details__note" id="scope-topmodels-note" hidden></p>
+            </div>
         </div>
     </div>
 
@@ -93,18 +121,76 @@ function scopeMode() {
 function scopeTopN() { return parseInt(document.getElementById('scope-topn').value, 10) || 30; }
 function scopeSyncEnabled() { document.getElementById('scope-topn').disabled = (scopeMode() !== 'top'); }
 
+function scopeCatLabel(key) {
+    var labels = { phone: 'Phones', wearable: 'Wearables', tablet: 'Tablets', accessory: 'Accessories' };
+    return labels[key] || key;
+}
+function scopeCell(value, isNum) {
+    var td = document.createElement('td');
+    if (isNum) { td.className = 'num'; }
+    td.textContent = (value === null || value === undefined) ? '' : value;
+    return td;
+}
+function scopeRenderDetails(d) {
+    var body = document.getElementById('scope-detail-rows');
+    body.innerHTML = '';
+    var detail = d.detail || [];
+    for (var i = 0; i < detail.length; i++) {
+        var row = detail[i], tr = document.createElement('tr');
+        tr.appendChild(scopeCell(row.label, false));
+        tr.appendChild(scopeCell(row.models, true));
+        tr.appendChild(scopeCell(row.units, true));
+        tr.appendChild(scopeCell(row.groups, true));
+        body.appendChild(tr);
+    }
+    var tot = document.createElement('tr');
+    tot.className = 'scope-total-row';
+    tot.appendChild(scopeCell('Total', false));
+    tot.appendChild(scopeCell(d.total, true));
+    tot.appendChild(scopeCell(d.units, true));
+    tot.appendChild(scopeCell(d.groups, true));
+    body.appendChild(tot);
+
+    var tbody = document.getElementById('scope-topmodels-rows');
+    tbody.innerHTML = '';
+    var tm = d.top_models || [];
+    for (var j = 0; j < tm.length; j++) {
+        var m = tm[j], mtr = document.createElement('tr');
+        var name = (m.manufacturer ? m.manufacturer + ' ' : '') + (m.model || '');
+        mtr.appendChild(scopeCell(name, false));
+        mtr.appendChild(scopeCell(scopeCatLabel(m.category), false));
+        mtr.appendChild(scopeCell(m.units, true));
+        tbody.appendChild(mtr);
+    }
+    var note = document.getElementById('scope-topmodels-note');
+    if (d.top_models_truncated) {
+        note.textContent = 'showing top ' + tm.length + ' by volume';
+        note.hidden = false;
+    } else {
+        note.textContent = '';
+        note.hidden = true;
+    }
+}
+function scopeSetToggle(expanded) {
+    var toggle = document.getElementById('scope-details-toggle');
+    var panel = document.getElementById('scope-details');
+    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    toggle.querySelector('.scope-toggle__label').textContent = expanded ? 'Hide details' : 'Show details';
+    toggle.querySelector('.scope-toggle__caret').textContent = expanded ? '▾' : '▸';
+    panel.hidden = !expanded;
+}
+function scopeHideDetails() {
+    scopeSetToggle(false);
+    document.getElementById('scope-details-toggle').hidden = true;
+}
+
 (function () {
     var radios = document.querySelectorAll('input[name=\"scope_mode\"]');
     for (var i = 0; i < radios.length; i++) { radios[i].addEventListener('change', scopeSyncEnabled); }
 
-    var presets = document.querySelectorAll('.scope-preset');
-    for (var j = 0; j < presets.length; j++) {
-        presets[j].addEventListener('click', function () {
-            document.getElementById('scope-topn').value = this.getAttribute('data-n');
-            document.querySelector('input[name=\"scope_mode\"][value=\"top\"]').checked = true;
-            scopeSyncEnabled();
-        });
-    }
+    document.getElementById('scope-details-toggle').addEventListener('click', function () {
+        scopeSetToggle(this.getAttribute('aria-expanded') !== 'true');
+    });
 
     document.getElementById('scope-save').addEventListener('click', function () {
         var btn = this, cats = scopeCats();
@@ -124,18 +210,21 @@ function scopeSyncEnabled() { document.getElementById('scope-topn').disabled = (
 
     document.getElementById('scope-preview-btn').addEventListener('click', function () {
         var btn = this, out = document.getElementById('scope-preview-out'), cats = scopeCats();
-        if (!cats.length) { out.textContent = '0 models selected'; return; }
-        btn.disabled = true; out.textContent = 'Calculating...';
+        if (!cats.length) { out.textContent = '0 models selected'; scopeHideDetails(); return; }
+        btn.disabled = true; out.textContent = 'Calculating...'; scopeHideDetails();
         var qs = 'categories=' + encodeURIComponent(cats.join(',')) +
                  '&scope_mode=' + encodeURIComponent(scopeMode()) +
                  '&top_n=' + encodeURIComponent(scopeTopN());
         fetch('/ecommerce/scrape-preview?' + qs).then(function (r) { return r.json(); }).then(function (d) {
             btn.disabled = false;
-            if (!d.ok) { out.textContent = d.error || 'Preview failed'; return; }
+            if (!d.ok) { out.textContent = d.error || 'Preview failed'; scopeHideDetails(); return; }
             var labels = { phone: 'Phones', wearable: 'Wearables', tablet: 'Tablets', accessory: 'Accessories' }, parts = [];
             for (var k in labels) { if (d.by_category[k]) { parts.push(labels[k] + ' ' + d.by_category[k]); } }
             out.textContent = '≈ ' + d.total + ' models will be scraped' + (parts.length ? ' (' + parts.join(' · ') + ')' : '');
-        }).catch(function () { btn.disabled = false; out.textContent = 'Network error'; });
+            scopeRenderDetails(d);
+            scopeSetToggle(false);
+            document.getElementById('scope-details-toggle').hidden = false;
+        }).catch(function () { btn.disabled = false; out.textContent = 'Network error'; scopeHideDetails(); });
     });
 
     scopeSyncEnabled();

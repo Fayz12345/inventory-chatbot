@@ -437,10 +437,20 @@ input.manual { width: 80px; padding: 6px 8px; }
 .scope-radio input[type=radio] { width: auto; accent-color: var(--brand); cursor: pointer; }
 .scope-scope input[type=number] { width: 62px; padding: 6px 8px; }
 .scope-scope input[type=number]:disabled { background: #e9ecf1; color: var(--faint); cursor: not-allowed; }
-.scope-preset { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-pill); padding: 3px 12px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
-.scope-preset:hover { background: var(--brand-50); border-color: var(--brand); color: var(--brand); }
 .scope-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 16px; border-top: 1px solid var(--border); }
 #scope-preview-out { font-size: 13px; }
+
+/* expandable "Preview impact" details */
+.scope-toggle { display: inline-flex; align-items: center; gap: 5px; background: none; border: none; margin: 0; padding: 4px 2px; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--brand); cursor: pointer; }
+.scope-toggle[hidden] { display: none; }
+.scope-toggle:hover { text-decoration: underline; }
+.scope-toggle__caret { font-size: 10px; line-height: 1; }
+.scope-details { margin-top: 14px; padding-top: 16px; border-top: 1px solid var(--border); display: grid; gap: 18px; }
+.scope-details[hidden] { display: none; }
+.scope-details__title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 8px; }
+.scope-details__scroll { overflow-x: auto; }
+.scope-details__note { margin: 8px 0 0; }
+.scope-details tbody tr.scope-total-row td { font-weight: 700; color: var(--ink); background: var(--surface-2); border-top: 1px solid var(--border-strong); }
 
 /* Report slots */
 .bh-report-slot {
