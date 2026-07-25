@@ -65,7 +65,7 @@ BATCH_LIST_TEMPLATE = Template("""
                     </table>
                 </div>
             </div>
-            <div class="scope-details__block">
+            <div class="scope-details__block" id="scope-block-models">
                 <div class="scope-details__title">Top models</div>
                 <div class="table-wrap scope-details__scroll">
                     <table>
@@ -77,7 +77,7 @@ BATCH_LIST_TEMPLATE = Template("""
                 </div>
                 <p class="muted scope-details__note" id="scope-topmodels-note" hidden></p>
             </div>
-            <div class="scope-details__block">
+            <div class="scope-details__block" id="scope-block-skus">
                 <div class="scope-details__title">Top SKUs (colour/grade variants)</div>
                 <div class="table-wrap scope-details__scroll">
                     <table>
@@ -213,6 +213,15 @@ function scopeRenderDetails(d) {
     } else {
         snote.textContent = '';
         snote.hidden = true;
+    }
+
+    // Lead with the selected view: Top SKUs first when scope is SKUs, else Top models first.
+    var container = document.getElementById('scope-details');
+    var mBlock = document.getElementById('scope-block-models');
+    var sBlock = document.getElementById('scope-block-skus');
+    if (container && mBlock && sBlock) {
+        if (scopeMode() === 'top_sku') { container.insertBefore(sBlock, mBlock); }
+        else { container.insertBefore(mBlock, sBlock); }
     }
 }
 function scopeSetToggle(expanded) {
