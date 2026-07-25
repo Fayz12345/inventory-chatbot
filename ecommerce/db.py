@@ -94,7 +94,7 @@ def get_scrape_settings():
         cats = list(ecommerce_settings.DEFAULTS["categories"])
     return {
         "categories": [c for c in cats if c in categorize.CATEGORIES],
-        "scope_mode": row.ScopeMode if row.ScopeMode in ("all", "top") else "all",
+        "scope_mode": row.ScopeMode if row.ScopeMode in ("all", "top", "top_sku") else "all",
         "top_n": int(row.TopN) if row.TopN else 30,
         "updated_at": row.UpdatedAt,
         "updated_by": row.UpdatedBy,

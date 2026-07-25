@@ -32,9 +32,13 @@ BATCH_LIST_TEMPLATE = Template("""
         <div class="scope-row">
             <span class="scope-row__label">Products</span>
             <div class="scope-scope">
-                <label class="scope-radio"><input type="radio" name="scope_mode" value="all" {{ 'checked' if settings.scope_mode != 'top' else '' }}> All products</label>
-                <label class="scope-radio"><input type="radio" name="scope_mode" value="top" {{ 'checked' if settings.scope_mode == 'top' else '' }}> Top
-                    <input type="number" id="scope-topn" min="1" value="{{ settings.top_n or 30 }}"> models</label>
+                <label class="scope-radio"><input type="radio" name="scope_mode" value="all" {{ 'checked' if settings.scope_mode == 'all' else '' }}> All products</label>
+                <label class="scope-radio"><input type="radio" name="scope_mode" value="top" {{ 'checked' if settings.scope_mode in ('top', 'top_sku') else '' }}> Top
+                    <input type="number" id="scope-topn" min="1" value="{{ settings.top_n or 30 }}">
+                    <select id="scope-top-unit" style="width:auto">
+                        <option value="model" {{ 'selected' if settings.scope_mode != 'top_sku' else '' }}>models</option>
+                        <option value="sku" {{ 'selected' if settings.scope_mode == 'top_sku' else '' }}>SKUs</option>
+                    </select></label>
             </div>
         </div>
 
@@ -51,10 +55,11 @@ BATCH_LIST_TEMPLATE = Template("""
         <div class="scope-details" id="scope-details" hidden>
             <div class="scope-details__block">
                 <div class="scope-details__title">Impact by category</div>
+                <p class="muted scope-details__note">Each model is one search (one scrape); each colour/grade variant is its own recommendation row.</p>
                 <div class="table-wrap scope-details__scroll">
                     <table>
                         <thead>
-                            <tr><th>Category</th><th class="num">Models</th><th class="num">Units</th><th class="num">Groups</th></tr>
+                            <tr><th>Category</th><th class="num">Models</th><th class="num">Units</th><th class="num">Variants</th></tr>
                         </thead>
                         <tbody id="scope-detail-rows"></tbody>
                     </table>
@@ -71,6 +76,18 @@ BATCH_LIST_TEMPLATE = Template("""
                     </table>
                 </div>
                 <p class="muted scope-details__note" id="scope-topmodels-note" hidden></p>
+            </div>
+            <div class="scope-details__block">
+                <div class="scope-details__title">Top SKUs (colour/grade variants)</div>
+                <div class="table-wrap scope-details__scroll">
+                    <table>
+                        <thead>
+                            <tr><th>Model</th><th>Colour</th><th>Grade</th><th class="num">Units</th></tr>
+                        </thead>
+                        <tbody id="scope-topskus-rows"></tbody>
+                    </table>
+                </div>
+                <p class="muted scope-details__note" id="scope-topskus-note" hidden></p>
             </div>
         </div>
     </div>
@@ -116,10 +133,17 @@ function scopeCats() {
 }
 function scopeMode() {
     var r = document.querySelector('input[name=\"scope_mode\"]:checked');
-    return r ? r.value : 'all';
+    if (!r || r.value === 'all') return 'all';
+    var u = document.getElementById('scope-top-unit');
+    return (u && u.value === 'sku') ? 'top_sku' : 'top';
 }
 function scopeTopN() { return parseInt(document.getElementById('scope-topn').value, 10) || 30; }
-function scopeSyncEnabled() { document.getElementById('scope-topn').disabled = (scopeMode() !== 'top'); }
+function scopeSyncEnabled() {
+    var r = document.querySelector('input[name=\"scope_mode\"]:checked');
+    var isTop = !!r && r.value === 'top';
+    document.getElementById('scope-topn').disabled = !isTop;
+    var u = document.getElementById('scope-top-unit'); if (u) { u.disabled = !isTop; }
+}
 
 function scopeCatLabel(key) {
     var labels = { phone: 'Phones', wearable: 'Wearables', tablet: 'Tablets', accessory: 'Accessories' };
@@ -169,6 +193,26 @@ function scopeRenderDetails(d) {
     } else {
         note.textContent = '';
         note.hidden = true;
+    }
+
+    var stbody = document.getElementById('scope-topskus-rows');
+    stbody.innerHTML = '';
+    var sk = d.top_skus || [];
+    for (var s = 0; s < sk.length; s++) {
+        var v = sk[s], vtr = document.createElement('tr');
+        vtr.appendChild(scopeCell((v.manufacturer ? v.manufacturer + ' ' : '') + (v.model || ''), false));
+        vtr.appendChild(scopeCell(v.colour, false));
+        vtr.appendChild(scopeCell(v.grade, false));
+        vtr.appendChild(scopeCell(v.units, true));
+        stbody.appendChild(vtr);
+    }
+    var snote = document.getElementById('scope-topskus-note');
+    if (d.top_skus_truncated) {
+        snote.textContent = 'showing top ' + sk.length + ' by units';
+        snote.hidden = false;
+    } else {
+        snote.textContent = '';
+        snote.hidden = true;
     }
 }
 function scopeSetToggle(expanded) {
@@ -220,7 +264,7 @@ function scopeHideDetails() {
             if (!d.ok) { out.textContent = d.error || 'Preview failed'; scopeHideDetails(); return; }
             var labels = { phone: 'Phones', wearable: 'Wearables', tablet: 'Tablets', accessory: 'Accessories' }, parts = [];
             for (var k in labels) { if (d.by_category[k]) { parts.push(labels[k] + ' ' + d.by_category[k]); } }
-            out.textContent = '≈ ' + d.total + ' models will be scraped' + (parts.length ? ' (' + parts.join(' · ') + ')' : '');
+            out.textContent = '≈ ' + d.total + ' models (' + d.groups + ' colour/grade variants) will be priced' + (parts.length ? '  — ' + parts.join(' · ') : '');
             scopeRenderDetails(d);
             scopeSetToggle(false);
             document.getElementById('scope-details-toggle').hidden = false;
@@ -572,7 +616,7 @@ document.addEventListener('keydown', function(e) { if (e.key === 'Escape') close
 def render_batch_list(batches, settings=None):
     """Render the batch list page (with the scrape-scope control)."""
     if settings is None:
-        settings = {"categories": ["phone", "wearable", "tablet"], "scope_mode": "all", "top_n": 30}
+        settings = {"categories": ["phone", "wearable", "tablet"], "scope_mode": "top_sku", "top_n": 30}
     return page_shell(
         BATCH_LIST_TEMPLATE.render(batches=batches, settings=settings),
         title="Ecommerce Pricing Dashboard", active="ecommerce")

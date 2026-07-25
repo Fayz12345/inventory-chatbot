@@ -114,7 +114,7 @@ def run_pipeline(limit=None, dry_run=False):
     bestbuy_results = bestbuy_pricing.scrape_and_return_all(search_keywords)
 
     # Reebelo CA — reebelo.ca first-party catalog API (routed via Apify residential proxy)
-    reebelo_raw = reebelo_pricing.scrape_prices(search_keywords)
+    reebelo_results = reebelo_pricing.scrape_and_return_all(search_keywords)
 
     # Per-marketplace coverage — makes a silent scrape failure (e.g. an actor
     # timeout or antibot block that the client swallows as []) visible in the run
@@ -123,14 +123,15 @@ def run_pipeline(limit=None, dry_run=False):
         return sum(1 for v in d.values() if v is not None)
 
     n_kw = len(search_keywords)
-    # eBay/Best Buy are keyed by keyword -> list of listings; count keywords that returned any.
+    # eBay/Best Buy/Reebelo are keyed by keyword -> list of listings; count keywords with any.
     ebay_hits = sum(1 for kw in search_keywords if ebay_results.get(kw))
     bestbuy_hits = sum(1 for kw in search_keywords if bestbuy_results.get(kw))
+    reebelo_hits = sum(1 for kw in search_keywords if reebelo_results.get(kw))
     coverage = {
         'Amazon': _coverage(amazon_raw),
         'eBay': ebay_hits,
         'Best Buy': bestbuy_hits,
-        'Reebelo': _coverage(reebelo_raw),
+        'Reebelo': reebelo_hits,
     }
     log.info("Scrape coverage (of %d keywords): %s", n_kw,
              ', '.join('%s %d' % (k, v) for k, v in coverage.items()))
@@ -166,7 +167,7 @@ def run_pipeline(limit=None, dry_run=False):
 
         # Best Buy CA — refurb floor matching grade (keyword-keyed) + Reebelo CA
         bestbuy_price = bestbuy_pricing.get_floor_price_for_grade(bestbuy_results, keyword, grade)
-        reebelo_price = reebelo_raw.get(keyword)
+        reebelo_price = reebelo_pricing.get_floor_price_for_grade(reebelo_results, keyword, grade)
 
         # Device cost for margin check
         device_cost = db.fetch_device_cost(manufacturer, model, grade)

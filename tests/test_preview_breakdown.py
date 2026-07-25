@@ -128,6 +128,43 @@ def test_top_scope_mode_limits_models_before_breakdown():
     assert [m["model"] for m in out["top_models"]] == ["iPhone 15"]
 
 
+def test_top_skus_are_variants_sorted_by_units_desc():
+    prods = [
+        _p("Apple", "iPhone 15", qty=12, colour="Blue", grade="A"),
+        _p("Apple", "iPhone 15", qty=30, colour="Black", grade="B"),
+        _p("Samsung", "Galaxy Watch 7", qty=8, colour="Gray", grade="C"),
+    ]
+    out = cz.preview_breakdown(prods, ["phone", "wearable"], "all", None)
+    skus = out["top_skus"]
+    assert len(skus) == 3          # one per inventory row (colour/grade variant)
+    assert [(s["model"], s["colour"], s["grade"], s["units"]) for s in skus] == [
+        ("iPhone 15", "Black", "B", 30),
+        ("iPhone 15", "Blue", "A", 12),
+        ("Galaxy Watch 7", "Gray", "C", 8),
+    ]
+    assert out["top_skus_truncated"] is False
+
+
+def test_top_skus_cap_and_truncation():
+    prods = [_p("Apple", "iPhone 15", qty=i, colour="C%d" % i) for i in range(1, 6)]  # 5 variants
+    out = cz.preview_breakdown(prods, ["phone"], "all", None, top_models_cap=3)
+    assert len(out["top_skus"]) == 3
+    assert out["top_skus_truncated"] is True
+    assert [s["units"] for s in out["top_skus"]] == [5, 4, 3]   # units-desc
+
+
+def test_top_sku_mode_keeps_top_n_variants():
+    prods = [
+        _p("Apple", "iPhone 15", qty=30, grade="B"),
+        _p("Apple", "iPhone 15", qty=12, grade="A"),   # dropped — top_sku caps rows, not models
+        _p("Samsung", "Galaxy S24", qty=20),
+    ]
+    out = cz.preview_breakdown(prods, ["phone"], "top_sku", 2)
+    assert out["groups"] == 2          # exactly 2 SKU rows
+    assert out["total"] == 2           # spanning 2 distinct models
+    assert [(s["model"], s["units"]) for s in out["top_skus"]] == [("iPhone 15", 30), ("Galaxy S24", 20)]
+
+
 def test_by_category_matches_detail_model_counts():
     prods = [
         _p("Apple", "iPhone 15", qty=1),

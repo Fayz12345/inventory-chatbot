@@ -104,6 +104,13 @@ def apply_scope(products, categories, scope_mode="all", top_n=None):
         top_keys = set(ranked[:top_n])
         kept = [p for p in kept if _model_key(p) in top_keys]
 
+    # 2b) Top-N by SKU: keep the top-N individual (Mfr, Model, Colour, Grade) rows by unit count
+    #     (not a per-model rollup) — caps the number of recommendation rows directly.
+    elif scope_mode == "top_sku" and top_n and top_n > 0:
+        kept = sorted(kept, key=lambda p: (
+            -(p.get("Quantity") or 0), p.get("Manufacturer") or "", p.get("Model") or "",
+            p.get("Colour") or "", p.get("Grade") or ""))[:top_n]
+
     # 3) Summary (distinct-model counts, since scraping is per model/keyword).
     by_category = {}
     seen_models = set()
@@ -200,6 +207,15 @@ def preview_breakdown(products, categories, scope_mode="all", top_n=None,
         for a in ranked[:top_models_cap]
     ]
 
+    # top_skus: each kept row is a distinct SKU/variant (Mfr, Model, Colour, Grade) with its unit
+    # count — the colour/grade breakdown within the scoped models, descending by units.
+    sku_rows = sorted(
+        ({"manufacturer": p.get("Manufacturer") or "", "model": p.get("Model") or "",
+          "colour": p.get("Colour") or "", "grade": p.get("Grade") or "",
+          "category": categorize(p.get("Manufacturer"), p.get("Model")),
+          "units": p.get("Quantity") or 0} for p in kept),
+        key=lambda r: (-r["units"], r["model"], r["colour"], r["grade"]))
+
     return {
         "total": summary["models"],
         "groups": summary["groups_after"],
@@ -208,4 +224,6 @@ def preview_breakdown(products, categories, scope_mode="all", top_n=None,
         "detail": detail,
         "top_models": top_models,
         "top_models_truncated": len(per_model) > top_models_cap,
+        "top_skus": sku_rows[:top_models_cap],
+        "top_skus_truncated": len(sku_rows) > top_models_cap,
     }

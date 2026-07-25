@@ -11,7 +11,7 @@ from ecommerce.pricing.categorize import CATEGORIES, DEFAULT_CATEGORIES
 # (accessories OFF), all products, top_n pre-filled at 30 for when the user picks 'top'.
 DEFAULTS = {
     "categories": list(DEFAULT_CATEGORIES),
-    "scope_mode": "all",   # 'all' | 'top'
+    "scope_mode": "top_sku",   # 'all' | 'top' (models) | 'top_sku'
     "top_n": 30,
 }
 
@@ -21,7 +21,7 @@ def sanitize(categories, scope_mode, top_n):
     cats = [c for c in (categories or []) if c in CATEGORIES]
     if not cats:
         cats = list(DEFAULT_CATEGORIES)   # never store an empty selection (would scrape nothing)
-    mode = scope_mode if scope_mode in ("all", "top") else "all"
+    mode = scope_mode if scope_mode in ("all", "top", "top_sku") else "all"
     try:
         n = int(top_n)
     except (ValueError, TypeError):

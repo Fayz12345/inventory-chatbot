@@ -143,7 +143,7 @@ def scrape_preview():
     cats = [c for c in (request.args.get("categories") or "").split(",")
             if c in categorize.CATEGORIES]
     mode = request.args.get("scope_mode")
-    mode = mode if mode in ("all", "top") else "all"
+    mode = mode if mode in ("all", "top", "top_sku") else "all"
     try:
         top_n = int(request.args.get("top_n") or 30)
     except (TypeError, ValueError):

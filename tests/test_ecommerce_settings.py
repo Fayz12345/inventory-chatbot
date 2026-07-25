@@ -12,12 +12,17 @@ from ecommerce import db
 
 def test_defaults():
     assert es.DEFAULTS == {"categories": ["phone", "wearable", "tablet"],
-                           "scope_mode": "all", "top_n": 30}
+                           "scope_mode": "top_sku", "top_n": 30}
 
 
 def test_sanitize_filters_junk_and_bad_values():
     cats, mode, n = es.sanitize(["phone", "junk", "laptop"], "sideways", "abc")
     assert cats == ["phone"] and mode == "all" and n == 30
+
+
+def test_sanitize_accepts_top_sku():
+    cats, mode, n = es.sanitize(["phone"], "top_sku", 4)
+    assert mode == "top_sku" and n == 4
 
 
 def test_sanitize_empty_categories_falls_back():

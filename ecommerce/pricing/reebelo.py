@@ -6,9 +6,13 @@ timed out on batches and returned 0 products on clean runs). reebelo.ca is a Nex
 app backed by a public, no-auth JSON search API:
 
     GET https://reebelo.ca/api/catalog-v2/search/skus?q=<keyword>
-      -> { "items": [ { "title", "price" (cents), "product", "variants" }, ... ], "total" }
+      -> { "items": [ { "title", "price" (cents), "product",
+                        "variants":[{"name":"Condition","value":"Very Good"}, ...] }, ... ] }
 
-We take the lowest CAD price across items whose title matches the searched device.
+Each item is a specific SKU (storage/colour/**condition**) with one price; the condition lives
+in the item's `variants` (name == "Condition": "Like New"/"Very Good"/"Good"/"Fair"). We keep the
+title-matched SKUs with their condition and take the lowest price whose condition matches the
+device's grade (off-grade fallback to the overall floor) — like Best Buy.
 
 Routed through the Apify RESIDENTIAL proxy by default (REEBELO_USE_APIFY_PROXY):
 reebelo.ca blocks datacenter IPs, so a blocked EC2 IP is rotated out on retry. See
@@ -52,17 +56,28 @@ _BRANDS = {"apple", "samsung", "google", "motorola", "sonim", "tcl", "huawei", "
 _MODEL_QUALIFIERS = {"mini", "pro", "max", "plus", "ultra", "se", "fe", "air",
                      "classic", "lite", "neo", "active"}
 
+# Map internal grade -> acceptable Reebelo conditions (matched EXACTLY, not by substring,
+# since "good" is a substring of "very good"). Reebelo ladder: Brand New / Pristine /
+# Excellent / Like New / Very Good / Good / Fair.
+GRADE_CONDITION_MAP = {
+    "NEW": ("brand new", "pristine", "like new"),
+    "A+":  ("pristine", "like new", "excellent", "brand new"),
+    "A":   ("excellent", "like new", "very good", "pristine"),
+    "B":   ("very good", "good"),
+    "C":   ("good", "fair", "acceptable"),
+}
 
-def scrape_prices(keywords_list, min_price=DEFAULT_MIN_PRICE):
-    """Lowest reebelo.ca CAD price per keyword via the catalog search API.
+
+def scrape_and_return_all(keywords_list, min_price=DEFAULT_MIN_PRICE):
+    """Title-matched reebelo.ca SKUs per keyword, each with its condition + price.
 
     Returns:
-        dict mapping keyword -> lowest matching price (float) or None.
+        dict mapping keyword -> list of {title, price, condition}.
     """
     keywords = list(dict.fromkeys(keywords_list or []))
-    prices = {kw: None for kw in keywords}
+    grouped = {kw: [] for kw in keywords}
     if not keywords:
-        return prices
+        return grouped
 
     proxies, via = proxy.proxies_for(config.REEBELO_USE_APIFY_PROXY, "reebelo")
     log.info("Fetching Reebelo CA prices via reebelo.ca catalog API for %d keyword(s) (%s)...",
@@ -71,24 +86,23 @@ def scrape_prices(keywords_list, min_price=DEFAULT_MIN_PRICE):
     for i, kw in enumerate(keywords):
         if i:
             time.sleep(REQUEST_DELAY)
-        prices[kw] = _fetch_one(kw, min_price, proxies, via)
+        grouped[kw] = _fetch_one(kw, min_price, proxies, via)
 
-    found = sum(1 for v in prices.values() if v is not None)
-    log.info("Reebelo CA (catalog API): %d/%d keywords with prices.", found, len(keywords))
+    found = sum(1 for v in grouped.values() if v)
+    log.info("Reebelo CA (catalog API): %d/%d keywords with matching listings.", found, len(keywords))
     if keywords and found == 0:
-        log.warning("Reebelo returned 0 prices for all %d keywords — reebelo.ca may be "
+        log.warning("Reebelo returned 0 listings for all %d keywords — reebelo.ca may be "
                     "blocking (%s). Check the block warnings above.", len(keywords), via)
-    return prices
+    return grouped
 
 
 def _fetch_one(keyword, min_price, proxies, via):
     items = _search(keyword, proxies, via)
     if not items:
-        return None
+        return []
 
     tokens = _match_tokens(keyword)
-    floor = None
-    winner = None
+    out = []
     for it in items[:MAX_ITEMS_SCAN]:
         title = it.get("title") or ""
         if is_accessory(title):
@@ -101,15 +115,44 @@ def _fetch_one(keyword, min_price, proxies, via):
         price = round(cents / 100.0, 2)
         if min_price and price < min_price:
             continue
-        if floor is None or price < floor:
-            floor, winner = price, title
+        out.append({"title": title, "price": price, "condition": _condition(it)})
 
+    log.info("Reebelo CA: %d matching listing(s) for '%s' (of %d items).", len(out), keyword, len(items))
+    return out
+
+
+def get_floor_price_for_grade(grouped_results, keyword, grade):
+    """Lowest Reebelo price whose condition matches the grade; off-grade fallback to the
+    overall floor so a device with only off-grade stock still gets a price. Returns float or None."""
+    items = grouped_results.get(keyword) or []
+    acceptable = GRADE_CONDITION_MAP.get(grade, GRADE_CONDITION_MAP["C"])
+
+    graded, overall = None, None
+    for it in items:
+        price = it.get("price")
+        if not price or price <= 0:
+            continue
+        if overall is None or price < overall:
+            overall = price
+        cond = it.get("condition") or ""
+        if cond in acceptable and (graded is None or price < graded):
+            graded = price
+
+    floor = graded if graded is not None else overall
     if floor is not None:
-        log.info("Reebelo CA floor for '%s': $%.2f  (matched: %s)", keyword, floor, winner)
+        log.info("Reebelo CA floor for '%s' Grade %s: $%.2f%s", keyword, grade, floor,
+                 "" if graded is not None else " (off-grade fallback)")
     else:
-        log.info("Reebelo CA: no matching priced result for '%s' (%d items scanned).",
-                 keyword, len(items))
+        log.info("Reebelo CA: no matching listing for '%s' Grade %s.", keyword, grade)
     return floor
+
+
+def _condition(item):
+    """Reebelo condition (e.g. 'very good') from the item's variants, lowercased ('' if absent)."""
+    for v in (item.get("variants") or []):
+        if (v.get("name") or "").strip().lower() == "condition":
+            return (v.get("value") or "").strip().lower()
+    return ""
 
 
 def _search(keyword, proxies, via):

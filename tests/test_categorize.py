@@ -74,6 +74,23 @@ def test_scope_top_n_larger_than_available():
     assert s["models"] == 1 and len(kept) == 1
 
 
+def test_scope_top_sku_keeps_top_n_rows_by_units():
+    prods = [
+        _p("Apple", "iPhone 15", qty=30, colour="Black", grade="B"),
+        _p("Apple", "iPhone 15", qty=12, colour="Blue", grade="A"),   # NOT included (top_sku != rollup)
+        _p("Samsung", "Galaxy S24", qty=20),
+        _p("Google", "Pixel 8", qty=4),
+    ]
+    kept, s = cz.apply_scope(prods, ["phone"], "top_sku", 2)
+    assert s["groups_after"] == 2 and s["models"] == 2
+    assert {(p["Model"], p["Quantity"]) for p in kept} == {("iPhone 15", 30), ("Galaxy S24", 20)}
+
+
+def test_scope_top_sku_larger_than_rows():
+    kept, s = cz.apply_scope([_p("Apple", "iPhone 15", qty=5)], ["phone"], "top_sku", 10)
+    assert s["groups_after"] == 1
+
+
 def test_scope_empty_categories_keeps_nothing():
     kept, s = cz.apply_scope([_p("Apple", "iPhone 15")], [], "all", None)
     assert kept == [] and s["models"] == 0

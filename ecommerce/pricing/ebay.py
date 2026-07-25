@@ -1,17 +1,26 @@
 """
-eBay Canada price fetching via Apify cloud scraping.
+eBay Canada competitor pricing via SOLD listings (caffein.dev/ebay-sold-listings Apify actor).
 
-Uses the 'khadinakbar/ebay-all-in-one-scraper' actor. The previous actor
-('automation-lab/ebay-scraper') silently ignored its `site` parameter and only
-ever returned ebay.com listings in USD; this one targets ebay.ca natively via
-`marketplace:"ebay.ca"` and returns CAD prices. It takes a single `searchQuery`
-per run, so we call it once per keyword. Results are filtered by condition (to
-match the device's internal grade) and by an accessory/parts filter before
-taking the floor.
+Replaces `khadinakbar/ebay-all-in-one-scraper` (active listings), which ebay.ca antibot-blocked
+constantly (Batch #17: 160/172 runs empty; a live dry-run returned 0/2). The sold-listings actor
+is far more reliable (99.6% success, verified live: 25 CAD listings in 6s) and is a better signal
+for used devices: what they ACTUALLY sold for, not asking prices.
+
+Per keyword we take the **median of comparable CAD sold prices** as eBay's competitor number,
+after excluding the noise that pollutes sold data:
+  - carrier-LOCKED units (DISH/Cricket/Boost/Rogers/…) — sell far below unlocked, not comparable;
+  - parts / damaged / "read description" / bulk lots;
+  - accessories and off-model results (title-match gate).
+
+Note: sold data isn't grade-tagged (mostly "Pre-Owned"), so we map each grade to a percentile of
+the model's sold-price distribution (A+ high end, C low end) rather than a flat median. The
+finer-grained "asking price" path is the eBay Browse API, which is parked on eBay keyset/compliance
+work — see docs/ebay-browse-api-status.md.
 """
 
 import logging
 import re
+import statistics
 import time
 
 from ecommerce.pricing import apify_client
@@ -19,121 +28,158 @@ from ecommerce.pricing.filters import is_accessory
 
 log = logging.getLogger(__name__)
 
-ACTOR_ID = 'khadinakbar/ebay-all-in-one-scraper'
+ACTOR_ID = 'caffein.dev/ebay-sold-listings'
 
-DEFAULT_MIN_PRICE = 30.0
+DEFAULT_MIN_PRICE = 50.0     # drops sub-$50 carrier-locked/parts junk
+SOLD_WINDOW_DAYS = 90        # look back this many days for sold comps
+PER_KEYWORD = 30             # sold listings to pull per keyword (before filtering)
+INTER_KEYWORD_DELAY = 0.5    # seconds between keyword runs
 
-# eBay.ca antibot rate-limits the shared residential proxy pool when hit with a
-# rapid burst of runs (Batch #17: 160/172 keyword runs came back 403-blocked and
-# empty). The runs are already sequential (one per keyword); this cooldown between
-# them keeps the burst under eBay's radar. Paired with run_actor(retry_on_empty=True)
-# so a blocked (SUCCEEDED-but-empty) run is retried on a fresh proxy.
-INTER_KEYWORD_DELAY = 1.5   # seconds between eBay keyword runs
-EMPTY_RETRIES = 2           # retries when a run returns 0 items (suspected block)
+# eBay sold data doesn't tag fine grades, so map each internal grade to a percentile of the
+# model's sold-price distribution — better condition sells at the higher end of the range.
+GRADE_PERCENTILE = {"NEW": 0.80, "A+": 0.75, "A": 0.62, "B": 0.45, "C": 0.30}
 
-# Map internal grades to acceptable eBay condition substrings (case-insensitive).
-# Vocabulary observed from this actor: "Brand New", "New (Other)", "Pre-Owned",
-# "Open Box", "Excellent - Refurbished", "Good - Refurbished", "Used", etc.
-GRADE_CONDITION_MAP = {
-    'NEW': ['brand new', 'new'],
-    'A+': ['open box', 'new (other)', 'excellent', 'like new', 'seller refurbished',
-           'certified - refurbished', 'excellent - refurbished'],
-    'A': ['open box', 'new (other)', 'excellent', 'like new', 'seller refurbished',
-          'certified - refurbished', 'excellent - refurbished'],
-    'B': ['very good', 'good - refurbished', 'very good - refurbished',
-          'seller refurbished', 'pre-owned', 'used'],
-    'C': ['good', 'acceptable', 'good - refurbished', 'pre-owned', 'used'],
-}
+# Carrier names -> a carrier-LOCKED unit (sells well below our unlocked stock, not comparable).
+_CARRIER_LOCKED = (
+    "telus", "koodo", "bell", "rogers", "fido", "virgin", "public mobile", "chatr", "freedom",
+    "dish", "cricket", "boost", "metro", "t-mobile", "tmobile", "straight talk", "at&t", "att ",
+    "verizon", "tracfone", "mint", "xfinity", "spectrum", "us cellular", "consumer cellular",
+)
+# Non-comparable listings: damaged / for-parts / bulk lots.
+_EXCLUDE_PHRASES = (
+    "for parts", "parts only", "parts/repair", "not working", "doesn't work", "does not work",
+    "broken", "cracked", "damaged", "as is", "as-is", "read description", "read desc", "spares",
+    "faulty", "lot of", "bundle", "wholesale", "x2", "x3", "x 2", "x 3",
+    "case for", "cover for", "screen protector",   # accessories is_accessory's phrases can miss
+)
 
-
-def _parse_price(price_val):
-    """Extract a numeric price from a scraped value (string or number)."""
-    if price_val is None:
-        return None
-    if isinstance(price_val, (int, float)):
-        return float(price_val) if price_val > 0 else None
-    match = re.search(r'[\d,]+\.?\d*', str(price_val).replace(',', ''))
-    if match:
-        try:
-            return float(match.group())
-        except ValueError:
-            return None
-    return None
+# Title-matching (mirrors reebelo/bestbuy): drop brand words, require every keyword token as a
+# substring, and require model qualifiers on both sides or neither.
+_BRANDS = {"apple", "samsung", "google", "motorola", "moto", "sonim", "tcl", "huawei",
+           "alcatel", "lg", "oneplus", "nokia"}
+_MODEL_QUALIFIERS = {"mini", "pro", "max", "plus", "ultra", "se", "fe", "air",
+                     "classic", "lite", "neo", "active"}
 
 
-def _condition_matches_grade(ebay_condition, grade):
-    """Check if an eBay listing condition is appropriate for our internal grade."""
-    if not ebay_condition or not grade:
-        return False
-    acceptable = GRADE_CONDITION_MAP.get(grade, GRADE_CONDITION_MAP.get('C', []))
-    return any(pattern in ebay_condition.lower().strip() for pattern in acceptable)
-
-
-def scrape_and_return_all(keywords_list, min_price=DEFAULT_MIN_PRICE, max_results=20):
-    """
-    Scrape eBay.ca for each keyword via Apify (one actor run per keyword, since
-    the actor does not echo the source query in its output).
+def scrape_and_return_all(keywords_list, min_price=DEFAULT_MIN_PRICE, max_results=PER_KEYWORD):
+    """Fetch comparable eBay CA sold listings per keyword.
 
     Returns:
-        dict mapping keyword -> list of result dicts (title, price, condition, url).
+        dict mapping keyword -> list of {title, price, condition, url, sold_at}.
     """
-    grouped = {}
-    for i, keyword in enumerate(keywords_list):
+    keywords = list(dict.fromkeys(keywords_list or []))
+    grouped = {kw: [] for kw in keywords}
+    if not keywords:
+        return grouped
+
+    log.info("Fetching eBay CA SOLD comps via %s for %d keyword(s)...", ACTOR_ID, len(keywords))
+    for i, kw in enumerate(keywords):
         if i:
-            time.sleep(INTER_KEYWORD_DELAY)   # cooldown so eBay doesn't rate-limit the proxy pool
-        grouped[keyword] = _scrape_one(keyword, min_price, max_results)
+            time.sleep(INTER_KEYWORD_DELAY)
+        grouped[kw] = _fetch_one(kw, min_price, max_results)
+
+    hits = sum(1 for v in grouped.values() if v)
+    log.info("eBay CA (sold comps): %d/%d keywords with comparable sold listings.", hits, len(keywords))
     return grouped
 
 
-def _scrape_one(keyword, min_price, max_results):
+def _fetch_one(keyword, min_price, max_results):
     run_input = {
-        'searchQuery': keyword,
-        'mode': 'active',
-        'marketplace': 'ebay.ca',
-        'maxResults': max_results,
-        'condition': 'any',
+        "keywords": [keyword],
+        "ebaySite": "ebay.ca",
+        "count": max_results,
+        "daysToScrape": SOLD_WINDOW_DAYS,
+        "itemCondition": "used",
     }
-    if min_price is not None:
-        run_input['minPrice'] = int(min_price)
-
-    # retry_on_empty: this actor exits SUCCEEDED with [] when eBay antibot-blocks it,
-    # so an empty result is retried on a fresh proxy instead of silently accepted.
-    rows = apify_client.run_actor(ACTOR_ID, run_input,
-                                  max_retries=EMPTY_RETRIES, retry_on_empty=True)
-
-    results = []
+    rows = apify_client.run_actor(ACTOR_ID, run_input)
+    tokens = _match_tokens(keyword)
+    out = []
     for row in rows:
-        title = row.get('title', '')
-        if is_accessory(title):
+        title = row.get("title") or ""
+        price = _to_price(row.get("soldPrice"))
+        if price is None or (min_price and price < min_price):
             continue
-        results.append({
-            'title': title,
-            'price': _parse_price(row.get('price')),
-            'condition': row.get('condition', ''),
-            'url': row.get('itemUrl', ''),
-        })
-    log.info("eBay CA: %d usable results for '%s'", len(results), keyword)
-    return results
+        if (row.get("soldCurrency") or "CAD") != "CAD":
+            continue
+        if is_accessory(title) or _excluded(title):
+            continue
+        if not _title_matches(title, tokens):
+            continue
+        out.append({"title": title, "price": price, "condition": row.get("condition") or "",
+                    "url": row.get("url"), "sold_at": row.get("endedAt")})
+    log.info("eBay CA: %d comparable sold for '%s' (of %d rows).", len(out), keyword, len(rows))
+    return out
 
 
 def get_floor_price_for_grade(grouped_results, keyword, grade):
-    """
-    Lowest eBay.ca price for a keyword filtered by condition matching the grade.
+    """eBay competitor price for the keyword at this grade.
 
-    Returns float (lowest matching price) or None.
+    Sold data isn't grade-tagged, so we map the grade to a percentile of the comparable
+    sold-price distribution (better condition sells at the higher end): A+/A high, B mid,
+    C low. Unknown grades fall back to the median. Returns float or None.
     """
-    items = grouped_results.get(keyword, [])
-    floor_price = None
-    for item in items:
-        price = item.get('price')
-        if not price or price <= 0:
-            continue
-        if _condition_matches_grade(item.get('condition', ''), grade):
-            if floor_price is None or price < floor_price:
-                floor_price = price
+    items = grouped_results.get(keyword) or []
+    prices = sorted(it["price"] for it in items if it.get("price"))
+    if not prices:
+        log.info("eBay CA: no comparable sold for '%s' Grade %s.", keyword, grade)
+        return None
+    q = GRADE_PERCENTILE.get(grade, 0.50)
+    val = round(_percentile(prices, q), 2)
+    log.info("eBay CA sold p%d for '%s' Grade %s: $%.2f (n=%d, median $%.2f).",
+             int(q * 100), keyword, grade, val, len(prices), statistics.median(prices))
+    return val
 
-    if floor_price:
-        log.info("eBay CA floor for '%s' Grade %s: $%.2f", keyword, grade, floor_price)
-    else:
-        log.info("eBay CA: no condition-matched results for '%s' Grade %s", keyword, grade)
-    return floor_price
+
+def _percentile(sorted_vals, q):
+    """Linear-interpolated percentile (q in [0,1]) of a pre-sorted list."""
+    if len(sorted_vals) == 1:
+        return sorted_vals[0]
+    idx = q * (len(sorted_vals) - 1)
+    lo = int(idx)
+    frac = idx - lo
+    if lo + 1 < len(sorted_vals):
+        return sorted_vals[lo] + frac * (sorted_vals[lo + 1] - sorted_vals[lo])
+    return sorted_vals[lo]
+
+
+# --- helpers ---------------------------------------------------------------
+
+def _to_price(value):
+    if isinstance(value, (int, float)):
+        return float(value) if value > 0 else None
+    if isinstance(value, str):
+        m = re.search(r"[\d,]+\.?\d*", value.replace(",", ""))
+        if m:
+            try:
+                f = float(m.group())
+                return f if f > 0 else None
+            except ValueError:
+                return None
+    return None
+
+
+def _excluded(title):
+    t = (title or "").lower()
+    return any(c in t for c in _CARRIER_LOCKED) or any(p in t for p in _EXCLUDE_PHRASES)
+
+
+def _normalize(s):
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
+def _match_tokens(keyword):
+    return [t for t in _normalize(keyword).split() if t not in _BRANDS and len(t) >= 2]
+
+
+def _title_matches(title, tokens):
+    if not tokens:
+        return False
+    norm = _normalize(title)
+    if not all(t in norm for t in tokens):
+        return False
+    kw = set(tokens)
+    title_words = set(norm.split())
+    for q in _MODEL_QUALIFIERS:
+        if (q in kw) != (q in title_words):
+            return False
+    return True
