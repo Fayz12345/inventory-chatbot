@@ -18,6 +18,16 @@ Runs the full weekly pipeline:
 import logging
 import sys
 
+# Load .env BEFORE importing anything that reads it — ecommerce.config resolves
+# marketplace creds (BESTBUY_API_KEY, APIFY_PROXY_PASSWORD, *_USE_APIFY_PROXY, ...)
+# from os.environ at import time. The cron runs `python -m ecommerce.main` (not the
+# Flask app, which is the only other place that calls load_dotenv), so without this
+# every .env value would be empty at run time and Best Buy P11 / the proxy would silently
+# no-op. `cd ~/inventory-chatbot` in the cron puts .env on the search path; override=False
+# so a real exported env var still wins.
+from dotenv import load_dotenv
+load_dotenv()
+
 from ecommerce import db
 from ecommerce.pricing import amazon as amazon_pricing
 from ecommerce.pricing import bestbuy as bestbuy_pricing
