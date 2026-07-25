@@ -47,10 +47,25 @@ def test_buyers_remorse_value_has_no_apostrophe():
     assert "Buyer's Remorse" not in receipt_values
 
 
-def test_open_box_transfer_uses_in_list():
+def test_open_box_transfer_is_buyers_remorse_only():
+    # 2026-06-28: 'Rejected'/'Rejected RMA' are return-related, so they moved to the
+    # RMA category; Open Box Transfer now covers Buyers Remorse only.
     item = _find("Open Box Transfer", "Package as per requirements")
-    # Matches the Excel's "Rejected" wildcard, which also catches "Rejected RMA".
-    assert item["receipt_type"] == ["Buyers Remorse", "Rejected", "Rejected RMA"]
+    assert item["receipt_type"] == "Buyers Remorse"
+
+
+def test_rma_receiving_catches_rejected_returns():
+    # The rejected returns recategorized out of Open Box Transfer land under RMA.
+    item = _find("RMA", "Receiving")
+    assert item["receipt_type"] == ["RMA", "Rejected", "Rejected RMA"]
+
+
+def test_buffing_bills_per_unit_by_count():
+    # Buffing moved from a manual TBD line to a $30/unit count on Buffing_Created.
+    item = _find("Buffing Services", "Buffing")
+    assert item["mode"] == "count"
+    assert item["column"] == "Buffing_Created"
+    assert item["fee"] == 30.00
 
 
 def test_android_enrollment_split():

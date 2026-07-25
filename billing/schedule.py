@@ -26,6 +26,7 @@ COUNT_COLUMNS = {
     "Subsidy_Created",
     "Device_Enrollment_Created",
     "Lab_Billing_Created",
+    "Buffing_Created",
 }
 
 
@@ -102,16 +103,19 @@ TMS_FEE_SCHEDULE = [
         _count("Transactions", "RQ4_SKU_Change_Created", 1.10),
     ]},
     {"name": "Open Box Transfer", "items": [
-        # Excel's "Rejected" criterion is a wildcard that also catches "Rejected RMA".
+        # 'Rejected'/'Rejected RMA' moved to the RMA category (2026-06-28, per
+        # business): they are return-related, so they bill at RMA rates with a
+        # receiving fee. Open Box Transfer now covers Buyers Remorse only.
         _count("Package as per requirements", "Shipping_TMS_Created", 3.30,
-               receipt_type=["Buyers Remorse", "Rejected", "Rejected RMA"]),
+               receipt_type="Buyers Remorse"),
     ]},
     {"name": "RMA", "items": [
-        _count("Receiving", "ReceiveDate", 3.85, receipt_type="RMA"),
+        _count("Receiving", "ReceiveDate", 3.85,
+               receipt_type=["RMA", "Rejected", "Rejected RMA"]),
         _count("Shipping to store", "Shipping_TMS_Created", 2.75,
-               receipt_type="RMA", carriers_filter="not_blank"),
+               receipt_type=["RMA", "Rejected", "Rejected RMA"], carriers_filter="not_blank"),
         _count("Shipping to carriers", "Shipping_TMS_Created", 1.65,
-               receipt_type="RMA", carriers_filter="blank"),
+               receipt_type=["RMA", "Rejected", "Rejected RMA"], carriers_filter="blank"),
     ]},
     {"name": "Kitting", "items": [
         _manual("Accessories Added", 11.00),
@@ -138,6 +142,6 @@ TMS_FEE_SCHEDULE = [
         _manual("TMS Inventory Tasks", None),
     ]},
     {"name": "Buffing Services", "items": [
-        _manual("Buffing", None),
+        _count("Buffing", "Buffing_Created", 30.00),
     ]},
 ]
