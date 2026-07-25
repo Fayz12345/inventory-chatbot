@@ -1,0 +1,1577 @@
+Bridge ERP DB discovery — READ ONLY.
+Metadata-first; no writes; no table scans in Tier 1.
+
+
+==============================================================================
+SERVER / DATABASE
+==============================================================================
+version | current_db | total_gb
+------------------------------------------------------------------------------
+Microsoft SQL Server 2019 (RTM-CU4) (KB4548597) - 15.0.4033.1 (X64) 
+	Mar 14 2020 16:10:35 
+	Copyright (C) 2019 Microsoft Corporation
+	Web Edition (64-bit) on Windows Server 2019 Datacenter 10.0 <X64> (Build 17763: ) (Hypervisor)
+ | bridge | 92.46
+
+==============================================================================
+OBJECT COUNTS BY TYPE
+==============================================================================
+type_desc | n
+------------------------------------------------------------------------------
+SQL_STORED_PROCEDURE | 722
+DEFAULT_CONSTRAINT | 257
+USER_TABLE | 240
+PRIMARY_KEY_CONSTRAINT | 201
+SQL_SCALAR_FUNCTION | 107
+VIEW | 83
+FOREIGN_KEY_CONSTRAINT | 67
+SQL_TRIGGER | 7
+SQL_TABLE_VALUED_FUNCTION | 5
+UNIQUE_CONSTRAINT | 4
+
+==============================================================================
+ALL BASE TABLES WITH ROW COUNTS (metadata, no scans) — DBML delta + big tables
+==============================================================================
+table_name | rows | size_mb
+------------------------------------------------------------------------------
+ReceiveDetailItem_Archive_02 | 48273120 | 17708.7
+ReceiveDetailItem | 44943017 | 34667.6
+ReceiveDetailUtilityRunLog | 18927792 | 1023.3
+SystemTimeLog | 10790355 | 10262.9
+ReceiveDetailProcessLog | 6170047 | 3049.1
+ReceiveDetailTriggerLog | 4840364 | 534.9
+JimErrorLog | 4139937 | 358.8
+ReceiveDetailXBINXDetailLog | 3912291 | 385.1
+ReceiveDetailSKUChangeLog | 3841090 | 632.8
+ReceiveDetailIFSLocationLog | 3406465 | 468.8
+ReceiveDetailExcelUploadLog | 3066639 | 380.4
+ReceiveDetailConditionChangeLog | 2776417 | 336.4
+ReceiveDetailVersionChangeLog | 2494385 | 249.9
+Report_DataDump | 2415374 | 2618.5
+Report_DataDump_Backupall10182024 | 1687752 | 1748.8
+ReceiveDetailVersionChangeLogSource | 1262322 | 163.4
+ReceiveDetail | 1232167 | 1976.1
+ReceiveDetailIFSInOutLog | 1175771 | 287.9
+ReceiveDetailProjectLog | 1115357 | 160.9
+ScanCodeLog | 1090034 | 142.9
+MasterCarrierManufacturerVerifyDevice01 | 519576 | 44.3
+ReportingTelusFlat | 486743 | 241.2
+ReportingInventoryFlat_Telus | 486531 | 203.4
+GetMasterDetailInventoryClientList_BatchRun | 373836 | 360.0
+LocationLog | 302536 | 129.5
+ReportingInventoryFlat_TMS | 231034 | 97.4
+MasterCarrierManufacturerVerifyDevice01_B | 216454 | 36.4
+Report_DataDump_Backup10182024 | 198952 | 195.7
+Report_DataDump_000 | 68636 | 74.8
+ReceiveDetailXBINXHeaderLog | 66675 | 30.2
+InvtTran_IFSDirectiveLog | 56338 | 11.1
+InvtTran_IFS | 56316 | 31.3
+Report_KPI_Detail | 49767 | 9.4
+Report_DataDump_Shippingall10182024 | 48728 | 51.3
+Report_DataDump_Shipping | 40072 | 50.4
+ReportingInventoryFlat | 34322 | 16.9
+OrderDetailReceiveDetail | 29543 | 11.1
+Report_DataDump_Shipping10182024 | 27390 | 27.3
+ReportingInventoryFlat_OSL | 23037 | 9.5
+PhysicalInventoryCount | 19719 | 12.9
+Report_DataDump01_Shipping | 16322 | 18.8
+Option | 6243 | 4.4
+ReceiveDetailIMEIChangedLog | 5867 | 1.6
+ReceiveDetailIMEISwappedLog | 4672 | 1.8
+MasterCarrierManufacturerLookup | 4051 | 5.4
+ReceiveHeader | 3928 | 1.7
+ReportingInventoryFlat_TelusWeekly | 3410 | 1.8
+OrderDetail | 3242 | 2.6
+aspnet_UsersInRoles | 2717 | 0.6
+OrderCompany | 2480 | 1.2
+OrderMoveLog | 2396 | 0.7
+EcommercePricingRecommendation | 2163 | 0.7
+MasterCarrierManufacturerVerifyDevice01_C | 2043 | 0.6
+MasterModelToDeviceHandset | 1401 | 0.2
+ProcessQuestion | 1052 | 0.3
+RoleAccessTable | 897 | 0.8
+TelusWeeklyPricingMaster | 837 | 0.3
+UserAccessTable | 631 | 0.8
+OrderHeader | 620 | 0.6
+OrderMoveShipToDoneLog | 591 | 0.2
+ProjectProcess | 507 | 0.4
+Question | 454 | 0.6
+UserTable | 414 | 0.2
+XTempJIM | 384 | 0.2
+RoleMenuAccess | 309 | 0.1
+aspnet_Membership | 276 | 0.3
+ReceiveDetailESNMessage | 253 | 0.4
+aspnet_Users | 138 | 0.2
+Process | 133 | 0.2
+ReceiveDetailPreReceiveAttribute | 132 | 0.0
+JimTempSwap | 121 | 0.1
+SystemData | 120 | 0.0
+aspnet_Roles | 108 | 0.0
+MasterParts | 103 | 0.0
+MasterProcessWaitTimes | 83 | 0.1
+JimTempSwap2 | 48 | 0.0
+QuestionDependencies | 46 | 0.1
+ClientLocation | 44 | 0.1
+Client | 38 | 0.0
+MasterTableAcccessList | 31 | 0.0
+InvtTran_IFSDirective | 28 | 0.0
+Project | 28 | 0.1
+EcommercePricingBatch | 17 | 0.1
+PartNumberBucketInventoryTransactionType | 15 | 0.0
+QuestionType | 15 | 0.0
+ReceiveDetailPreReceive | 13 | 0.1
+Option_Text_Defaults | 13 | 0.0
+HolidaySchedule | 12 | 0.0
+ClientProjectDependencies | 11 | 0.0
+MasterIFSLocation | 10 | 0.1
+ReceiveDetailStatus | 9 | 0.0
+MasterClass | 7 | 0.0
+MasterFunctionTable | 7 | 0.1
+OrderStatus | 7 | 0.0
+BinLocation | 7 | 0.0
+Category | 7 | 0.0
+aspnet_SchemaVersions | 6 | 0.0
+ReceiveDetailAuthorizationStatus | 6 | 0.0
+MasterIFSLocationPurpose | 5 | 0.0
+MasterPartsClassType | 5 | 0.0
+CommandCode | 4 | 0.0
+MasterCarrierManufacturerStatus | 4 | 0.0
+EcommerceProductCatalog | 3 | 0.1
+ClientStatus | 3 | 0.0
+EcommerceListingsLog | 3 | 0.1
+MasterSKUStatus | 3 | 0.0
+ProcessStatus | 3 | 0.0
+NextProcessStepStatus | 2 | 0.0
+OptionStatus | 2 | 0.0
+MasterPartsLinkTableModelList | 2 | 0.0
+MasterIFSLocationStatus | 2 | 0.0
+MasterModelMemoryLookup | 2 | 0.1
+ClientLocationStatus | 2 | 0.0
+QuestionStatus | 2 | 0.0
+ProjectStatus | 2 | 0.0
+UserStatus | 2 | 0.0
+Config_ExcludedESN | 1 | 0.1
+aspnet_Applications | 1 | 0.1
+MasterPartsLinkTable | 1 | 0.1
+MasterPartsLinkTablePriceList | 1 | 0.0
+OptionType | 1 | 0.0
+NextProcessStep | 0 | 0.0
+MasterPartsLinkTablePriceList_ChangeLog | 0 | 0.0
+MasterPartsRequestedLog | 0 | 0.0
+MasterPartsTableIFSLocationStorage | 0 | 0.0
+MasterPartsTableIFSLocationStorageChangeLog | 0 | 0.0
+MasterPartsTableIFSLocationStorageMoveLog | 0 | 0.0
+MasterPartsTechAssignedLog | 0 | 0.0
+MasterPartsLinkTableMonthEnd | 0 | 0.0
+MasterSKU | 0 | 0.0
+MasterHoliday | 0 | 0.0
+MasterBucketTransactions | 0 | 0.0
+MasterCarrierManufacturerConversionList | 0 | 0.0
+MasterFileTransferDetailLog | 0 | 0.0
+MasterFileTransferLog | 0 | 0.0
+OrderMoveChangeLog | 0 | 0.0
+PartNumberBucketInventoryPlacement | 0 | 0.0
+PartNumberBucketInventorySource | 0 | 0.0
+ProcessBinLocation | 0 | 0.0
+PhysicalPartInventoryCount | 0 | 0.0
+ReceiveDetailBillingPoints | 0 | 0.0
+ReceiveDetailBinLog | 0 | 0.0
+ReceiveDetailBulk | 0 | 0.0
+ReceiveDetailBulkProcessLog | 0 | 0.0
+ReceiveDetailCellbieCommLog | 0 | 0.0
+ReceiveDetailCellbieStatus | 0 | 0.0
+ReceiveDetailCellbieStatusLog | 0 | 0.0
+ReceiveDetailClientContactLog | 0 | 0.0
+ReceiveDetailClientSubmitted | 0 | 0.0
+ReceiveDetail_APIInsertBatch | 0 | 0.0
+ReceiveDetail_APIInsertDevice | 0 | 0.0
+ReceiveDetail_APIInsertDeviceAttribute | 0 | 0.0
+ReceiveDetail_APIInsertLog | 0 | 0.0
+ReceiveDetail_BagtagPreSaveData | 0 | 0.0
+ReceiveDetail10182024 | 0 | 0.1
+ReceiveDetailall10182024 | 0 | 0.1
+ReceiveDetailAuthorizationLog | 0 | 0.0
+aspnet_Paths | 0 | 0.0
+aspnet_PersonalizationAllUsers | 0 | 0.0
+aspnet_PersonalizationPerUser | 0 | 0.0
+aspnet_Profile | 0 | 0.0
+CCRunBatchesScanResult | 0 | 0.0
+ClientAnswerRestrict | 0 | 0.0
+ClientBillingPoints | 0 | 0.0
+aspnet_WebEvent_Events | 0 | 0.0
+AutoGeneratedPONumbers | 0 | 0.0
+AutoGeneratedPONumbers_B | 0 | 0.0
+CycleCountInventoryCount | 0 | 0.0
+CycleCountInventoryCountParts | 0 | 0.0
+CycleInventoryCountControlDetail | 0 | 0.0
+CycleInventoryCountControlDetailParts | 0 | 0.0
+CycleInventoryCountHeader | 0 | 0.0
+CycleInventoryCountHeaderParts | 0 | 0.0
+CycleInventoryCountIterationDetail | 0 | 0.0
+CycleInventoryCountIterationDetailParts | 0 | 0.0
+CycleInventoryCountIterationHeader | 0 | 0.0
+CycleInventoryCountIterationHeaderParts | 0 | 0.0
+CycleInventoryCountTemplateHeader | 0 | 0.0
+CycleInventoryCountTemplateHeaderDetail | 0 | 0.0
+CycleInventoryCountTemplateHeaderParts | 0 | 0.0
+CycleInventoryCountTemplateHeaderPartsDetail | 0 | 0.0
+DataDrop | 0 | 0.0
+DataDropColumn | 0 | 0.0
+Discrepancy | 0 | 0.0
+DiscrepancyDDRelations | 0 | 0.0
+ClientProcessDependencies | 0 | 0.0
+ClientQuestionRestrict | 0 | 0.0
+EmailLog | 0 | 0.0
+IFS_GatherLog | 0 | 0.0
+IFSPickListOrderCompany | 0 | 0.0
+IFSPickListOrderDetail | 0 | 0.0
+IFSPickListOrderHeader | 0 | 0.0
+IFSPurchaseOrderDetail | 0 | 0.0
+IFSPurchaseOrderHeader | 0 | 0.0
+IFSXMLFileHeader | 0 | 0.0
+MasterCarrierManufacturerUPCLookup | 0 | 0.0
+MasterCarrierManufacturerVerifyDevice | 0 | 0.0
+llm_call_log | 0 | 0.0
+llm_provider | 0 | 0.0
+llm_task_model | 0 | 0.0
+InvtTran_IFS_Analyze | 0 | 0.0
+InvtTran_IFS_ErrorLog | 0 | 0.0
+GetMasterDetailInventoryClientList_IMEIBatch | 0 | 0.0
+GridCCRunBatchesControl | 0 | 0.0
+GridCCRunBatchesControlParts | 0 | 0.0
+GridCCRunBatchesControlS | 0 | 0.0
+UnitItemStatus | 0 | 0.0
+PurchaseOrderHeader | 0 | 0.0
+ReceiveDetailCostingLog | 0 | 0.0
+ReceiveDetailErrorReporting | 0 | 0.0
+ReceiveDetailHeaderChangeLog | 0 | 0.0
+ReceiveDetailHobbleList | 0 | 0.0
+REceiveDetailItem_Archive | 0 | 0.0
+ReceiveDetailItem_Archive_01 | 0 | 0.0
+ReceiveDetailXBinXLocationLog | 0 | 0.0
+ReceiveDockingCounts | 0 | 0.0
+ReceiveDetailSaveLog | 0 | 0.0
+ReceiveDetailSaveTransaction | 0 | 0.0
+ReceiveDetailItem_Deleted_01 | 0 | 0.0
+ReceiveDetailItemBulk | 0 | 0.0
+ReceiveDetailNotationLog | 0 | 0.0
+ReceiveDetailPartsUsage | 0 | 0.0
+SystemLog | 0 | 0.0
+RequestProcessCompletionList | 0 | 0.0
+ReservedAvailableStock | 0 | 0.0
+ScanComandLookup | 0 | 0.0
+ScanComandLookupAttributeList | 0 | 0.0
+SOCompany | 0 | 0.0
+SODetail | 0 | 0.0
+SODetailReceiveDetail | 0 | 0.0
+SOHeader | 0 | 0.0
+SOMoveLog | 0 | 0.0
+SOPickListDetail | 0 | 0.0
+SOPickListHeader | 0 | 0.0
+StatisticalRawBucketData | 0 | 0.0
+StatisticalRawBucketDataGrandTotal | 0 | 0.0
+StatisticalRawData | 0 | 0.0
+sysdiagrams | 0 | 0.0
+Report_DataDump_PBI | 0 | 0.0
+Report_DataDump_PBI_Staging | 0 | 0.0
+
+==============================================================================
+ALL VIEWS
+==============================================================================
+name
+------------------------------------------------------------------------------
+JsonStringOptionKeyList
+JsonStringOptionKeyListByProjectProcess
+JsonStringReceiveDetailOptionKeyList
+randomView
+v_Telus_Report_DataDump
+View_ReceiveDetail_Data
+View_ReceiveDetailBulkSummary
+View_ReceiveDetailItem_CurrentData
+View_ReceiveDetailItem_Data
+View_ReceiveDetailMakeModelColourKeys
+View_ReceiveDetailMakeModelColourLookup
+View_ReceiveDetailSummary
+View_ReceiveFromBulk_BulkKeys
+ViewMasterCarrierManufacturerLookup
+ViewMasterCarrierManufacturerLookup_Carrier
+ViewMasterCarrierManufacturerLookup_Manufacturer
+ViewMasterCarrierManufacturerLookup_Model
+ViewMasterCarrierManufacturerLookup_SKUMakeup
+ViewMasterCarrierManufacturerLookup_SKUMakeup_Dups
+ViewWorkScreenSaveLog
+vw_aspnet_Applications
+vw_aspnet_MembershipUsers
+vw_aspnet_Profiles
+vw_aspnet_Roles
+vw_aspnet_Users
+vw_aspnet_UsersInRoles
+vw_aspnet_WebPartState_Paths
+vw_aspnet_WebPartState_Shared
+vw_aspnet_WebPartState_User
+vwGetCCRunBatchesControl
+vwGetCCRunBatchesControlParts
+vwGetCCRunBatchesControlWithScanData
+vwGetCCRunBatchesControlWithScanData_Summary01
+vwGetCCRunBatchesScan
+vwGetCCRunBatchesScanParts
+vwGetCCRunHeader
+vwGetCCRunHeaderBatches
+vwGetCCRunHeaderBatchesParts
+vwGetCCRunHeaderParts
+vwGetCCTemplateHeader
+vwGetCCTemplateHeaderParts
+vwGetCCTemplateHeaderWithDetail
+vwGetReport_MasterPartsInventory_IN_and_OUT
+vwGetReport_MasterPartsInventory_Transactions_IN
+vwGetReport_MasterPartsInventory_Transactions_OUT
+vwGridCycleInventoryCount_B
+vwGridCycleInventoryCount_C
+vwGridCycleInventoryCountParts_B
+vwGridPhysicalInventoryCount
+vwGridPhysicalInventoryCount_B
+vwGridPhysicalPartInventoryCount
+vwIFS_InvtTran
+vwIFSPurchaseOrderData
+vwIFSSalesOrderData
+vwMasterCarrierManufacturerLookupList_ABBR
+vwMasterCarrierManufacturerSKU
+vwMasterParts
+vwMasterPartsTableIFSLocationStorageMoveLog
+vwMasterSKUTable
+vwMasterSKUTable_Invalid
+vwMasterSKUTable_valid
+vwOrderHeader
+vwOrderHeader_01
+vwOrderHeaderDetail_01
+vwOrderHeaderDetail_02
+vwOrderHeaderDetail_03
+vwPartNumberBucketInventoryPlacement
+vwPartNumberBucketInventorySource
+vwPartNumberBucketInventoryUnion
+vwPartRequest_Chain
+vwReceiveDetail_APIInsertBatch
+vwReceiveDetailAttributeValue
+vwReceiveDetailCellbie
+vwReceiveDetailPOData
+vwReceiveDetailSOData
+vwReport_IFS_InvtTran
+vwScanComandLookupChain
+vwSKUCalculated
+vwSKUSample
+vwSKUSegmentWithKeys
+vwSystemTimeLog
+vwSystemTimeLog_01
+vwSystemTimeLogSummary
+
+==============================================================================
+STORED PROCS / FUNCTIONS RELEVANT TO MVP (name + size, not body)
+==============================================================================
+type_desc | name | def_len | modify_date
+------------------------------------------------------------------------------
+SQL_STORED_PROCEDURE | AAAUpdate_ReceiveDetailItemOption_Version | 1596 | 2016-06-27 15:52:10.290000
+SQL_STORED_PROCEDURE | AddNewClientLocation | 10106 | 2016-06-27 15:52:04.313000
+SQL_STORED_PROCEDURE | AddPartNumberBucketInventoryPlacement | 2135 | 2016-06-27 15:52:02.520000
+SQL_STORED_PROCEDURE | AddPartNumberBucketInventoryPlacement_B | 2564 | 2016-06-27 15:52:03.807000
+SQL_STORED_PROCEDURE | aspnet_Membership_ChangePasswordQuestionAndAnswer | 858 | 2016-06-27 15:52:07.063000
+SQL_STORED_PROCEDURE | aspnet_Membership_CreateUser | 5485 | 2016-06-27 15:52:07.060000
+SQL_STORED_PROCEDURE | aspnet_Membership_FindUsersByEmail | 2134 | 2016-06-27 15:52:07.057000
+SQL_STORED_PROCEDURE | aspnet_Membership_FindUsersByName | 1800 | 2016-06-27 15:52:07.053000
+SQL_STORED_PROCEDURE | aspnet_Membership_GetAllUsers | 1656 | 2016-06-27 15:52:07.050000
+SQL_STORED_PROCEDURE | aspnet_Membership_GetNumberOfUsersOnline | 777 | 2016-06-27 15:52:07.047000
+SQL_STORED_PROCEDURE | aspnet_Membership_GetPassword | 4449 | 2016-06-27 15:52:07.043000
+SQL_STORED_PROCEDURE | aspnet_Membership_GetPasswordWithFormat | 2147 | 2016-06-27 15:52:07.033000
+SQL_STORED_PROCEDURE | aspnet_Membership_GetUserByEmail | 886 | 2016-06-27 15:52:07.030000
+SQL_STORED_PROCEDURE | aspnet_Membership_GetUserByName | 1892 | 2016-06-27 15:52:07.027000
+SQL_STORED_PROCEDURE | aspnet_Membership_GetUserByUserId | 884 | 2016-06-27 15:52:07.023000
+SQL_STORED_PROCEDURE | aspnet_Membership_ResetPassword | 4531 | 2016-06-27 15:52:07.020000
+SQL_STORED_PROCEDURE | aspnet_Membership_SetPassword | 924 | 2016-06-27 15:52:07.017000
+SQL_STORED_PROCEDURE | aspnet_Membership_UnlockUser | 1028 | 2016-06-27 15:52:07.017000
+SQL_STORED_PROCEDURE | aspnet_Membership_UpdateUser | 2128 | 2016-06-27 15:52:05.903000
+SQL_STORED_PROCEDURE | aspnet_Membership_UpdateUserInfo | 4677 | 2016-06-27 15:52:05.900000
+SQL_STORED_PROCEDURE | BSPSummarize_Test | 19815 | 2016-06-27 15:52:08.943000
+SQL_STORED_PROCEDURE | DeleteALLReceiveData | 1055 | 2016-06-27 15:52:06.760000
+SQL_STORED_PROCEDURE | DeleteALLReceiveDataBulk | 1465 | 2016-06-27 15:52:06.753000
+SQL_STORED_PROCEDURE | DeleteReceiveDetail | 887 | 2016-06-27 15:52:06.750000
+SQL_STORED_PROCEDURE | DeleteReceiveDetailBulk | 713 | 2016-06-27 15:52:03.730000
+SQL_STORED_PROCEDURE | DeleteReceiveDetailFromPurchaseOrder | 2422 | 2016-06-27 15:52:10.263000
+SQL_STORED_PROCEDURE | DeleteReceiveDetailProcessLog | 496 | 2016-06-27 15:52:07.290000
+SQL_STORED_PROCEDURE | DeleteSalesOrder | 1156 | 2016-06-27 15:52:05.373000
+SQL_STORED_PROCEDURE | DoesAttrMatch_ScanKeyTester | 3525 | 2020-05-14 13:29:56.563000
+SQL_STORED_PROCEDURE | Fazeen_GenerateDetailInventoryList | 47533 | 2020-01-08 13:51:18.650000
+SQL_STORED_PROCEDURE | Fazeen_GenerateDetailInventoryListx | 46265 | 2020-01-08 14:09:14.760000
+SQL_STORED_PROCEDURE | GenerateReceiveDetailRecordsFromBulk | 2723 | 2016-06-27 15:52:06.733000
+SQL_STORED_PROCEDURE | Get_CycleInventoryCountIterationHeaderSpread | 12090 | 2016-06-27 15:52:08.070000
+SQL_STORED_PROCEDURE | Get_CycleInventoryCountIterationHeaderSpreadActual | 11309 | 2016-06-27 15:52:08.033000
+SQL_STORED_PROCEDURE | Get_CycleInventoryCountIterationHeaderSpreadControl | 11436 | 2016-06-27 15:52:08.027000
+SQL_STORED_PROCEDURE | Get_CycleInventoryCountIterationHeaderSpreadScanned | 11713 | 2016-06-27 15:52:08.020000
+SQL_STORED_PROCEDURE | GetDashboardInventoryQTY_01_GridValueFiltered | 8426 | 2019-04-09 15:50:48.850000
+SQL_STORED_PROCEDURE | GetDashboardRepair_01 | 2925 | 2019-02-28 11:54:00.600000
+SQL_STORED_PROCEDURE | GetDashboardRepair_01_Grid | 12091 | 2019-02-28 11:54:41.867000
+SQL_STORED_PROCEDURE | GetDashboardRepair_01_GridValue | 12264 | 2019-02-28 11:55:06.823000
+SQL_STORED_PROCEDURE | GetDashboardRepair_01_GridValueFiltered | 13331 | 2019-04-03 23:42:56.400000
+SQL_STORED_PROCEDURE | GetDashboardRepair_02 | 2986 | 2019-05-03 14:49:24.990000
+SQL_STORED_PROCEDURE | GetDashboardRepair_02_GridValueFiltered | 14431 | 2019-05-03 14:49:44.657000
+SQL_STORED_PROCEDURE | GetDashboardRepair_AllProcesses | 4380 | 2019-02-27 10:35:28.250000
+SQL_STORED_PROCEDURE | GetDevicesInTheseLocation | 3064 | 2016-06-27 15:52:06.010000
+SQL_STORED_PROCEDURE | GetDevicesInTheseLocationCondition | 5779 | 2016-06-27 15:52:06.003000
+SQL_STORED_PROCEDURE | GetDevicesInTheseSKULocationCondition | 8461 | 2016-06-27 15:52:05.990000
+SQL_STORED_PROCEDURE | GetDevicesInThisLocation | 3534 | 2016-06-27 15:52:05.977000
+SQL_STORED_PROCEDURE | GetDevicesThisTemplateReceiveDetailIDList | 3941 | 2016-06-27 15:52:02.800000
+SQL_SCALAR_FUNCTION | GetIDC_LastLocation | 428 | 2020-05-29 20:36:21.720000
+SQL_STORED_PROCEDURE | GetIFSInventoryTransactions | 9206 | 2016-06-27 15:52:02.220000
+SQL_SCALAR_FUNCTION | GetIFSLocation | 1047 | 2020-05-29 20:36:21.730000
+SQL_SCALAR_FUNCTION | GetIFSLocation_B | 5123 | 2020-05-29 20:36:21.707000
+SQL_SCALAR_FUNCTION | GetIFSLocation_ExpectedValue | 2660 | 2020-05-29 20:36:21.743000
+SQL_SCALAR_FUNCTION | GetIFSLocationDeviceRollup | 554 | 2020-05-29 20:36:21.697000
+SQL_SCALAR_FUNCTION | GetIFSLocationFromID | 390 | 2020-05-29 20:36:21.717000
+SQL_SCALAR_FUNCTION | GetIFSLocationID | 468 | 2020-05-29 20:36:21.713000
+SQL_SCALAR_FUNCTION | GetIFSLocationLastKnownLocation | 543 | 2020-05-29 20:36:21.717000
+SQL_SCALAR_FUNCTION | GetIFSLocationPartsRollup | 547 | 2020-05-29 20:36:21.723000
+SQL_STORED_PROCEDURE | GetIFSLocationSuggestions | 2450 | 2016-06-27 15:52:05.013000
+SQL_SCALAR_FUNCTION | GetIFSLocationThisTime | 585 | 2020-05-29 20:36:21.713000
+SQL_STORED_PROCEDURE | GetLocationUnitHistory | 4649 | 2016-06-27 15:52:04.427000
+SQL_STORED_PROCEDURE | GetLocationUnitSummaryData | 5456 | 2016-06-27 15:52:04.423000
+SQL_STORED_PROCEDURE | GetMasterBinLocations | 1771 | 2016-06-27 15:52:06.440000
+SQL_STORED_PROCEDURE | GetMasterBulkInventoryList | 6538 | 2016-06-27 15:52:05.297000
+SQL_STORED_PROCEDURE | GetMasterBulkInventoryList_BKUP | 6190 | 2016-06-27 15:52:05.290000
+SQL_STORED_PROCEDURE | GetMasterDetailErrorReporting | 5562 | 2016-06-27 15:52:05.007000
+SQL_STORED_PROCEDURE | GetMasterDetailInventory_AvailableStock_01 | 7612 | 2016-06-27 15:52:06.700000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_ESN | 41630 | 2016-06-27 15:52:10.627000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_ESN_B | 50982 | 2016-06-27 15:52:10.543000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_ESN_BKUP | 41583 | 2016-06-27 15:52:10.500000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_RawData | 54877 | 2016-06-27 15:52:10.473000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_TemplateRawData_01 | 56227 | 2016-06-27 15:52:10.433000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_TemplateRawData_01_Abriviated | 56481 | 2016-11-10 13:39:14.450000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_TemplateRawData_01_Abriviated_B | 40741 | 2016-06-27 15:52:10.320000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_TemplateRawData_01_Abriviated_BKUP | 37787 | 2016-06-27 15:52:10.143000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_TemplateRawData_01_Abriviated_C | 35189 | 2016-06-27 15:52:10.117000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_TemplateRawData_01_Abriviated_Test | 35953 | 2016-06-27 15:52:10.083000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_TemplateRawData_01_Abriviated_ToTable | 33128 | 2016-06-27 15:52:10.053000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_TemplateRawData_01_Abriviated_X | 37751 | 2016-06-27 15:52:10.023000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_TemplateRawData_01_backup | 59639 | 2024-10-18 19:58:13.190000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_TemplateRawData_01_BKUP | 42288 | 2016-06-27 15:52:09.993000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_TemplateRawData_01_IMEIBatch | 37967 | 2016-06-27 15:52:09.957000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_TemplateRawData_01Version | 58582 | 2020-03-23 11:24:56.333000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryClientList_TemplateRawData_01x | 55935 | 2016-06-27 15:52:09.933000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList | 19444 | 2022-10-25 10:39:27.290000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_01 | 5649 | 2016-06-27 15:52:10.260000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_bkup | 19061 | 2016-06-27 15:52:09.880000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_Harinder_01 | 6535 | 2024-07-11 14:50:22.490000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_JIM | 12277 | 2016-06-27 15:52:07.460000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_PBI | 6782 | 2025-11-11 23:30:23.240000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_ProcessLog | 26067 | 2016-06-27 15:52:08.283000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_ProcessLog_BKUP | 24428 | 2016-06-27 15:52:10.253000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_SpeedTest | 19549 | 2016-06-27 15:52:07.983000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData | 24498 | 2016-06-27 15:52:07.970000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_01 | 42280 | 2022-10-25 11:28:11.613000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_01_BKUP | 35026 | 2016-06-27 15:52:08.223000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_01_BKUPX | 37653 | 2016-06-27 15:52:08.193000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_01_Test | 36117 | 2016-06-27 15:52:08.163000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_01_Test_Create | 36072 | 2016-06-27 15:52:08.133000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_01Version | 46380 | 2022-10-25 11:05:03.823000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_01x | 36557 | 2016-06-27 15:52:08.100000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_02Version | 47768 | 2024-11-19 13:46:45.110000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_02Version_Auto | 61043 | 2025-08-27 23:16:50.877000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_02Version_Auto_Test | 59606 | 2022-02-28 14:52:53.250000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_02Version_AutoBKUP | 59605 | 2022-05-11 13:22:44.650000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_02Version_Autox | 61620 | 2020-10-27 23:50:25.350000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_02Version_Autoxt | 59356 | 2020-10-27 23:45:46.840000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_02Version_ToTable | 45710 | 2024-07-10 13:45:46.977000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_02Version_ToTableBKUP | 45704 | 2022-05-12 09:29:50.987000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_02Versionxx | 47442 | 2020-01-10 22:46:15.180000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_03Version_ToTable | 16889 | 2024-07-10 14:33:05.030000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_04Version | 47770 | 2024-10-18 21:29:05.800000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_05Version | 47775 | 2024-10-22 10:52:00.223000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_OSLVersion | 47779 | 2024-10-25 13:59:13.860000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_SearchGrid | 29324 | 2025-10-02 20:09:43.850000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_SearchGrid_02 | 29327 | 2025-10-01 08:40:56.167000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_SearchGrid_02_bk_10212024_bk_10212024 | 29351 | 2025-10-01 08:44:07.550000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_SearchGrid_02_BKUP | 29332 | 2025-10-01 08:46:29.530000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_SearchGrid_02_BKUPG | 29333 | 2025-10-01 08:48:41.873000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_SearchGrid_02x | 29328 | 2025-10-01 08:42:20.743000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_SearchGrid_03 | 30837 | 2025-10-16 11:17:26.880000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_SearchGrid_03_Version | 30571 | 2017-09-12 15:26:04.977000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_SearchGrid_03x | 30468 | 2019-02-14 14:04:03.197000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_SearchGrid_bkup | 26329 | 2016-06-27 15:52:11.037000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_SearchGrid_bkupx | 30448 | 2016-06-27 15:52:10.840000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_SearchGrid_X | 28166 | 2016-06-27 15:52:10.773000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_TemplateRawData_TAT | 31907 | 2016-06-27 15:52:07.010000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_Test | 22740 | 2016-06-27 15:52:07.950000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryList_WithAddress | 18952 | 2016-06-27 15:52:07.933000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryLista | 19908 | 2016-06-27 15:52:07.920000
+SQL_STORED_PROCEDURE | GetMasterDetailInventoryListxx | 22597 | 2016-06-27 15:52:07.900000
+SQL_STORED_PROCEDURE | GetMasterFullInventoryList | 4919 | 2016-06-27 15:52:06.910000
+SQL_STORED_PROCEDURE | GetMasterLocationAvailableUnits_TemplateRawData_01 | 10796 | 2016-06-27 15:52:06.903000
+SQL_STORED_PROCEDURE | GetMasterLocationAvailableUnits_TemplateRawData_01_Detail | 11359 | 2016-06-27 15:52:06.893000
+SQL_STORED_PROCEDURE | GetMasterLocationHistoryList_TemplateRawData_01 | 27616 | 2016-06-27 15:52:06.883000
+SQL_STORED_PROCEDURE | GetMasterLocationUnitHistoryList_TemplateRawData_01 | 24874 | 2016-06-27 15:52:10.230000
+SQL_STORED_PROCEDURE | GetMasterLocationUnitHistoryList_TemplateRawData_01_BKUP | 24585 | 2016-06-27 15:52:06.850000
+SQL_STORED_PROCEDURE | GetMasterLocationUnitHistoryList_TemplateRawData_01_Summary | 5035 | 2016-06-27 15:52:06.823000
+SQL_STORED_PROCEDURE | GetMasterLocationUnitHistoryList_TemplateRawData_01_Summary_02 | 6345 | 2016-06-27 15:52:06.817000
+SQL_STORED_PROCEDURE | GetMasterPartNumberInventoryList_TemplateRawData_01 | 6109 | 2016-06-27 15:52:06.107000
+SQL_STORED_PROCEDURE | GetMasterPartNumberInventoryList_TemplateRawData_01_BKUP | 5955 | 2016-06-27 15:52:06.100000
+SQL_STORED_PROCEDURE | GetMasterPreReceive_TemplateRawData_01 | 8086 | 2016-06-27 15:52:06.093000
+SQL_STORED_PROCEDURE | GetMasterPreReceive_TemplateRawData_01_BKUP | 5531 | 2016-06-27 15:52:06.087000
+SQL_STORED_PROCEDURE | GetMasterPreReceive_TemplateRawData_02 | 8617 | 2016-06-27 15:52:06.080000
+SQL_STORED_PROCEDURE | GetMasterProcessesThisProject_RoleBased_Test | 4493 | 2016-06-27 15:52:06.057000
+SQL_STORED_PROCEDURE | GetMasterProcessesThisProjectID_RoleBased_Test | 6129 | 2016-06-27 15:52:06.030000
+SQL_STORED_PROCEDURE | GetMasterTableAccessList_Test | 6605 | 2016-06-27 15:52:07.110000
+SQL_STORED_PROCEDURE | GetNextBinNumber | 1142 | 2016-06-27 15:52:04.830000
+SQL_STORED_PROCEDURE | GetNextSalesOrderNumber | 1263 | 2020-08-24 17:08:04.117000
+SQL_STORED_PROCEDURE | GetOrderEntryBinRecords | 6023 | 2016-06-27 15:52:06.810000
+SQL_STORED_PROCEDURE | GetPartsInThisLocation | 1783 | 2016-06-27 15:52:05.930000
+SQL_STORED_PROCEDURE | GetPhysicalInventoryCountList | 5413 | 2018-07-25 09:39:04.097000
+SQL_STORED_PROCEDURE | GetPhysicalInventoryCountListByTabTime | 5006 | 2016-06-27 15:52:03.070000
+SQL_STORED_PROCEDURE | GetPhysicalInventoryCountListCC | 753 | 2016-06-27 15:52:04.513000
+SQL_STORED_PROCEDURE | GetPhysicalInventoryCountListFullCompare | 7572 | 2018-07-25 09:38:26.173000
+SQL_STORED_PROCEDURE | GetPhysicalInventoryCountListFullCompare02 | 8039 | 2018-07-27 10:32:25.610000
+SQL_STORED_PROCEDURE | GetPhysicalPartInventoryCountList | 854 | 2016-06-27 15:52:04.510000
+SQL_STORED_PROCEDURE | GetReceiveBulkID_WithThisData | 3919 | 2016-06-27 15:52:05.310000
+SQL_STORED_PROCEDURE | GetReceiveBulkID_WithThisData_forShipment | 3685 | 2016-06-27 15:52:05.157000
+SQL_SCALAR_FUNCTION | GetReceivedBulkDataListString | 2756 | 2020-05-29 20:36:21.720000
+SQL_SCALAR_FUNCTION | GetReceivedDataListString | 2734 | 2020-05-29 20:36:21.747000
+SQL_SCALAR_FUNCTION | GetReceivedDetailCurrentProcessID | 1079 | 2020-05-29 20:36:21.733000
+SQL_SCALAR_FUNCTION | GetReceivedDetailCurrentProcessName | 1241 | 2020-05-29 20:36:21.740000
+SQL_SCALAR_FUNCTION | GetReceivedDetailCurrentProcessNameAndDate | 1880 | 2020-05-29 20:36:21.743000
+SQL_SCALAR_FUNCTION | GetReceivedDetailCurrentProcessNameFriendly | 1857 | 2020-05-29 20:36:21.743000
+SQL_SCALAR_FUNCTION | GetReceivedDetailProcessLogNextKeyID | 675 | 2020-05-29 20:36:21.740000
+SQL_SCALAR_FUNCTION | GetReceivedDetailProcessLogPriorKeyID | 682 | 2020-05-29 20:36:21.740000
+SQL_SCALAR_FUNCTION | GetReceivedDetailProcessNameAndDateHistory | 2549 | 2020-05-29 20:36:21.697000
+SQL_SCALAR_FUNCTION | GetReceivedDetailProjectName | 812 | 2020-05-29 20:36:21.710000
+SQL_SCALAR_FUNCTION | GetReceivedDetailStartProcessName | 793 | 2020-05-29 20:36:21.730000
+SQL_STORED_PROCEDURE | GetReceiveDetail_AttributeHistory | 7249 | 2016-06-27 15:52:06.803000
+SQL_STORED_PROCEDURE | GetReceiveDetail_Parts | 2372 | 2016-06-27 15:52:10.673000
+SQL_STORED_PROCEDURE | GetReceiveDetail_SalesAvailableStock | 2627 | 2016-06-27 15:52:07.363000
+SQL_STORED_PROCEDURE | GetReceiveDetail_SalesAvailableStock_Colour | 3267 | 2016-06-27 15:52:09.043000
+SQL_STORED_PROCEDURE | GetReceiveDetail_SalesAvailableStock_ColourDetail | 7279 | 2016-06-27 15:52:07.357000
+SQL_STORED_PROCEDURE | GetReceiveDetail_SalesAvailableStock_Detail | 2799 | 2016-06-27 15:52:07.347000
+SQL_STORED_PROCEDURE | GetReceiveDetail_SalesAvailableStock_DetailByColour | 2523 | 2016-06-27 15:52:09.040000
+SQL_STORED_PROCEDURE | GetReceiveDetail_SalesAvailableStock_Grade | 3575 | 2016-06-27 15:52:07.343000
+SQL_STORED_PROCEDURE | GetReceiveDetail_SalesAvailableStock_Manufacturer | 2404 | 2016-06-27 15:52:07.340000
+SQL_STORED_PROCEDURE | GetReceiveDetail_SalesAvailableStock_Model | 2387 | 2016-06-27 15:52:09.037000
+SQL_STORED_PROCEDURE | GetReceiveDetail_XBINX | 2473 | 2016-06-27 15:52:07.337000
+SQL_STORED_PROCEDURE | GetReceiveDetail_XLOCX | 1801 | 2016-06-27 15:52:07.330000
+SQL_STORED_PROCEDURE | GetReceiveDetailBulkSummary | 1223 | 2016-06-27 15:52:02.833000
+SQL_STORED_PROCEDURE | GetReceiveDetailsInTheseSKULocationCondition | 9586 | 2016-06-27 15:52:05.150000
+SQL_STORED_PROCEDURE | GetReceiveDetailsInTheseSKULocationCondition_Summary | 9779 | 2016-06-27 15:52:05.133000
+SQL_SCALAR_FUNCTION | GetReceivedQuestionAnsweredDateString | 3294 | 2020-05-29 20:36:21.747000
+SQL_SCALAR_FUNCTION | GetReceivedQuestionAnswerID | 2302 | 2020-05-29 20:36:21.700000
+SQL_SCALAR_FUNCTION | GetReceivedQuestionAnswerName | 2976 | 2020-05-29 20:36:21.700000
+SQL_SCALAR_FUNCTION | GetReceivedQuestionAnswerString | 4176 | 2020-05-29 20:36:21.697000
+SQL_SCALAR_FUNCTION | GetReceivedQuestionAnswerString_03 | 4680 | 2020-05-29 20:36:21.690000
+SQL_SCALAR_FUNCTION | GetReceivedQuestionAnswerString_BKUP | 3872 | 2020-05-29 20:36:21.747000
+SQL_SCALAR_FUNCTION | GetReceivedQuestionAnswerString_OptionID | 3455 | 2020-05-29 20:36:21.700000
+SQL_SCALAR_FUNCTION | GetReceivedQuestionAnswerString_QID | 3364 | 2020-05-29 20:36:21.703000
+SQL_SCALAR_FUNCTION | GetReceivedQuestionAnswerString_Test | 3033 | 2020-05-29 20:36:21.747000
+SQL_SCALAR_FUNCTION | GetReceivedQuestionBulkAnswerString | 2034 | 2020-05-29 20:36:21.757000
+SQL_SCALAR_FUNCTION | GetReceivedQuestionBulkJsonKey | 1068 | 2020-05-29 20:36:21.723000
+SQL_STORED_PROCEDURE | GetReport_ActiveOnly_DateRange_Test | 33336 | 2016-06-27 15:52:07.857000
+SQL_STORED_PROCEDURE | GetReport_ActiveOnly_PreviousMonth_Test | 31559 | 2016-06-27 15:52:08.910000
+SQL_STORED_PROCEDURE | GetReport_BinStorage | 4709 | 2016-06-27 15:52:07.317000
+SQL_STORED_PROCEDURE | GetReport_BinStorage_Freq | 12155 | 2016-06-27 15:52:05.053000
+SQL_STORED_PROCEDURE | GetReport_BinStorage_Freq_B | 9288 | 2016-06-27 15:52:05.043000
+SQL_STORED_PROCEDURE | GetReport_BinStorage_Freq_B_BKUP | 5654 | 2016-06-27 15:52:05.037000
+SQL_STORED_PROCEDURE | GetReport_BinStorage_Freq_C | 9288 | 2016-06-27 15:52:05.030000
+SQL_STORED_PROCEDURE | GetReport_ClientPortal_DetailInventory_WithAuth | 37931 | 2016-06-27 15:52:08.813000
+SQL_STORED_PROCEDURE | GetReport_DevicesBIN | 4059 | 2016-06-27 15:52:07.430000
+SQL_STORED_PROCEDURE | GetReport_DevicesXBINXKey | 3558 | 2016-06-27 15:52:05.970000
+SQL_STORED_PROCEDURE | GetReport_FullDetailInventory | 30702 | 2016-06-27 15:52:08.770000
+SQL_STORED_PROCEDURE | GetReport_GraveYardDetailInventory | 29760 | 2016-06-27 15:52:08.750000
+SQL_STORED_PROCEDURE | GetReport_LocationHistory_Old | 2681 | 2016-06-27 15:52:05.377000
+SQL_STORED_PROCEDURE | GetReport_MasterPartsInventory_Transactions | 717 | 2016-06-27 15:52:02.363000
+SQL_STORED_PROCEDURE | GetReport_MasterPartsInventoryTransactions | 10479 | 2016-06-27 15:52:05.953000
+SQL_STORED_PROCEDURE | GetReport_MasterPartsInventoryTransactions_bkup | 8775 | 2016-06-27 15:52:05.943000
+SQL_STORED_PROCEDURE | GetReport_MasterPartsInventoryTransactionsx | 8709 | 2016-06-27 15:52:05.937000
+SQL_STORED_PROCEDURE | GetReport_ProcessCurrentAndPrevious2Months_TESTIDC | 33253 | 2016-06-27 15:52:08.407000
+SQL_STORED_PROCEDURE | GetReport_ProcessPreviousDay_Location | 32710 | 2016-06-27 15:52:09.727000
+SQL_STORED_PROCEDURE | GetReport_ProcessPreviousMonth_Location | 32803 | 2016-06-27 15:52:09.663000
+SQL_STORED_PROCEDURE | GetReport_ProcessPreviousWeek_Location | 32820 | 2016-06-27 15:52:09.600000
+SQL_STORED_PROCEDURE | GetReport_ReceivedPreviousDay | 29661 | 2016-06-27 15:52:09.507000
+SQL_STORED_PROCEDURE | GetReport_ReceivedPreviousMonth | 29553 | 2016-06-27 15:52:09.487000
+SQL_STORED_PROCEDURE | GetReport_ReceivedPreviousWeek | 29692 | 2016-06-27 15:52:09.467000
+SQL_STORED_PROCEDURE | GetReport_RepairAssessment_ByProjectTag | 3970 | 2026-05-07 22:25:14.217000
+SQL_STORED_PROCEDURE | GetReport_ShippedPreviousDay | 30479 | 2016-06-27 15:52:09.360000
+SQL_STORED_PROCEDURE | GetReport_ShippedPreviousMonth | 30522 | 2016-06-27 15:52:09.330000
+SQL_STORED_PROCEDURE | GetReport_ShippedPreviousWeek | 30504 | 2016-06-27 15:52:09.307000
+SQL_STORED_PROCEDURE | GetReportingInventoryFlat_TelusWeekly | 285 | 2026-05-04 10:41:08.007000
+SQL_STORED_PROCEDURE | GetTestData | 352 | 2016-06-27 15:52:02.633000
+SQL_STORED_PROCEDURE | GetThisMasterBinLocation | 1832 | 2016-06-27 15:52:05.843000
+SQL_STORED_PROCEDURE | IFS_GenerateInvtTran_OrderPickList | 7126 | 2016-06-27 15:52:02.917000
+SQL_STORED_PROCEDURE | IFS_LoadPickList | 32161 | 2016-06-27 15:52:10.200000
+SQL_STORED_PROCEDURE | IFS_OrderEntry_PickDevice | 6159 | 2017-06-02 21:49:33.830000
+SQL_STORED_PROCEDURE | IFS_PickUpXMLFiles | 6542 | 2016-06-27 15:52:04.137000
+SQL_STORED_PROCEDURE | InsertReceiveDetailItemAttributeList | 3133 | 2016-06-27 15:52:11.227000
+SQL_SCALAR_FUNCTION | IsIFSLocationValid | 253 | 2020-05-29 20:36:21.760000
+SQL_STORED_PROCEDURE | Job_UpdateShippedUnits | 1628 | 2018-06-26 15:28:32.533000
+VIEW | JsonStringReceiveDetailOptionKeyList | 1782 | 2016-06-27 15:52:07.637000
+SQL_STORED_PROCEDURE | OrderEntry_PickDevice | 7857 | 2021-01-29 16:19:41.333000
+SQL_STORED_PROCEDURE | OrderEntry_PickDevice_Tester | 7441 | 2021-01-29 16:04:43.170000
+SQL_STORED_PROCEDURE | OrderEntry_UpdatePickQTY | 1460 | 2020-05-04 17:42:20.323000
+SQL_STORED_PROCEDURE | RecordProcessDefinitionBinLocation | 1362 | 2016-06-27 15:52:07.623000
+SQL_STORED_PROCEDURE | RefreshReportingInventoryFlat | 3504 | 2026-05-28 04:23:54.883000
+SQL_STORED_PROCEDURE | RefreshReportingInventoryFlat_OSL | 4611 | 2026-07-15 23:58:18.243000
+SQL_STORED_PROCEDURE | RefreshReportingInventoryFlat_Telus | 3870 | 2026-05-29 09:08:03.990000
+SQL_STORED_PROCEDURE | RefreshReportingInventoryFlat_TelusWeekly | 5695 | 2026-05-04 10:40:07.407000
+SQL_STORED_PROCEDURE | RefreshReportingInventoryFlat_TMS | 5781 | 2026-07-06 13:16:16.150000
+SQL_STORED_PROCEDURE | RefreshReportingTelusFlat | 12024 | 2026-03-17 19:03:46.890000
+SQL_STORED_PROCEDURE | Report_AnalysisDeviceLocation | 5672 | 2017-06-02 21:46:21.013000
+SQL_STORED_PROCEDURE | Report_AnalysisLocationMoves | 2172 | 2016-06-27 15:52:05.273000
+SQL_STORED_PROCEDURE | Report_Extract_Public_MEID_SHIPRETURN | 10801 | 2016-06-27 15:52:11.187000
+SQL_STORED_PROCEDURE | ResetNewClientLocation | 9075 | 2016-06-27 15:52:05.263000
+SQL_STORED_PROCEDURE | ScheduledJob_ProcessBinMoves | 3335 | 2016-06-27 15:52:05.320000
+SQL_STORED_PROCEDURE | ScheduledJob_ProcessBinMoves_BKUP | 3136 | 2016-06-27 15:52:05.317000
+SQL_STORED_PROCEDURE | spWriteStringToFile | 1698 | 2016-06-27 15:52:04.223000
+SQL_STORED_PROCEDURE | Update_IMEI_Unlock_Test | 10182 | 2016-06-27 15:52:09.140000
+SQL_STORED_PROCEDURE | Update_OrderEntry_BulkShipped_WithRerun | 35387 | 2016-06-27 15:52:06.597000
+SQL_STORED_PROCEDURE | Update_OrderEntry_Shipped | 31782 | 2016-06-27 15:52:06.570000
+SQL_STORED_PROCEDURE | Update_OrderEntry_Shipped_BKUP | 31799 | 2016-06-27 15:52:06.537000
+SQL_STORED_PROCEDURE | Update_OrderEntry_Shipped_WithRerun | 4679 | 2020-05-03 17:39:59.960000
+SQL_STORED_PROCEDURE | Update_OrderEntry_Shipped_WithRerun_BKUP | 40887 | 2016-06-27 15:52:06.500000
+SQL_STORED_PROCEDURE | Update_OrderEntry_Shipped_WithRerun_Go | 44592 | 2021-12-13 20:29:01.240000
+SQL_STORED_PROCEDURE | Update_OrderEntry_Shipped_WithRerun_Go_BKUP | 50811 | 2020-05-05 14:12:32.147000
+SQL_STORED_PROCEDURE | Update_OrderEntry_Shipped_WithRerun_Goxxxx | 38937 | 2016-06-27 15:52:07.577000
+SQL_STORED_PROCEDURE | Update_OrderEntry_Shipped_x | 37330 | 2016-06-27 15:52:07.547000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailCycleCountScan | 17801 | 2017-06-02 21:45:21.960000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailESN | 547 | 2016-06-27 15:52:02.550000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailESNVersionToVersionZero | 1215 | 2016-06-27 15:52:02.547000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailItem_Version | 509 | 2016-06-27 15:52:10.210000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailItemBulk_Version | 529 | 2016-06-27 15:52:02.633000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailItemBulkOption_Version | 748 | 2016-06-27 15:52:05.313000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailItemOption_Version | 1751 | 2016-06-27 15:52:10.177000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailItemOption_Version_B | 1344 | 2016-06-27 15:52:10.170000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailItemOption_Version_BKUP | 1756 | 2016-06-27 15:52:10.163000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailItemOption_Version_Test | 2075 | 2016-06-27 15:52:10.160000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailItemOption_Version_Test1 | 1355 | 2016-06-27 15:52:10.153000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailItemOption_VersionX | 1153 | 2016-06-27 15:52:10.150000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailLocation | 2758 | 2019-02-28 19:02:41.130000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailPhysicalCycleCountScanClean | 689 | 2016-06-27 15:52:04.720000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailPhysicalScan | 18150 | 2018-07-24 19:41:23.080000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailPhysicalScanBKUP | 15816 | 2017-06-02 21:44:51.363000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailPhysicalScanClean | 677 | 2016-06-27 15:52:04.670000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailSKUFields | 9604 | 2020-05-02 18:08:43.140000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailSKUFieldsxx | 5330 | 2017-11-29 22:03:06.457000
+SQL_STORED_PROCEDURE | Update_ReceiveDetailToVersionZero | 499 | 2016-06-27 15:52:02.547000
+SQL_STORED_PROCEDURE | UpdateBin_LocationValue_ByID | 4812 | 2016-06-27 15:52:07.497000
+SQL_STORED_PROCEDURE | UpdateESN_UnShip_BYID | 2420 | 2021-11-03 18:51:10.913000
+SQL_STORED_PROCEDURE | UpdateESN_UnShip_BYID_X | 936 | 2021-11-03 18:50:57.440000
+SQL_STORED_PROCEDURE | UpdateESNAttribute_NoProjectRestriction_BYID_Test | 17600 | 2021-02-04 11:42:43.180000
+SQL_STORED_PROCEDURE | UpdateESNAttributePreReceive | 926 | 2016-06-27 15:52:09.340000
+SQL_STORED_PROCEDURE | UpdateESNAttributePreReceive_BYID | 8292 | 2016-06-27 15:52:07.373000
+SQL_STORED_PROCEDURE | UpdateStatisticalRawBucketData_Date | 3575 | 2016-06-27 15:52:04.310000
+SQL_STORED_PROCEDURE | UpdateStatisticalRawBucketDataGrandTotal | 1535 | 2016-06-27 15:52:04.307000
+SQL_STORED_PROCEDURE | Utility_BinCleaner_NonZeroVersion | 1840 | 2016-06-27 15:52:07.683000
+SQL_STORED_PROCEDURE | Utility_Extract_Samsung_Test | 46432 | 2016-06-27 15:52:09.223000
+SQL_STORED_PROCEDURE | Utility_LoadIFSLocation | 1925 | 2016-06-27 15:52:04.450000
+SQL_STORED_PROCEDURE | Utility_MoveReceiveDetailItem_Archive_02Offline | 1043 | 2018-05-01 21:34:28.690000
+SQL_STORED_PROCEDURE | Utility_RebuildReceiveDetailHeaderAttributes | 4576 | 2016-06-27 15:52:07.667000
+SQL_STORED_PROCEDURE | Utility_RebuildReceiveDetailHeaderAttributes_ThisIMEI | 6492 | 2016-06-27 15:52:08.010000
+SQL_STORED_PROCEDURE | Utility_RebuildReceiveDetailHeaderAttributes_ThisIMEI_B | 6611 | 2016-06-27 15:52:08
+SQL_STORED_PROCEDURE | Utility_RebuildReceiveDetailHeaderAttributes_ThisIMEI_BYID | 3969 | 2016-06-27 15:52:07.997000
+SQL_STORED_PROCEDURE | Utility_RemoveBinAndLocationAttributesFromNonZeroVersionUnits | 3781 | 2016-06-27 15:52:07.663000
+SQL_STORED_PROCEDURE | Utility_XBINX_Change_Project | 2517 | 2016-06-27 15:52:07.650000
+SQL_STORED_PROCEDURE | Utility_XBINX_FWDLOGHolding | 2559 | 2016-06-27 15:52:04.097000
+SQL_STORED_PROCEDURE | Utility_XBINX_StartProcess | 4223 | 2016-06-27 15:52:04.110000
+SQL_STORED_PROCEDURE | UtilitySP_ShipUnit | 9379 | 2016-06-27 15:52:07.643000
+SQL_STORED_PROCEDURE | UtilitySP_unShipUnit | 2769 | 2016-06-27 15:52:05.620000
+VIEW | View_ReceiveDetail_Data | 1986 | 2016-11-24 15:56:33.880000
+VIEW | View_ReceiveDetailBulkSummary | 1872 | 2016-06-27 15:52:05.217000
+VIEW | View_ReceiveDetailItem_CurrentData | 2323 | 2016-06-27 15:52:10.680000
+VIEW | View_ReceiveDetailItem_Data | 1106 | 2016-11-24 15:56:10.930000
+VIEW | View_ReceiveDetailMakeModelColourKeys | 1931 | 2016-06-27 15:52:07.080000
+VIEW | View_ReceiveDetailMakeModelColourLookup | 1761 | 2016-06-27 15:52:09.123000
+VIEW | View_ReceiveDetailSummary | 1739 | 2016-06-27 15:52:05.253000
+VIEW | View_ReceiveFromBulk_BulkKeys | 713 | 2016-06-27 15:52:02.567000
+VIEW | vw_aspnet_MembershipUsers | 1480 | 2016-06-27 15:52:06.467000
+VIEW | vwGetReport_MasterPartsInventory_IN_and_OUT | 276 | 2016-06-27 15:52:02.357000
+VIEW | vwGetReport_MasterPartsInventory_Transactions_IN | 2667 | 2016-06-27 15:52:02.340000
+VIEW | vwGetReport_MasterPartsInventory_Transactions_OUT | 2706 | 2016-06-27 15:52:02.353000
+VIEW | vwGridCycleInventoryCount_B | 4885 | 2016-06-27 15:52:04.560000
+VIEW | vwGridCycleInventoryCount_C | 4952 | 2016-06-27 15:52:04.557000
+VIEW | vwGridCycleInventoryCountParts_B | 3014 | 2016-06-27 15:52:04.550000
+VIEW | vwGridPhysicalInventoryCount | 702 | 2016-06-27 15:52:04.547000
+VIEW | vwGridPhysicalInventoryCount_B | 4787 | 2016-06-27 15:52:04.543000
+VIEW | vwGridPhysicalPartInventoryCount | 695 | 2016-06-27 15:52:04.537000
+VIEW | vwIFSSalesOrderData | 1896 | 2016-06-27 15:52:05.370000
+VIEW | vwMasterPartsTableIFSLocationStorageMoveLog | 3042 | 2016-06-27 15:52:07.393000
+VIEW | vwPartNumberBucketInventoryPlacement | 1747 | 2016-06-27 15:52:02.870000
+VIEW | vwPartNumberBucketInventorySource | 1669 | 2016-06-27 15:52:02.873000
+VIEW | vwPartNumberBucketInventoryUnion | 1825 | 2016-06-27 15:52:03.057000
+VIEW | vwReceiveDetail_APIInsertBatch | 2095 | 2021-01-27 13:39:16.500000
+VIEW | vwReceiveDetailAttributeValue | 451 | 2016-06-27 15:52:09.120000
+VIEW | vwReceiveDetailCellbie | 358 | 2019-04-03 23:38:34.997000
+VIEW | vwReceiveDetailPOData | 1112 | 2016-06-27 15:52:09.003000
+VIEW | vwReceiveDetailSOData | 1310 | 2016-06-27 15:52:04.920000
+
+==============================================================================
+COLUMNS FOR KEY TABLES (live schema, incl. anything added since the DBML)
+==============================================================================
+TABLE_NAME | COLUMN_NAME | DATA_TYPE | len | IS_NULLABLE
+------------------------------------------------------------------------------
+BinLocation | BinLocationID | numeric |  | NO
+BinLocation | ScanKey | nvarchar | 50 | YES
+BinLocation | MacroKey | nchar | 2 | YES
+BinLocation | Name | nvarchar | 20 | NO
+BinLocation | Description | nvarchar | 50 | NO
+BinLocation | BuildingLocation | nvarchar | 50 | NO
+BinLocation | CapacityInUnits | int |  | YES
+BinLocation | CapacityUnits | nvarchar | 20 | YES
+BinLocation | CurrentCapacity | int |  | YES
+BinLocation | Sequence | int |  | NO
+BinLocation | AllowSelect | bit |  | YES
+BinLocation | AllowAdd | bit |  | YES
+BinLocation | AllowUpdate | bit |  | YES
+BinLocation | AllowDelete | bit |  | YES
+BinLocation | AllowScan | bit |  | YES
+BinLocation | CreateDate | datetime |  | NO
+BinLocation | CreateUser | nvarchar | 50 | NO
+BinLocation | LastUpdateDate | datetime |  | NO
+BinLocation | LastUpdateUser | nvarchar | 50 | NO
+Client | ClientID | numeric |  | NO
+Client | Name | nvarchar | 50 | NO
+Client | ScanKey | nvarchar | 50 | YES
+Client | StatusID | numeric |  | NO
+Client | CompanyName | nvarchar | 200 | YES
+Client | ContactName | nvarchar | 30 | YES
+Client | BillingAddress | nvarchar | 255 | YES
+Client | AddressLine1 | nvarchar | 50 | YES
+Client | AddressLine2 | nvarchar | 50 | YES
+Client | City | nvarchar | 50 | YES
+Client | StateOrProvince | nvarchar | 50 | YES
+Client | PostalCode | nvarchar | 20 | YES
+Client | PhoneNumber | nvarchar | 30 | YES
+Client | Notes | ntext | 1073741823 | YES
+Client | AllowSelect | bit |  | YES
+Client | AllowAdd | bit |  | YES
+Client | AllowUpdate | bit |  | YES
+Client | AllowDelete | bit |  | YES
+Client | AllowScan | bit |  | YES
+Client | CreateDate | datetime |  | NO
+Client | CreateUser | nvarchar | 50 | NO
+Client | LastUpdateDate | datetime |  | NO
+Client | LastUpdateUser | nvarchar | 50 | NO
+Client | FaxNumber | nvarchar | 30 | YES
+Client | EmailAddress | nvarchar | 50 | YES
+Client | RMASuffix | nvarchar | 3 | YES
+Client | isVendorGroup | bit |  | YES
+Client | ProductTag | nvarchar | 20 | YES
+Client | UserName | nvarchar | 50 | YES
+Client | RepairForm | nvarchar | 20 | YES
+Client | PortalName | nvarchar | 20 | YES
+Client | WarrentyDayLimit | numeric |  | YES
+Client | InWarrentyPricing | bit |  | YES
+Client | HideOnPreReceiveList | bit |  | YES
+Client | OOW_WHS | bit |  | YES
+Client | AddressLine3 | nvarchar | 50 | YES
+Client | AddressLine4 | nvarchar | 50 | YES
+Client | Country | nvarchar | 50 | YES
+Option | OptionID | numeric |  | NO
+Option | ScanKey | nvarchar | 50 | YES
+Option | MacroKey | nchar | 2 | YES
+Option | OptionStatusID | numeric |  | NO
+Option | OptionTypeID | numeric |  | NO
+Option | OptionText | nvarchar | 50 | NO
+Option | HelpText | nvarchar | 100 | YES
+Option | QuestionID | numeric |  | NO
+Option | Name | nvarchar | 20 | NO
+Option | Sequence | int |  | YES
+Option | AllowSelect | bit |  | YES
+Option | AllowAdd | bit |  | YES
+Option | AllowUpdate | bit |  | YES
+Option | AllowDelete | bit |  | YES
+Option | AllowScan | bit |  | YES
+Option | CreateDate | datetime |  | NO
+Option | CreateUser | nvarchar | 50 | NO
+Option | LastUpdateDate | datetime |  | NO
+Option | LastUpdateUser | nvarchar | 50 | NO
+Option | MicroKey | nvarchar | 10 | YES
+Option | BucketCount | nvarchar | 20 | YES
+Option | BucketCountOffset | nvarchar | 20 | YES
+Option | IDC_FriendlyName | nvarchar | 50 | YES
+Option | IDC_ClientID | numeric |  | YES
+OrderDetail | OrderDetailID | numeric |  | NO
+OrderDetail | OrderHeaderID | numeric |  | NO
+OrderDetail | SKU | nvarchar | 10 | YES
+OrderDetail | QTY | numeric |  | YES
+OrderDetail | Desc_Code | nvarchar | 500 | YES
+OrderDetail | Desc_Text | nvarchar | 1000 | YES
+OrderDetail | CreateDate | datetime |  | NO
+OrderDetail | CreateUser | nvarchar | 50 | NO
+OrderDetail | LastUpdateDate | datetime |  | NO
+OrderDetail | LastUpdateUser | nvarchar | 50 | NO
+OrderDetail | QTYPacked | numeric |  | YES
+OrderDetail | AvailableStock_OrderNumber | nvarchar | 50 | YES
+OrderDetail | AvailableStock_QTY | int |  | YES
+OrderDetail | ReservedAvailableStockID | numeric |  | YES
+OrderDetail | Manufacturer | nvarchar | 50 | YES
+OrderDetail | Model | nvarchar | 50 | YES
+OrderDetail | Colour | nvarchar | 50 | YES
+OrderDetail | Grade | nvarchar | 50 | YES
+OrderDetail | Carrier | nvarchar | 50 | YES
+OrderDetail | PurchasePrice | numeric |  | YES
+OrderDetail | PurchaseUnitPrice | numeric |  | YES
+OrderDetail | IFSPickListOrderDetailID | numeric |  | YES
+OrderDetail | IFSSKU | nvarchar | 25 | YES
+OrderDetail | Location | nvarchar | 50 | YES
+OrderDetail | Condition | nvarchar | 10 | YES
+OrderDetail | Project_ID | nvarchar | 10 | YES
+OrderDetail | Line_NO | smallint |  | YES
+OrderDetail | REL_NO | nvarchar | 5 | YES
+OrderDetail | LOT_BATCH_NO | nvarchar | 50 | YES
+OrderDetail | Discount | numeric |  | YES
+OrderDetail | Note | nvarchar | 100 | YES
+OrderHeader | OrderHeaderID | numeric |  | NO
+OrderHeader | StatusID | numeric |  | NO
+OrderHeader | ProjectID | numeric |  | NO
+OrderHeader | OrderNumber | nvarchar | 20 | YES
+OrderHeader | CustomerPO | nvarchar | 50 | YES
+OrderHeader | OrderDate | datetime |  | NO
+OrderHeader | PickPackDate | datetime |  | YES
+OrderHeader | ShippedDate | datetime |  | YES
+OrderHeader | CreateDate | datetime |  | NO
+OrderHeader | CreateUser | nvarchar | 50 | NO
+OrderHeader | LastUpdateDate | datetime |  | NO
+OrderHeader | LastUpdateUser | nvarchar | 50 | NO
+OrderHeader | PickProjectID | numeric |  | YES
+OrderHeader | MiscDesc | nvarchar | 2000 | YES
+OrderHeader | WayBillNumber | nvarchar | 500 | YES
+OrderHeader | Paid | bit |  | YES
+OrderHeader | PostPaid | bit |  | YES
+OrderHeader | Courier | nvarchar | 20 | YES
+OrderHeader | InternalNote | nvarchar | 500 | YES
+OrderHeader | DeliveryNote | nvarchar | 500 | YES
+OrderHeader | ProjectTag | nvarchar | 50 | YES
+OrderHeader | IFSPickListOrderHeaderID | numeric |  | YES
+OrderHeader | IFSOrderNo | nvarchar | 20 | YES
+OrderHeader | Site | nvarchar | 5 | YES
+OrderHeader | RequestUser | varchar | 50 | YES
+OrderHeader | MiscReference | nvarchar | 50 | YES
+OrderHeader | OrderType | nvarchar | 25 | YES
+OrderHeader | Currency | nvarchar | 25 | YES
+OrderHeader | Freight | numeric |  | YES
+OrderHeader | Tax | numeric |  | YES
+OrderHeader | TaxRate | numeric |  | YES
+OrderHeader | Terms | nvarchar | 30 | YES
+Process | ProcessID | numeric |  | NO
+Process | ScanKey | nvarchar | 50 | YES
+Process | MacroKey | nchar | 2 | YES
+Process | Name | nvarchar | 20 | NO
+Process | Description | nvarchar | 50 | NO
+Process | Description_Client | nvarchar | 50 | NO
+Process | StatusID | numeric |  | NO
+Process | Sequence | int |  | NO
+Process | AllowSelect | bit |  | YES
+Process | AllowAdd | bit |  | YES
+Process | AllowUpdate | bit |  | YES
+Process | AllowDelete | bit |  | YES
+Process | AllowScan | bit |  | YES
+Process | CreateDate | datetime |  | NO
+Process | CreateUser | nvarchar | 50 | NO
+Process | LastUpdateDate | datetime |  | NO
+Process | LastUpdateUser | nvarchar | 50 | NO
+Process | ShowCompletedStatus | bit |  | YES
+Process | ButtonText | nvarchar | 25 | YES
+Process | NextRMANumber | numeric |  | YES
+Process | RMASuffix | nvarchar | 3 | YES
+Process | isReadOnly | bit |  | YES
+Process | BucketCount | nvarchar | 20 | YES
+Process | BucketCountOffset | nvarchar | 20 | YES
+Process | ShowTAT | bit |  | YES
+Process | CanJumpProject | bit |  | YES
+Process | TurnStickyOn | bit |  | YES
+Process | MinutesToYellow | numeric |  | YES
+Process | MinutesToRed | numeric |  | YES
+Process | DisablePrint | bit |  | YES
+Process | ForcePrintOnSave | bit |  | YES
+Process | IFSDirectiveType | nvarchar | 20 | YES
+Process | AllowXBINX | bit |  | YES
+ProcessQuestion | ProcessQuestionID | numeric |  | NO
+ProcessQuestion | ProcessID | numeric |  | NO
+ProcessQuestion | QuestionID | numeric |  | NO
+ProcessQuestion | CreateDate | datetime |  | NO
+ProcessQuestion | CreateUser | nvarchar | 50 | NO
+ProcessQuestion | LastUpdateDate | datetime |  | NO
+ProcessQuestion | LastUpdateUser | nvarchar | 50 | NO
+Project | ProjectID | numeric |  | NO
+Project | ClientID | numeric |  | YES
+Project | StatusID | numeric |  | YES
+Project | Name | varchar | 20 | NO
+Project | Description | nvarchar | 50 | NO
+Project | CreateDate | datetime |  | NO
+Project | CreateUser | nvarchar | 50 | NO
+Project | LastUpdateDate | datetime |  | NO
+Project | LastUpdateUser | nvarchar | 50 | NO
+Project | BagTagName | nvarchar | 20 | YES
+Project | AllowSelect | bit |  | YES
+Project | AllowAdd | bit |  | YES
+Project | AllowUpdate | bit |  | YES
+Project | AllowDelete | bit |  | YES
+Project | AllowScan | bit |  | YES
+Project | Gather_ProjectTag | bit |  | YES
+Project | Gather_RMANumber | bit |  | YES
+Project | GatherAuto_ProjectTag | bit |  | YES
+Project | GatherAuto_RMANumber | bit |  | YES
+Project | Auto_RMANumber | bit |  | YES
+Project | Auto_WorkOrder | bit |  | YES
+Project | AllowProjectPassThrough | bit |  | YES
+Project | isMasterCarrierManufactuerLinked | bit |  | YES
+Project | ProductTag | nvarchar | 20 | YES
+Project | isSecondaryProjectOverride | bit |  | YES
+ProjectProcess | ProjectProcessID | numeric |  | NO
+ProjectProcess | ProjectID | numeric |  | NO
+ProjectProcess | ProcessID | numeric |  | NO
+ProjectProcess | CreateDate | datetime |  | NO
+ProjectProcess | CreateUser | nvarchar | 50 | NO
+ProjectProcess | LastUpdateDate | datetime |  | NO
+ProjectProcess | LastUpdateUser | nvarchar | 50 | NO
+Question | QuestionID | numeric |  | NO
+Question | QuestionTypeID | numeric |  | NO
+Question | Description | nvarchar | 50 | NO
+Question | ClientDescription | nvarchar | 50 | YES
+Question | HelpText | nvarchar | 100 | YES
+Question | QuestionStatusID | numeric |  | NO
+Question | Name | nvarchar | 20 | NO
+Question | Sequence | int |  | NO
+Question | IsHeaderQuestion | bit |  | YES
+Question | FreqCounter | int |  | YES
+Question | AllowSelect | bit |  | YES
+Question | AllowAdd | bit |  | YES
+Question | AllowUpdate | bit |  | YES
+Question | AllowDelete | bit |  | YES
+Question | AllowScan | bit |  | YES
+Question | CreateDate | datetime |  | NO
+Question | CreateUser | nvarchar | 50 | NO
+Question | LastUpdateDate | datetime |  | NO
+Question | LastUpdateUser | nvarchar | 50 | NO
+Question | TableName | nvarchar | 50 | YES
+Question | isManditory | bit |  | YES
+Question | isKeyQuestion | bit |  | YES
+Question | isSearchable | bit |  | YES
+Question | DisplayColumn | numeric |  | YES
+Question | BucketCount | nvarchar | 20 | YES
+Question | BucketCountOffset | nvarchar | 20 | YES
+Question | ShowVertical | bit |  | YES
+Question | isTimeSpread | bit |  | YES
+Question | isReadOnly | bit |  | YES
+Question | IFS_Condition | bit |  | YES
+Question | IFS_Condition_Sequence | int |  | YES
+QuestionType | QuestionTypeID | numeric |  | NO
+QuestionType | Type | nvarchar | 20 | NO
+QuestionType | CreateDate | datetime |  | NO
+QuestionType | CreateUser | nvarchar | 50 | NO
+QuestionType | LastUpdateDate | datetime |  | NO
+QuestionType | LastUpdateUser | nvarchar | 50 | NO
+ReceiveDetail | ReceiveDetailID | numeric |  | NO
+ReceiveDetail | ReceiveHeaderID | numeric |  | NO
+ReceiveDetail | ReceiveDetailBulkID | numeric |  | YES
+ReceiveDetail | ClientLocationID | numeric |  | NO
+ReceiveDetail | ProcessID | numeric |  | NO
+ReceiveDetail | StatusID | numeric |  | NO
+ReceiveDetail | ProjectID | numeric |  | YES
+ReceiveDetail | BinLocationID | numeric |  | YES
+ReceiveDetail | ProjectName | nvarchar | 50 | YES
+ReceiveDetail | RMANumber | nvarchar | 50 | YES
+ReceiveDetail | ESN | nvarchar | 50 | YES
+ReceiveDetail | ICB | nvarchar | 50 | YES
+ReceiveDetail | PIN | nvarchar | 50 | YES
+ReceiveDetail | QTYIntegrated | numeric |  | YES
+ReceiveDetail | MiscNote | nvarchar | 200 | NO
+ReceiveDetail | ReceiveDate | datetime |  | NO
+ReceiveDetail | CreateDate | datetime |  | NO
+ReceiveDetail | CreateUser | nvarchar | 50 | NO
+ReceiveDetail | LastUpdateDate | datetime |  | NO
+ReceiveDetail | LastUpdateUser | nvarchar | 50 | NO
+ReceiveDetail | ProjectTag | nvarchar | 50 | YES
+ReceiveDetail | Version | char | 3 | YES
+ReceiveDetail | Carrier | nvarchar | 50 | YES
+ReceiveDetail | Manufacturer | nvarchar | 50 | YES
+ReceiveDetail | Model | nvarchar | 50 | YES
+ReceiveDetail | Colour | nvarchar | 50 | YES
+ReceiveDetail | CarrierID | numeric |  | YES
+ReceiveDetail | ManufacturerID | numeric |  | YES
+ReceiveDetail | ModelID | numeric |  | YES
+ReceiveDetail | ColourID | numeric |  | YES
+ReceiveDetail | DealerSubmittedID | numeric |  | YES
+ReceiveDetail | Grade | nvarchar | 50 | YES
+ReceiveDetail | GradeID | numeric |  | YES
+ReceiveDetail | IDCBin | nvarchar | 20 | YES
+ReceiveDetail | IFSLocation | nvarchar | 20 | YES
+ReceiveDetail | SKU | nvarchar | 50 | YES
+ReceiveDetail | IFSCondition | nvarchar | 50 | YES
+ReceiveDetail | ISFTransactionDirective | smallint |  | YES
+ReceiveDetail | IFSPurchaseOrderDetailID | numeric |  | YES
+ReceiveDetail | isIFSLocked | bit |  | YES
+ReceiveDetailItem | ReceiveDetailItemID | numeric |  | NO
+ReceiveDetailItem | ReceiveHeaderID | numeric |  | NO
+ReceiveDetailItem | ReceiveDetailID | numeric |  | NO
+ReceiveDetailItem | Version | numeric |  | NO
+ReceiveDetailItem | OptionID | numeric |  | NO
+ReceiveDetailItem | Value | nvarchar | 200 | YES
+ReceiveDetailItem | ReceiveDate | datetime |  | NO
+ReceiveDetailItem | CreateDate | datetime |  | NO
+ReceiveDetailItem | CreateUser | nvarchar | 50 | NO
+ReceiveDetailItem | LastUpdateDate | datetime |  | NO
+ReceiveDetailItem | LastUpdateUser | nvarchar | 50 | NO
+ReceiveHeader | ReceiveHeaderID | numeric |  | NO
+ReceiveHeader | ClientLocationID | numeric |  | NO
+ReceiveHeader | StatusID | numeric |  | NO
+ReceiveHeader | ProjectID | numeric |  | YES
+ReceiveHeader | ProjectName | nvarchar | 50 | YES
+ReceiveHeader | RMANumber | nvarchar | 50 | YES
+ReceiveHeader | QTYPaper | numeric |  | YES
+ReceiveHeader | QTYRecorded | numeric |  | YES
+ReceiveHeader | MiscNote | nvarchar | 200 | NO
+ReceiveHeader | ReceiveDate | datetime |  | NO
+ReceiveHeader | CreateDate | datetime |  | NO
+ReceiveHeader | CreateUser | nvarchar | 50 | NO
+ReceiveHeader | LastUpdateDate | datetime |  | NO
+ReceiveHeader | LastUpdateUser | nvarchar | 50 | NO
+ReportingInventoryFlat | ESN | nvarchar | 50 | NO
+ReportingInventoryFlat | ProjectName | nvarchar | 50 | YES
+ReportingInventoryFlat | ProjectTag | nvarchar | 50 | YES
+ReportingInventoryFlat | ReceiveDate | datetime |  | YES
+ReportingInventoryFlat | Product_Place | nvarchar | 500 | YES
+ReportingInventoryFlat | Manufacturer | nvarchar | 50 | YES
+ReportingInventoryFlat | Model | nvarchar | 50 | YES
+ReportingInventoryFlat | Colour | nvarchar | 50 | YES
+ReportingInventoryFlat | Grade | nvarchar | 500 | YES
+ReportingInventoryFlat | Received_Grade | nvarchar | 500 | YES
+ReportingInventoryFlat | DeviceCost | decimal |  | YES
+ReportingInventoryFlat | Function_Test_Created | nvarchar | 20 | YES
+ReportingInventoryFlat | Grading_Created | nvarchar | 20 | YES
+ReportingInventoryFlat | LastRefreshed | datetime |  | NO
+ReservedAvailableStock | ReservedAvailableStockID | numeric |  | NO
+ReservedAvailableStock | AvailableStock_OrderNumber | nvarchar | 50 | NO
+ReservedAvailableStock | Quantity | int |  | NO
+ReservedAvailableStock | Manufacturer | nvarchar | 50 | NO
+ReservedAvailableStock | Model | nvarchar | 50 | NO
+ReservedAvailableStock | Colour | nvarchar | 50 | NO
+ReservedAvailableStock | Grade | nvarchar | 50 | NO
+ReservedAvailableStock | Carrier | nvarchar | 50 | NO
+ReservedAvailableStock | isOpen | bit |  | NO
+ReservedAvailableStock | CreateDate | datetime |  | NO
+ReservedAvailableStock | CreateUser | nvarchar | 50 | NO
+ReservedAvailableStock | LastUpdateDate | datetime |  | NO
+ReservedAvailableStock | LastUpdateUser | nvarchar | 50 | NO
+ReservedAvailableStock | AssignedDate | datetime |  | YES
+ReservedAvailableStock | AssignedUser | nvarchar | 50 | YES
+ReservedAvailableStock | QTYAssigned | int |  | YES
+ReservedAvailableStock | OrderDetailID | numeric |  | YES
+SODetail | SODetailID | numeric |  | NO
+SODetail | SOHeaderID | numeric |  | NO
+SODetail | Line_NO | smallint |  | YES
+SODetail | QTY | numeric |  | YES
+SODetail | Manufacturer | nvarchar | 50 | YES
+SODetail | Model | nvarchar | 50 | YES
+SODetail | Colour | nvarchar | 50 | YES
+SODetail | Carrier | nvarchar | 50 | YES
+SODetail | Condition | nvarchar | 10 | YES
+SODetail | Location | nvarchar | 50 | YES
+SODetail | UnitPurchasePrice | numeric |  | YES
+SODetail | Note | nvarchar | 1000 | YES
+SODetail | ManufacturerID | numeric |  | YES
+SODetail | ModelID | numeric |  | YES
+SODetail | ColourID | numeric |  | YES
+SODetail | CarrierID | numeric |  | YES
+SODetail | ConditionID | numeric |  | YES
+SODetail | LocationID | numeric |  | YES
+SODetail | CreateDate | datetime |  | NO
+SODetail | CreateUser | nvarchar | 50 | NO
+SODetail | LastUpdateDate | datetime |  | NO
+SODetail | LastUpdateUser | nvarchar | 50 | NO
+SODetail | IFSProject | nvarchar | 10 | YES
+SODetailReceiveDetail | SODetailReceiveDetailID | numeric |  | NO
+SODetailReceiveDetail | SODetailID | numeric |  | NO
+SODetailReceiveDetail | SOPickListDetailID | numeric |  | YES
+SODetailReceiveDetail | ReceiveDetailID | numeric |  | YES
+SODetailReceiveDetail | ESN | nvarchar | 50 | NO
+SODetailReceiveDetail | IFSSite | nvarchar | 5 | YES
+SODetailReceiveDetail | IFSProject | nvarchar | 10 | YES
+SODetailReceiveDetail | IFSSKU | nvarchar | 25 | YES
+SODetailReceiveDetail | IFSCondition | nvarchar | 10 | YES
+SODetailReceiveDetail | IFSLocation | nvarchar | 20 | YES
+SODetailReceiveDetail | Message | nvarchar | 50 | YES
+SODetailReceiveDetail | CreateDate | datetime |  | NO
+SODetailReceiveDetail | CreateUser | nvarchar | 50 | NO
+SODetailReceiveDetail | LastUpdateDate | datetime |  | NO
+SODetailReceiveDetail | LastUpdateUser | nvarchar | 50 | NO
+SOHeader | SOHeaderID | numeric |  | NO
+SOHeader | ProjectID | numeric |  | NO
+SOHeader | ClientLocationID | numeric |  | NO
+SOHeader | Status | nvarchar | 10 | NO
+SOHeader | OrderDate | datetime |  | NO
+SOHeader | Site | nvarchar | 5 | YES
+SOHeader | ProjectTag | nvarchar | 50 | YES
+SOHeader | OrderNumber | nvarchar | 20 | YES
+SOHeader | CustomerPO | nvarchar | 50 | YES
+SOHeader | Paid | bit |  | YES
+SOHeader | PostPaid | bit |  | YES
+SOHeader | InternalNote | nvarchar | 500 | YES
+SOHeader | DeliveryNote | nvarchar | 500 | YES
+SOHeader | MiscDesc | nvarchar | 2000 | YES
+SOHeader | MiscReference | nvarchar | 50 | YES
+SOHeader | CreateDate | datetime |  | NO
+SOHeader | CreateUser | nvarchar | 50 | NO
+SOHeader | LastUpdateDate | datetime |  | NO
+SOHeader | LastUpdateUser | nvarchar | 50 | NO
+SOPickListDetail | SOPickListDetailID | numeric |  | NO
+SOPickListDetail | SOPickListHeaderID | numeric |  | NO
+SOPickListDetail | Line_NO | smallint |  | YES
+SOPickListDetail | QTY | numeric |  | YES
+SOPickListDetail | PurchasePrice | numeric |  | YES
+SOPickListDetail | IFSSKU | nvarchar | 50 | YES
+SOPickListDetail | IFSProject | nvarchar | 10 | YES
+SOPickListDetail | REL_NO | nvarchar | 5 | YES
+SOPickListDetail | LOT_BATCH_NO | nvarchar | 50 | YES
+SOPickListDetail | CreateDate | datetime |  | NO
+SOPickListDetail | CreateUser | nvarchar | 50 | NO
+SOPickListDetail | LastUpdateDate | datetime |  | NO
+SOPickListDetail | LastUpdateUser | nvarchar | 50 | NO
+SOPickListHeader | SOPickListHeaderID | numeric |  | NO
+SOPickListHeader | SOHeaderID | numeric |  | NO
+SOPickListHeader | ClientLocationID | numeric |  | NO
+SOPickListHeader | Status | nvarchar | 10 | NO
+SOPickListHeader | OrderDate | datetime |  | NO
+SOPickListHeader | Site | nvarchar | 5 | YES
+SOPickListHeader | OrderNumber | nvarchar | 20 | YES
+SOPickListHeader | PickListNumber | nvarchar | 20 | YES
+SOPickListHeader | CustomerPO | nvarchar | 50 | YES
+SOPickListHeader | WayBillNumber | nvarchar | 50 | YES
+SOPickListHeader | Paid | bit |  | YES
+SOPickListHeader | PostPaid | bit |  | YES
+SOPickListHeader | Courier | nvarchar | 20 | YES
+SOPickListHeader | InternalNote | nvarchar | 500 | YES
+SOPickListHeader | DeliveryNote | nvarchar | 500 | YES
+SOPickListHeader | MiscDesc | nvarchar | 2000 | YES
+SOPickListHeader | MiscReference | nvarchar | 50 | YES
+SOPickListHeader | CreateDate | datetime |  | NO
+SOPickListHeader | CreateUser | nvarchar | 50 | NO
+SOPickListHeader | LastUpdateDate | datetime |  | NO
+SOPickListHeader | LastUpdateUser | nvarchar | 50 | NO
+
+==============================================================================
+FOREIGN KEYS AMONG KEY TABLES (real relationships)
+==============================================================================
+from_table | from_col | to_table | to_col
+------------------------------------------------------------------------------
+Client | StatusID | ClientStatus | ClientStatusID
+ClientLocation | ClientID | Client | ClientID
+ClientQuestionRestrict | ClientID | Client | ClientID
+ClientQuestionRestrict | QuestionID | Question | QuestionID
+MasterModelMemoryLookup | ModelID | Option | OptionID
+MasterModelMemoryLookup | MemoryID | Option | OptionID
+NextProcessStep | TargetStepProcessID | Process | ProcessID
+NextProcessStep | SourceProcessID | Process | ProcessID
+Option | OptionStatusID | OptionStatus | OptionStatusID
+Option | OptionTypeID | OptionType | OptionTypeID
+Option | QuestionID | Question | QuestionID
+Option_Text_Defaults | SourceOptionID | Option | OptionID
+Option_Text_Defaults | TargetOptionID | Option | OptionID
+OrderHeader | StatusID | OrderStatus | OrderStatusID
+Process | StatusID | ProcessStatus | ProcessStatusID
+ProcessBinLocation | BinLocationID | BinLocation | BinLocationID
+ProcessBinLocation | ProcessID | Process | ProcessID
+ProcessQuestion | ProcessID | Process | ProcessID
+ProcessQuestion | QuestionID | Question | QuestionID
+Project | StatusID | ProjectStatus | ProjectStatusID
+ProjectProcess | ProcessID | Process | ProcessID
+ProjectProcess | ProjectID | Project | ProjectID
+Question | QuestionStatusID | QuestionStatus | QuestionStatusID
+Question | QuestionTypeID | QuestionType | QuestionTypeID
+QuestionDependencies | SourceOptionID | Option | OptionID
+QuestionDependencies | TargetOptionID | Option | OptionID
+QuestionDependencies | SourceQuestionID | Question | QuestionID
+QuestionDependencies | TargetQuestionID | Question | QuestionID
+ReceiveDetailBulk | ProjectID | Project | ProjectID
+ReceiveDetailBulkProcessLog | ProcessID | Process | ProcessID
+ReceiveDetailItemBulk | OptionID | Option | OptionID
+ReceiveDetailProcessLog | ProcessID | Process | ProcessID
+ReceiveDetailProjectLog | ProjectID | Project | ProjectID
+SODetail | SOHeaderID | SOHeader | SOHeaderID
+SODetailReceiveDetail | SODetailID | SODetail | SODetailID
+SODetailReceiveDetail | SOPickListDetailID | SOPickListDetail | SOPickListDetailID
+SOHeader | SOHeaderID | SOHeader | SOHeaderID
+SOPickListDetail | SOPickListHeaderID | SOPickListHeader | SOPickListHeaderID
+
+==============================================================================
+FIELD-TYPE CATALOG (QuestionType)
+==============================================================================
+QuestionTypeID | Type | CreateDate | CreateUser | LastUpdateDate | LastUpdateUser
+------------------------------------------------------------------------------
+3 | Keyboard | 2016-06-14 15:01:59.593000 | Jim | 2016-06-14 15:01:59.593000 | Jim
+7 | Checkbox | 2016-06-14 15:01:59.593000 | admin | 2022-04-22 10:36:25.403000 | admin
+8 | RadialButton | 2016-06-14 15:01:59.593000 | Jim | 2016-06-14 15:01:59.593000 | Jim
+9 | Calendar | 2016-06-14 15:01:59.593000 | Jim | 2016-06-14 15:01:59.593000 | Jim
+14 | DropDown | 2016-06-14 15:01:59.593000 | Jim | 2016-06-14 15:01:59.593000 | Jim
+15 | Calc | 2016-06-14 15:01:59.593000 | Jim | 2016-06-14 15:01:59.593000 | Jim
+16 | Numeric | 2016-06-14 15:01:59.593000 | Jim | 2016-06-14 15:01:59.593000 | Jim
+17 | currency | 2016-06-14 15:01:59.593000 | Jim | 2016-06-14 15:01:59.593000 | Jim
+18 | Num3Digit | 2016-06-14 15:01:59.593000 | Jim | 2016-06-14 15:01:59.593000 | Jim
+19 | Text20Digit | 2016-06-14 15:01:59.593000 | Jim | 2016-06-14 15:01:59.593000 | Jim
+20 | Text3Digit | 2016-06-14 15:01:59.593000 | Jim | 2016-06-14 15:01:59.593000 | Jim
+21 | Text10Digit | 2016-06-14 15:01:59.593000 | Jim | 2016-06-14 15:01:59.593000 | Jim
+22 | Text18Digit | 2016-06-14 15:01:59.593000 | Jim | 2016-06-14 15:01:59.593000 | Jim
+23 | Text50Digit | 2016-06-14 15:01:59.593000 | Jim | 2016-06-14 15:01:59.593000 | Jim
+24 | DateTime | 2021-11-11 14:38:02.060000 | admin | 2021-11-11 14:41:38.723000 | admin
+
+==============================================================================
+PROCESS CATALOG (Process)
+==============================================================================
+ProcessID | Name | Sequence | StatusID
+------------------------------------------------------------------------------
+88 | Receive | 1 | 2
+139 | Receive Comerco | 1 | 2
+144 | Receive Demo | 1 | 2
+145 | Receive Public | 1 | 2
+171 | Receive TMS | 1 | 2
+146 | Tracking Public | 2 | 2
+230 | Cosmetic Grading | 3 | 2
+164 | Receive Against PO | 3 | 2
+212 | Receive Employee | 3 | 2
+222 | Receive G.I. | 3 | 2
+167 | Receive PP on PO | 3 | 2
+163 | Receive Redial RT | 3 | 2
+148 | Samsung Tracking | 3 | 2
+153 | BFS BagTag | 4 | 2
+127 | Receive Loaner | 5 | 2
+198 | Receive OSL | 5 | 2
+226 | Receive Replacement | 5 | 2
+206 | Receive RMA | 5 | 2
+147 | Error Correction | 6 | 2
+168 | Accessories Added | 7 | 2
+137 | Pre-Check | 7 | 2
+216 | BP Function Test | 8 | 2
+169 | First Func Test | 8 | 2
+185 | Activation | 10 | 2
+89 | Old-Tracking | 10 | 2
+213 | Receive Internal | 10 | 2
+90 | Tracking Info | 15 | 2
+135 | DOA/Remorse Return | 16 | 2
+191 | Boxing | 20 | 2
+186 | Device History | 20 | 2
+91 | Repair Tracking Info | 20 | 2
+92 | Product Inspection | 25 | 2
+136 | Warranty Check | 29 | 2
+228 | CPO Labels | 30 | 2
+187 | FRP Removal | 30 | 2
+93 | Function CnC | 30 | 2
+180 | Quotation | 30 | 2
+208 | BP Improvement | 35 | 2
+94 | Clean N Clear | 40 | 2
+202 | Clean N Clear Client | 40 | 2
+229 | Device Status | 40 | 2
+176 | Discrepancy | 40 | 2
+188 | Function Test | 40 | 2
+232 | Function Test Telus | 40 | 2
+95 | RF Test | 45 | 2
+224 | G.I. Buffing | 50 | 2
+111 | Software | 50 | 2
+189 | Software X | 50 | 2
+96 | Triage Assessment | 50 | 2
+214 | User Assignment | 50 | 2
+138 | Lab Receive | 57 | 2
+133 | Tech Receive | 58 | 2
+115 | Exchange Forward | 59 | 2
+132 | Hold Status | 59 | 2
+170 | Bridge Repair | 60 | 2
+233 | Bridge Repair RO | 60 | 2
+231 | Functional Grade | 60 | 2
+190 | Grading | 60 | 2
+140 | Lab Admin | 61 | 2
+158 | Secondary Inspection | 61 | 2
+151 | Tech Finished | 61 | 2
+141 | Client Communication | 62 | 2
+143 | ZTE Repair | 62 | 2
+125 | Lab Billing | 63 | 2
+116 | Harvest | 64 | 2
+99 | MSC Repair Handling | 65 | 2
+173 | MSC TMS Repair Hndlg | 65 | 2
+110 | Software UpGrade | 65 | 2
+100 | MSC Return | 66 | 2
+227 | MSC Return | 66 | 2
+113 | MSC Test | 68 | 2
+97 | QC Assessment | 69 | 2
+178 | Buffing | 70 | 2
+156 | Holding | 70 | 2
+152 | Error Reporting | 72 | 2
+101 | QC | 75 | 2
+103 | Kitting | 85 | 2
+159 | Internal Logistics | 89 | 2
+154 | Loaner Assembly | 89 | 2
+131 | Post Lab Processing | 89 | 2
+128 | Ship Loaner | 90 | 2
+203 | Shipping OSL | 90 | 2
+172 | Shipping TMS | 90 | 2
+123 | Unlocking | 90 | 2
+225 | Device Enrollment | 100 | 2
+160 | FWDLOG Holding | 100 | 2
+210 | Grade Improvement A | 100 | 2
+209 | Grade Improvement C | 100 | 2
+217 | Improvement to ICR | 100 | 2
+199 | Receipt Type | 100 | 2
+223 | ShippingDate | 100 | 2
+162 | FWDLOG Change | 101 | 2
+221 | Demo FT | 110 | 2
+218 | Improvement to CPO2 | 110 | 2
+215 | BP Status | 120 | 2
+219 | Improvement to CPO1 | 120 | 2
+193 | Telus Kitting | 120 | 2
+118 | Bin Change | 150 | 2
+166 | Bin Move | 150 | 2
+122 | Location Edit | 160 | 2
+179 | Parts Missing | 160 | 2
+194 | Client Labelling | 200 | 2
+184 | Grade Improvement | 200 | 2
+181 | Posting | 200 | 2
+104 | Receivedefective | 200 | 2
+182 | Refurbishment | 200 | 2
+174 | StorageChange | 200 | 2
+105 | Receivegeneral | 205 | 2
+106 | Loaner Phone Request | 210 | 2
+205 | Cancel Order | 240 | 2
+211 | RQ4 SKU Change | 250 | 2
+102 | Shipping | 250 | 2
+201 | Subsidy | 250 | 2
+204 | Shipping Bulk | 251 | 2
+134 | Modify Submission | 300 | 2
+220 | Telus Status | 300 | 2
+234 | Watch Processing | 300 | 2
+129 | Repair Loaner | 503 | 2
+200 | Device Costing | 900 | 2
+177 | SKU Transfer | 900 | 2
+183 | Inventory Movement | 997 | 2
+207 | SKU Change | 999 | 2
+192 | Zone Shipping | 999 | 2
+108 | SAVE | 1000 | 2
+109 | Shipped | 1001 | 2
+165 | RMA RECEIVE | 2000 | 2
+175 | ProductPlacement | 9999 | 2
+149 | Redial.ca Info | 9999 | 2
+195 | Receive Club | 10007 | 2
+196 | Golf QC Club | 20007 | 2
+197 | Shipping Club | 30007 | 2
+150 | Google Info | 9999999 | 2
+157 | Request Parts | 9999999 | 2
+
+==============================================================================
+STATUS VOCAB — ReceiveDetailStatus
+==============================================================================
+ReceiveDetailStatusID | Status | CreateDate | CreateUser | LastUpdateDate | LastUpdateUser
+------------------------------------------------------------------------------
+1 | Active | 2016-06-14 15:01:59.690000 | Jim | 2016-06-14 15:01:59.690000 | Jim
+2 | GraveYard | 2016-06-14 15:01:59.690000 | Jim | 2016-06-14 15:01:59.690000 | Jim
+3 | to be shipped | 2016-06-14 15:01:59.690000 | Jim | 2016-06-14 15:01:59.690000 | Jim
+4 | Authorize Required | 2016-06-14 15:01:59.690000 | Jim | 2016-06-14 15:01:59.690000 | Jim
+5 | In progress | 2016-06-14 15:01:59.690000 | Jim | 2016-06-14 15:01:59.690000 | Jim
+6 | Received | 2016-06-14 15:01:59.690000 | Jim | 2016-06-14 15:01:59.690000 | Jim
+7 | shipped | 2016-06-14 15:01:59.690000 | Jim | 2016-06-14 15:01:59.690000 | Jim
+8 | Swapped | 2016-06-14 15:01:59.690000 | Jim | 2016-06-14 15:01:59.690000 | Jim
+9 | Switched | 2016-06-14 15:01:59.690000 | Jim | 2016-06-14 15:01:59.690000 | Jim
+
+==============================================================================
+STATUS VOCAB — ProcessStatus
+==============================================================================
+ProcessStatusID | Status | CreateDate | CreateUser | LastUpdateDate | LastUpdateUser
+------------------------------------------------------------------------------
+1 | Inactive | 2016-06-14 15:01:59.783000 | Jim | 2016-06-14 15:01:59.783000 | Jim
+2 | Active | 2016-06-14 15:01:59.783000 | Jim | 2016-06-14 15:01:59.783000 | Jim
+4 | Hold | 2016-06-14 15:01:59.783000 | Jim | 2016-06-14 15:01:59.783000 | Jim
+
+==============================================================================
+STATUS VOCAB — OrderStatus
+==============================================================================
+OrderStatusID | Status | CreateDate | CreateUser | LastUpdateDate | LastUpdateUser
+------------------------------------------------------------------------------
+1 | New | 2016-06-14 15:01:59.640000 | Jim | 2016-06-14 15:01:59.640000 | Jim
+2 | Pick/Pack | 2016-06-14 15:01:59.640000 | Jim | 2016-06-14 15:01:59.640000 | Jim
+3 | Ship | 2016-06-14 15:01:59.640000 | Jim | 2016-06-14 15:01:59.640000 | Jim
+5 | Done | 2016-06-14 15:01:59.640000 | Jim | 2016-06-14 15:01:59.640000 | Jim
+7 | Trash | 2016-06-14 15:01:59.640000 | Jim | 2016-06-14 15:01:59.640000 | Jim
+8 | Hold | 2016-06-14 15:01:59.640000 | Jim | 2016-06-14 15:01:59.640000 | Jim
+10 | Archive | 2020-08-14 16:12:58.880000 | jim | 2020-08-14 16:12:58.880000 | jim
+
+==============================================================================
+STATUS VOCAB — ProjectStatus
+==============================================================================
+ProjectStatusID | Status | CreateDate | CreateUser | LastUpdateDate | LastUpdateUser
+------------------------------------------------------------------------------
+1 | Active | 2016-06-14 15:01:59.797000 | Jim | 2016-06-14 15:01:59.797000 | Jim
+2 | Inactive | 2016-06-14 15:01:59.797000 | Jim | 2016-06-14 15:01:59.797000 | Jim
+
+==============================================================================
+STATUS VOCAB — ClientStatus
+==============================================================================
+ClientStatusID | Status | CreateDate | CreateUser | LastUpdateDate | LastUpdateUser
+------------------------------------------------------------------------------
+1 | Active | 2016-06-14 15:01:59.750000 | Jim | 2016-06-14 15:01:59.750000 | Jim
+2 | Inactive | 2016-06-14 15:01:59.750000 | Jim | 2016-06-14 15:01:59.750000 | Jim
+6 | active | 2016-06-14 15:01:59.750000 | Jim | 2016-06-14 15:01:59.750000 | Jim
+
+==============================================================================
+REFRESH PROC DEFINITIONS (real attribute/receiving join logic)
+==============================================================================
+
+----- RefreshReportingInventoryFlat -----
+CREATE PROCEDURE RefreshReportingInventoryFlat
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
+    DECLARE @rows INT = 0;
+
+    IF OBJECT_ID('dbo.ReportingInventoryFlat_Staging') IS NOT NULL
+        DROP TABLE dbo.ReportingInventoryFlat_Staging;
+
+    SELECT
+        rd.ESN,
+        p.Name                                                                              AS ProjectName,
+        rd.ProjectTag                                                                       AS ProjectTag,
+        rd.CreateDate                                                                       AS ReceiveDate,
+        MAX(CASE WHEN q.Name = 'Product Place'   THEN o.OptionText END)                     AS Product_Place,
+        MAX(CASE WHEN q.Name = 'Manufacturer'    THEN o.OptionText END)                     AS Manufacturer,
+        MAX(CASE WHEN q.Name = 'Model'           THEN o.OptionText END)                     AS Model,
+        MAX(CASE WHEN q.Name = 'Colour'          THEN o.OptionText END)                     AS Colour,
+        MAX(CASE WHEN q.Name = 'Grade'           THEN o.OptionText END)                     AS Grade,
+        MAX(CASE WHEN q.Name = 'Received Grade'  THEN o.OptionText END)                     AS Received_Grade,
+        TRY_CAST(MAX(CASE WHEN q.Name = 'DeviceCost' THEN rdi.Value END) AS decimal(10,2))  AS DeviceCost,
+        MAX(CASE WHEN pr.Name = 'Function Test'  THEN rdpl.CreateDate END)                  AS Function_Test_Created,
+        MAX(CASE WHEN pr.Name = 'Grading'        THEN rdpl.CreateDate END)                  AS Grading_Created,
+        GETDATE()                                                                           AS LastRefreshed
+    INTO dbo.ReportingInventoryFlat_Staging
+    FROM ReceiveDetail rd
+    JOIN Project p ON p.ProjectID = rd.ProjectID
+    LEFT JOIN ReceiveDetailItem rdi ON rdi.ReceiveDetailID = rd.ReceiveDetailID
+        AND rdi.Version = 0
+    LEFT JOIN [Option] o ON o.OptionID = rdi.OptionID
+    LEFT JOIN Question q ON q.QuestionID = o.QuestionID
+        AND q.Name IN ('Product Place','Manufacturer','Model','Colour','Grade','Received Grade','DeviceCost')
+    LEFT JOIN ReceiveDetailProcessLog rdpl ON rdpl.ReceiveDetailID = rd.ReceiveDetailID
+    LEFT JOIN Process pr ON pr.ProcessID = rdpl.ProcessID
+        AND pr.Name IN ('Function Test','Grading')
+    WHERE rd.Version = '000'
+    GROUP BY rd.ReceiveDetailID, rd.ESN, p.Name, rd.ProjectTag, rd.CreateDate;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+            TRUNCATE TABLE ReportingInventoryFlat;
+            INSERT INTO ReportingInventoryFlat (
+                ESN, ProjectName, ProjectTag, ReceiveDate,
+                Product_Place, Manufacturer, Model, Colour,
+                Grade, Received_Grade, DeviceCost,
+                Function_Test_Created, Grading_Created, LastRefreshed
+            )
+            SELECT
+                ESN, ProjectName, ProjectTag, ReceiveDate,
+                Product_Place, Manufacturer, Model, Colour,
+                Grade, Received_Grade, DeviceCost,
+                Function_Test_Created, Grading_Created, LastRefreshed
+            FROM dbo.ReportingInventoryFlat_Staging;
+
+            SET @rows = @@ROWCOUNT;   -- capture BEFORE the DROP resets it
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+
+    DROP TABLE dbo.ReportingInventoryFlat_Staging;
+
+    SELECT CAST(@rows AS varchar) + ' rows loaded' AS Result;
+END
+
+----- RefreshReportingInventoryFlat_TMS -----
+CREATE PROCEDURE dbo.RefreshReportingInventoryFlat_TMS
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
+    TRUNCATE TABLE dbo.ReportingInventoryFlat_TMS;
+
+    INSERT INTO dbo.ReportingInventoryFlat_TMS
+    (
+        ESN, [Version], ReceiveDate, LastRefreshed,
+        ManufacturerVerb, ModelVerb, ColourVerb,
+        Receipt_Type, Repair_Fee, Repair_Level, RQ4_SKU_Change, ShipTo, Shipping_to_carriers,
+        MSC_Repair_Handling_Created, QC_Assessment_Created, Discrepancy_Created, QC_Created,
+        Shipping_TMS_Created, Kitting_Created, SKU_Transfer_Created, Subsidy_Created,
+        RQ4_SKU_Change_Created, Lab_Billing_Created, SKU_Change_Created, Device_Enrollment_Created,
+        Buffing_Created
+    )
+    SELECT
+        rd.ESN,
+        rd.[Version],
+        rd.CreateDate                                                                        AS ReceiveDate,
+        GETDATE()                                                                            AS LastRefreshed,
+
+        MAX(CASE WHEN q.Name = 'Manufacturer'         THEN o.OptionText END)                 AS ManufacturerVerb,
+        MAX(CASE WHEN q.Name = 'Model'                THEN o.OptionText END)                 AS ModelVerb,
+        MAX(CASE WHEN q.Name = 'Colour'               THEN o.OptionText END)                 AS ColourVerb,
+        MAX(CASE WHEN q.Name = 'Receipt Type'         THEN o.OptionText END)                 AS Receipt_Type,
+        TRY_CAST(MAX(CASE WHEN q.Name = 'Repair Fee'  THEN rdi.Value END) AS DECIMAL(10,2))  AS Repair_Fee,
+        MAX(CASE WHEN q.Name = 'Repair Level'         THEN o.OptionText END)                 AS Repair_Level,
+        MAX(CASE WHEN q.Name = 'RQ4 SKU Change'       THEN o.OptionText END)                 AS RQ4_SKU_Change,
+        MAX(CASE WHEN q.Name = 'ShipTo'               THEN rdi.Value END)                    AS ShipTo,
+        MAX(CASE WHEN q.Name = 'Carrier'              THEN o.OptionText END)                 AS Shipping_to_carriers,
+
+        -- Process events gated by project-at-event <> 'Bridge Product'.
+        MAX(CASE WHEN pr.Name = 'MSC Repair Handling' AND (pae.ProjAtEvent IS NULL OR pae.ProjAtEvent <> 'Bridge Product') THEN rdpl.CreateDate END) AS MSC_Repair_Handling_Created,
+        MAX(CASE WHEN pr.Name = 'QC Assessment'       AND (pae.ProjAtEvent IS NULL OR pae.ProjAtEvent <> 'Bridge Product') THEN rdpl.CreateDate END) AS QC_Assessment_Created,
+        MAX(CASE WHEN pr.Name = 'Discrepancy'         AND (pae.ProjAtEvent IS NULL OR pae.ProjAtEvent <> 'Bridge Product') THEN rdpl.CreateDate END) AS Discrepancy_Created,
+        MAX(CASE WHEN pr.Name = 'QC'                  AND (pae.ProjAtEvent IS NULL OR pae.ProjAtEvent <> 'Bridge Product') THEN rdpl.CreateDate END) AS QC_Created,
+        MAX(CASE WHEN pr.Name = 'Shipping TMS'        AND (pae.ProjAtEvent IS NULL OR pae.ProjAtEvent <> 'Bridge Product') THEN rdpl.CreateDate END) AS Shipping_TMS_Created,
+        MAX(CASE WHEN pr.Name = 'Kitting'             AND (pae.ProjAtEvent IS NULL OR pae.ProjAtEvent <> 'Bridge Product') THEN rdpl.CreateDate END) AS Kitting_Created,
+        MAX(CASE WHEN pr.Name = 'SKU Transfer'        AND (pae.ProjAtEvent IS NULL OR pae.ProjAtEvent <> 'Bridge Product') THEN rdpl.CreateDate END) AS SKU_Transfer_Created,
+        MAX(CASE WHEN pr.Name = 'Subsidy'             AND (pae.ProjAtEvent IS NULL OR pae.ProjAtEvent <> 'Bridge Product') THEN rdpl.CreateDate END) AS Subsidy_Created,
+        MAX(CASE WHEN pr.Name = 'RQ4 SKU Change'      AND (pae.ProjAtEvent IS NULL OR pae.ProjAtEvent <> 'Bridge Product') THEN rdpl.CreateDate END) AS RQ4_SKU_Change_Created,
+        MAX(CASE WHEN pr.Name = 'Lab Billing'         AND (pae.ProjAtEvent IS NULL OR pae.ProjAtEvent <> 'Bridge Product') THEN rdpl.CreateDate END) AS Lab_Billing_Created,
+        MAX(CASE WHEN pr.Name = 'SKU Change'          AND (pae.ProjAtEvent IS NULL OR pae.ProjAtEvent <> 'Bridge Product') THEN rdpl.CreateDate END) AS SKU_Change_Created,
+        MAX(CASE WHEN pr.Name = 'Device Enrollment'   AND (pae.ProjAtEvent IS NULL OR pae.ProjAtEvent <> 'Bridge Product') THEN rdpl.CreateDate END) AS Device_Enrollment_Created,
+        MAX(CASE WHEN pr.Name = 'Buffing'             AND (pae.ProjAtEvent IS NULL OR pae.ProjAtEvent <> 'Bridge Product') THEN rdpl.CreateDate END) AS Buffing_Created
+    FROM dbo.ReceiveDetail rd
+    LEFT JOIN dbo.ReceiveDetailItem rdi
+        ON rdi.ReceiveDetailID = rd.ReceiveDetailID
+       AND rdi.[Version] = 0
+    LEFT JOIN dbo.[Option] o
+        ON o.OptionID = rdi.OptionID
+    LEFT JOIN dbo.Question q
+        ON q.QuestionID = o.QuestionID
+       AND q.Name IN (
+            'Manufacturer', 'Model', 'Colour',
+            'Receipt Type', 'Repair Fee', 'Repair Level',
+            'RQ4 SKU Change', 'ShipTo', 'Carrier'
+       )
+    LEFT JOIN dbo.ReceiveDetailProcessLog rdpl
+        ON rdpl.ReceiveDetailID = rd.ReceiveDetailID
+    LEFT JOIN dbo.Process pr
+        ON pr.ProcessID = rdpl.ProcessID
+       AND pr.Name IN (
+            'MSC Repair Handling', 'QC Assessment', 'Discrepancy', 'QC',
+            'Shipping TMS', 'Kitting', 'SKU Transfer', 'Subsidy',
+            'RQ4 SKU Change', 'Lab Billing', 'SKU Change', 'Device Enrollment',
+            'Buffing'
+       )
+    -- Project the device belonged to AT THE TIME of each process-log event:
+    -- the most recent ReceiveDetailProjectLog entry on or before the event.
+    OUTER APPLY (
+        SELECT TOP 1 LTRIM(RTRIM(pl.ProjectName)) AS ProjAtEvent
+        FROM dbo.ReceiveDetailProjectLog pl
+        WHERE pl.ReceiveDetailID = rdpl.ReceiveDetailID
+          AND pl.CreateDate <= rdpl.CreateDate
+        ORDER BY pl.CreateDate DESC
+    ) pae
+    WHERE rd.ProjectTag = 'TMS'
+    GROUP BY rd.ReceiveDetailID, rd.ESN, rd.[Version], rd.CreateDate;
+END
+
+==============================================================================
+TIER 2 SKIPPED
+==============================================================================
+Re-run with --aggregates (off-peak) to include Version/Status distributions.
+
+==============================================================================
+DONE
+==============================================================================
+Paste this entire output back into the ERP planning chat.

@@ -4,7 +4,11 @@ import secrets
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'users.db')
+# Persist the users DB outside the repo working directory in production so a
+# deploy (git clean/reset, file sync) can't wipe it. Set USERS_DB_PATH in the
+# environment (e.g. via the systemd unit) to an absolute path on a persistent
+# location. Falls back to the in-repo path for local development.
+DB_PATH = os.environ.get('USERS_DB_PATH') or os.path.join(os.path.dirname(__file__), 'users.db')
 
 
 def _get_conn():

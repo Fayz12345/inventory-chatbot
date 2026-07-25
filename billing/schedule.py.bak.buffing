@@ -142,6 +142,6 @@ TMS_FEE_SCHEDULE = [
         _manual("TMS Inventory Tasks", None),
     ]},
     {"name": "Buffing Services", "items": [
-        _count("Buffing", "Buffing_Created", 30.00),
+        _count("Buffing", "Buffing_Created", 10.00),
     ]},
 ]
