@@ -329,7 +329,13 @@ DASHBOARD_TEMPLATE = Template("""
             <td>{{ "$%.2f" | format(rec.DeviceCost) if rec.DeviceCost else "N/A" }}</td>
             <td>
                 {% if rec.Decision %}
-                    <span class="decision-{{ rec.Decision }}">{{ rec.Decision | capitalize }}</span>
+                    <div class="actions actions--inline">
+                        <span class="decision-{{ rec.Decision }}">{{ rec.Decision | capitalize }}</span>
+                        {% if rec.Decision == 'approved' %}
+                        <button onclick="viewListing({{ rec.ID }})"
+                                style="padding:5px 12px;border:1px solid #cbd5e1;background:#f1f5f9;color:#334155;border-radius:6px;font-size:13px;cursor:pointer">View</button>
+                        {% endif %}
+                    </div>
                 {% else %}
                     <div class="actions actions--inline">
                         <button class="btn btn-approve" onclick="decide({{ rec.ID }}, 'approve')">Approve</button>
@@ -530,11 +536,19 @@ function showListingPreview(data, recId) {
         });
     }
 
-    // Action area: Auto-post when the marketplace API is configured, else a
-    // manual Mark-as-listed resolver (shown with the reason).
+    // Action area: read-only re-view shows only a banner; otherwise Auto-post
+    // (API configured) or a manual Mark-as-listed resolver (with the reason).
     var action = document.getElementById('modal-action');
     action.textContent = '';
-    if (data.can_post) {
+    if (data.readonly) {
+        var st = document.getElementById('post-status');
+        st.textContent = '';
+        st.style.display = 'block';
+        st.style.background = '#eef2ff';
+        st.style.color = '#3730a3';
+        st.style.border = '1px solid #c7d2fe';
+        st.appendChild(document.createTextNode('✓ Resolved listing — read-only. Copy the content below.'));
+    } else if (data.can_post) {
         var envLabel = data.env ? (' (' + data.env + ')') : '';
         var postBtn = document.createElement('button');
         postBtn.className = 'btn btn-approve';
@@ -667,6 +681,22 @@ function showPostedBanner(res) {
     }
     // Posting is a terminal action \u2014 clear the action button.
     document.getElementById('modal-action').textContent = '';
+}
+
+function viewListing(recId) {
+    // Re-open a resolved listing read-only (content + copy buttons; no actions).
+    openModalWithLoader('Loading listing…');
+    fetch('/ecommerce/listing/' + recId)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.ok) {
+                showListingPreview(data, recId);
+            } else {
+                closeModal();
+                showToast(data.error || 'Could not load listing', 'error');
+            }
+        })
+        .catch(function() { closeModal(); showToast('Network error', 'error'); });
 }
 
 function closeModal() {

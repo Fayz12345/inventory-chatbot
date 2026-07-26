@@ -118,6 +118,21 @@ REEBELO_API_BASE  = _env("REEBELO_API_BASE",
 
 
 # ---------------------------------------------------------------------------
+# Post-scrape run report email (M365 Graph sendMail — same transport the Flask
+# app uses for invites; duplicated here so the cron pipeline needs no Flask app).
+# ---------------------------------------------------------------------------
+M365_TENANT_ID     = _env("M365_TENANT_ID")
+M365_CLIENT_ID     = _env("M365_CLIENT_ID")
+M365_CLIENT_SECRET = _env("M365_CLIENT_SECRET")
+M365_SENDER        = _env("M365_SENDER")
+# Recipients for the weekly run report (comma/semicolon separated).
+ECOMMERCE_EMAIL_TO   = _env("ECOMMERCE_EMAIL_TO")
+ECOMMERCE_EMAIL_FROM = _env("ECOMMERCE_EMAIL_FROM") or M365_SENDER
+# Base URL for dashboard links in the report email.
+APP_URL = _env("APP_URL", "https://ai.bridge-renew.net")
+
+
+# ---------------------------------------------------------------------------
 # Marketplace condition mapping (Grade -> per-marketplace enum)
 # ---------------------------------------------------------------------------
 

@@ -36,6 +36,7 @@ from ecommerce.pricing import ebay as ebay_pricing
 from ecommerce.pricing import reebelo as reebelo_pricing
 from ecommerce.pricing.algorithm import recommend
 from ecommerce.pricing.query import clean_search_query
+from ecommerce.notifications import run_report
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,7 +56,26 @@ def run_pipeline(limit=None, dry_run=False):
         limit: if set, only process the first N product groups (testing / cost control).
         dry_run: if True, scrape and compute recommendations but do NOT persist a
                  batch to the database (returns the recommendations instead).
+
+    Always emails a run report (per-source scrape outcomes + failures) to
+    config.ECOMMERCE_EMAIL_TO at the end, even if the pipeline raises — so a
+    silent scrape failure (e.g. eBay antibot) never goes unnoticed.
     """
+    report = run_report.RunReport(dry_run=dry_run)
+    try:
+        return _run_pipeline(report, limit, dry_run)
+    except Exception as exc:
+        report.set_error(exc)
+        log.exception("Ecommerce pipeline failed with an unhandled error")
+        raise
+    finally:
+        try:
+            report.send()
+        except Exception:
+            log.exception("Failed to send the run-report email")
+
+
+def _run_pipeline(report, limit, dry_run):
     log.info("=" * 60)
     log.info("Ecommerce AI Pipeline — starting weekly run%s",
              " (DRY RUN)" if dry_run else "")
@@ -86,6 +106,7 @@ def run_pipeline(limit=None, dry_run=False):
 
     if not products:
         log.info("No new products to process.")
+        report.set_scope("categories=%s mode=%s" % (cats, mode), 0)
         log.info("Pipeline complete (no products).")
         return []
 
@@ -98,23 +119,36 @@ def run_pipeline(limit=None, dry_run=False):
     })
     log.info("Built %d unique search queries from %d product groups.",
              len(search_keywords), len(products))
+    report.set_scope("categories=%s mode=%s, %d models" % (cats, mode, scope['models']),
+                     len(search_keywords))
 
     # Step 3: Fetch prices — Amazon/eBay via Apify actors; Best Buy + Reebelo via
     # first-party search APIs (keyword-based, routed through the Apify residential proxy).
     log.info("Step 3: Fetching prices (Amazon/eBay via Apify, Best Buy + Reebelo via "
              "first-party search APIs)...")
 
-    # Amazon CA — keyword search, marketplace CA (one actor run per keyword)
-    amazon_raw = amazon_pricing.scrape_prices_by_keyword(search_keywords)
+    # Each source is guarded so one failing (exception) doesn't abort the whole
+    # run — the failure is recorded for the report and that marketplace's prices
+    # come back empty (its floors become NULL) instead of crashing the pipeline.
+    n_kw = len(search_keywords)
+    scrape_errors = {}
 
-    # eBay CA — keyword search via khadinakbar actor, returns results w/ condition
-    ebay_results = ebay_pricing.scrape_and_return_all(search_keywords)
+    def _scrape(name, fn):
+        try:
+            return fn()
+        except Exception as exc:
+            log.exception("%s scrape raised", name)
+            scrape_errors[name] = exc
+            return {}
 
-    # Best Buy CA — bestbuy.ca search API, keyword refurb listings ($0 Apify)
-    bestbuy_results = bestbuy_pricing.scrape_and_return_all(search_keywords)
-
-    # Reebelo CA — reebelo.ca first-party catalog API (routed via Apify residential proxy)
-    reebelo_results = reebelo_pricing.scrape_and_return_all(search_keywords)
+    # Amazon CA — keyword search, marketplace CA (one Apify actor run per keyword)
+    amazon_raw = _scrape("Amazon CA", lambda: amazon_pricing.scrape_prices_by_keyword(search_keywords))
+    # eBay CA — sold-comps Apify actor, returns results w/ condition
+    ebay_results = _scrape("eBay CA", lambda: ebay_pricing.scrape_and_return_all(search_keywords))
+    # Best Buy CA — bestbuy.ca first-party search API (browser API, via residential proxy)
+    bestbuy_results = _scrape("Best Buy CA", lambda: bestbuy_pricing.scrape_and_return_all(search_keywords))
+    # Reebelo CA — reebelo.ca first-party catalog API (browser API, via residential proxy)
+    reebelo_results = _scrape("Reebelo CA", lambda: reebelo_pricing.scrape_and_return_all(search_keywords))
 
     # Per-marketplace coverage — makes a silent scrape failure (e.g. an actor
     # timeout or antibot block that the client swallows as []) visible in the run
@@ -122,7 +156,6 @@ def run_pipeline(limit=None, dry_run=False):
     def _coverage(d):
         return sum(1 for v in d.values() if v is not None)
 
-    n_kw = len(search_keywords)
     # eBay/Best Buy/Reebelo are keyed by keyword -> list of listings; count keywords with any.
     ebay_hits = sum(1 for kw in search_keywords if ebay_results.get(kw))
     bestbuy_hits = sum(1 for kw in search_keywords if bestbuy_results.get(kw))
@@ -144,6 +177,20 @@ def run_pipeline(limit=None, dry_run=False):
         log.warning("eBay returned listings for only %d/%d keywords (under half) — eBay "
                     "likely antibot-throttled the proxy pool; check the eBay actor runs.",
                     ebay_hits, n_kw)
+
+    # Record every source for the run report (Apify actors + first-party browser APIs).
+    for _name, _kind, _hits in (
+        ("Amazon CA", "Apify actor", coverage['Amazon']),
+        ("eBay CA", "Apify actor", coverage['eBay']),
+        ("Best Buy CA", "browser API (bestbuy.ca)", coverage['Best Buy']),
+        ("Reebelo CA", "browser API (reebelo.ca)", coverage['Reebelo']),
+    ):
+        if _name in scrape_errors:
+            _ex = scrape_errors[_name]
+            report.record_source(_name, _kind, ok=False, hits=0, total=n_kw,
+                                  detail="scrape raised: %s: %s" % (type(_ex).__name__, _ex))
+        else:
+            report.record_source(_name, _kind, ok=(_hits > 0), hits=_hits, total=n_kw)
 
     # Step 4: Build recommendations
     log.info("Step 4: Running pricing algorithm...")
@@ -187,6 +234,7 @@ def run_pipeline(limit=None, dry_run=False):
     skipped = [r for r in recommendations if not r['margin_ok']]
 
     if dry_run:
+        report.set_batch(None, len(recommended), len(skipped))
         log.info("=" * 60)
         log.info("DRY RUN complete: %d recommended, %d skipped (nothing saved).",
                  len(recommended), len(skipped))
@@ -200,6 +248,7 @@ def run_pipeline(limit=None, dry_run=False):
     # final status update failed and large batches were stranded 'pending'
     # (batches #1, #12-#18). One connection + one commit fixes that.
     batch_id = db.save_pricing_batch(recommendations)
+    report.set_batch(batch_id, len(recommended), len(skipped))
     log.info("Batch #%d saved with %d recommendations (status: ready).",
              batch_id, len(recommendations))
 

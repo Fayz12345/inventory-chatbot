@@ -45,6 +45,7 @@ _SELF_GUARDED_JSON_ENDPOINTS = {
     "ecommerce.approve",
     "ecommerce.post_listing",
     "ecommerce.mark_listed",
+    "ecommerce.view_listing",
     "ecommerce.reject",
 }
 
@@ -455,6 +456,7 @@ def post_listing():
             f"and rollback failed — needs manual reconciliation."
         )}), 500
     db.update_recommendation_decision(rec["ID"], "approved")
+    db.save_listing_copy(rec["ID"], listing_copy)  # so it can be re-viewed later
 
     product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
     try:
@@ -495,6 +497,7 @@ def mark_listed():
     price = float(rec["RecommendedPrice"])
     product = _product_from_rec(rec)
     approved_by = session.get("username")
+    listing_copy = _valid_listing_copy((request.get_json(silent=True) or {}).get("listing"))
 
     if not db.claim_recommendation(rec["ID"], "processing"):
         return jsonify({"ok": False, "error": "Already being processed or decided."}), 409
@@ -512,6 +515,8 @@ def mark_listed():
         db.release_recommendation(rec["ID"])
         return jsonify({"ok": False, "error": "Could not record the manual listing. Please retry."}), 500
     db.update_recommendation_decision(rec["ID"], "approved")
+    if listing_copy:
+        db.save_listing_copy(rec["ID"], listing_copy)  # so it can be re-viewed later
 
     product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
     try:
@@ -525,6 +530,32 @@ def mark_listed():
 
     return jsonify({"ok": True, "posted": False,
                     "message": f"{product_name} marked as listed on {marketplace}."})
+
+
+@approval_bp.route("/listing/<int:rec_id>", methods=["GET"])
+def view_listing(rec_id):
+    """Return the stored listing copy for a resolved recommendation so the modal
+    can be re-opened read-only. 404 if the rec or its saved copy is missing."""
+    guard = _require_login_json()
+    if guard:
+        return guard
+    rec = db.get_recommendation_by_id(rec_id)
+    if not rec:
+        return jsonify({"ok": False, "error": "Recommendation not found."}), 404
+    copy = db.get_listing_copy(rec_id)
+    if not copy:
+        return jsonify({"ok": False,
+                        "error": "No saved listing content for this recommendation."}), 404
+    product = _product_from_rec(rec)
+    return jsonify({
+        "ok":          True,
+        "readonly":    True,
+        "listing":     copy,
+        "marketplace": rec["RecommendedMarketplace"],
+        "price":       float(rec["RecommendedPrice"]),
+        "product":     f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}",
+        "decision":    rec.get("Decision"),
+    })
 
 
 @approval_bp.route("/reject", methods=["POST"])

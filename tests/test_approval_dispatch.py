@@ -250,6 +250,58 @@ def test_mark_listed_log_failure_releases_and_500(
 
 
 # ---------------------------------------------------------------------------
+# View a resolved listing again (read-only) — persisted copy
+# ---------------------------------------------------------------------------
+
+@patch("ecommerce.approval.db.save_listing_copy")
+@patch("ecommerce.approval.db.lookup_device_category", return_value="Handset")
+@patch("ecommerce.approval.db.create_listing_record", return_value=42)
+@patch("ecommerce.approval.db.update_recommendation_decision")
+@patch("ecommerce.approval.db.claim_recommendation", return_value=True)
+@patch("ecommerce.approval.db.lookup_product_catalog", return_value={"asin": "B0", "upc": "0123"})
+@patch("ecommerce.approval.amazon_listings.create_listing",
+       return_value={"ok": True, "listing_id": "SKU", "env": "sandbox"})
+@patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
+@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Amazon CA"))
+def test_post_persists_listing_copy(
+        _get, _cp, _am, _cat, _claim, _dec, _log, _dev, mock_save, client):
+    assert client.post("/ecommerce/post?id=1").status_code == 200
+    mock_save.assert_called_once()
+    assert mock_save.call_args.args[0] == 1 and mock_save.call_args.args[1]["title"] == "T"
+
+
+@patch("ecommerce.approval.db.save_listing_copy")
+@patch("ecommerce.approval.db.create_listing_record", return_value=60)
+@patch("ecommerce.approval.db.update_recommendation_decision")
+@patch("ecommerce.approval.db.claim_recommendation", return_value=True)
+@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Best Buy CA"))
+def test_mark_listed_persists_client_copy(_get, _claim, _dec, _log, mock_save, client):
+    assert client.post("/ecommerce/mark-listed?id=1", json={"listing": _copy()}).status_code == 200
+    mock_save.assert_called_once()
+    assert mock_save.call_args.args[1]["title"] == "T"
+
+
+@patch("ecommerce.approval.db.get_listing_copy", return_value=_copy())
+@patch("ecommerce.approval.db.get_recommendation_by_id",
+       return_value=_rec("eBay CA", decision="approved"))
+def test_view_listing_returns_saved_copy_readonly(_get, _copy_, client):
+    body = client.get("/ecommerce/listing/1").get_json()
+    assert body["ok"] is True and body["readonly"] is True
+    assert body["listing"]["title"] == "T" and body["marketplace"] == "eBay CA"
+
+
+@patch("ecommerce.approval.db.get_listing_copy", return_value=None)
+@patch("ecommerce.approval.db.get_recommendation_by_id",
+       return_value=_rec("eBay CA", decision="approved"))
+def test_view_listing_404_when_no_saved_copy(_get, _none, client):
+    assert client.get("/ecommerce/listing/1").status_code == 404
+
+
+def test_view_listing_unauthenticated_401(anon_client):
+    assert anon_client.get("/ecommerce/listing/1").status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # listing_availability — the Auto-post gate
 # ---------------------------------------------------------------------------
 

@@ -342,6 +342,39 @@ def update_recommendation_decision(rec_id, decision):
     conn.close()
 
 
+def save_listing_copy(rec_id, copy):
+    """Persist the generated listing copy (dict) on a recommendation so it can be
+    re-viewed read-only after the modal closes. Best-effort: logs and returns
+    False if the ListingCopyJSON column isn't present yet (run the one-time ALTER
+    TABLE) so it never breaks the post/mark-listed flow."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(qrery.save_listing_copy_query, (json.dumps(copy), rec_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        log.warning("Could not save listing copy for rec %s (is the ListingCopyJSON "
+                    "column present?)", rec_id, exc_info=True)
+        return False
+
+
+def get_listing_copy(rec_id):
+    """Return the stored listing copy dict for a recommendation, or None."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(qrery.get_listing_copy_query, (rec_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row and row[0]:
+            return json.loads(row[0])
+    except Exception:
+        log.warning("Could not load listing copy for rec %s", rec_id, exc_info=True)
+    return None
+
+
 def claim_recommendation(rec_id, decision):
     """Atomically claim an undecided recommendation, setting it to `decision`
     (e.g. 'processing' or 'rejected'). Returns True iff this call won the row

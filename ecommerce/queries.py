@@ -222,6 +222,26 @@ class Queries:
         """
 
     @property
+    def save_listing_copy_query(self):
+        """Persist the generated listing copy (JSON) on a recommendation so it can
+        be re-viewed read-only after the modal is closed. Requires the one-time
+        `ALTER TABLE EcommercePricingRecommendation ADD ListingCopyJSON NVARCHAR(MAX) NULL`."""
+        return """
+            UPDATE EcommercePricingRecommendation
+            SET ListingCopyJSON = ?
+            WHERE ID = ?
+        """
+
+    @property
+    def get_listing_copy_query(self):
+        """Fetch the stored listing copy JSON for a recommendation."""
+        return """
+            SELECT ListingCopyJSON
+            FROM EcommercePricingRecommendation
+            WHERE ID = ?
+        """
+
+    @property
     def claim_recommendation_query(self):
         """Atomically claim an undecided recommendation (race guard, #198/1D.10).
         Only succeeds if Decision IS NULL — caller checks rowcount == 1."""
