@@ -102,14 +102,20 @@ def get_all_users():
     return [dict(r) for r in rows]
 
 
-def create_user(username, email, is_admin=False, created_by=None):
+def create_user(username, email, is_admin=False, role=None, created_by=None):
+    # Keep role and is_admin in sync at creation (mirrors set_role): an "Admin
+    # privileges" invite must persist role='admin', not fall through to the column
+    # DEFAULT 'user'. Otherwise the badge shows "User" and effective_role restricts
+    # modules until the next init_db backfill runs on restart.
+    role = role or ('admin' if is_admin else 'user')
+    is_admin = 1 if role == 'admin' else 0
     token = secrets.token_urlsafe(32)
     expires = (datetime.utcnow() + timedelta(days=7)).isoformat()
     conn = _get_conn()
     conn.execute(
-        '''INSERT INTO users (username, password_hash, is_admin, created_by, email, invite_token, invite_token_expires, password_set)
-           VALUES (?, '', ?, ?, ?, ?, ?, 0)''',
-        (username, 1 if is_admin else 0, created_by, email, token, expires),
+        '''INSERT INTO users (username, password_hash, is_admin, role, created_by, email, invite_token, invite_token_expires, password_set)
+           VALUES (?, '', ?, ?, ?, ?, ?, ?, 0)''',
+        (username, is_admin, role, created_by, email, token, expires),
     )
     conn.commit()
     conn.close()

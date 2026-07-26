@@ -44,6 +44,24 @@ def test_set_role_syncs_is_admin():
     assert u["role"] == "viewer" and u["is_admin"] == 0
 
 
+def test_create_user_invite_persists_role_in_sync_with_is_admin():
+    # Regression: an "Admin privileges" invite must persist role='admin' at creation
+    # (was falling through to DEFAULT 'user' -> badge showed User + restricted modules
+    # until the next init_db backfill on restart).
+    users_db.create_user("adm", "adm@x.com", is_admin=True, created_by="t")
+    u = users_db._row_by_username("adm")
+    assert u["role"] == "admin" and u["is_admin"] == 1
+
+    users_db.create_user("usr", "usr@x.com", is_admin=False, created_by="t")
+    u = users_db._row_by_username("usr")
+    assert u["role"] == "user" and u["is_admin"] == 0
+
+    # an explicit non-admin role is honored and never flips is_admin on
+    users_db.create_user("mgr", "mgr@x.com", role="manager", created_by="t")
+    u = users_db._row_by_username("mgr")
+    assert u["role"] == "manager" and u["is_admin"] == 0
+
+
 def test_failed_login_counter_and_reset():
     _mk("lock")
     users_db.record_failed_login("lock")

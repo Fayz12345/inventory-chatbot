@@ -44,6 +44,44 @@ def _ch():
     return {'X-CSRF-Token': _CSRF}
 
 
+def test_invite_with_admin_flag_creates_admin_role(monkeypatch):
+    # End-to-end regression for the reported bug: POST the invite with is_admin=True
+    # and the created account must be a real admin (role='admin', is_admin=1), not User.
+    monkeypatch.setattr(app_module, 'send_invite_email', lambda *a, **k: None)
+    c = app_module.chatbot_app.test_client(); _set_admin_session(c)
+    r = c.post('/admin/users/create',
+               json={'username': 'newadmin', 'email': 'na@x.com', 'is_admin': True},
+               headers=_ch())
+    assert r.get_json().get('ok') is True
+    u = users_db._row_by_username('newadmin')
+    assert u['role'] == 'admin' and u['is_admin'] == 1
+
+    r = c.post('/admin/users/create',
+               json={'username': 'plainuser', 'email': 'pu@x.com', 'is_admin': False},
+               headers=_ch())
+    assert r.get_json().get('ok') is True
+    u = users_db._row_by_username('plainuser')
+    assert u['role'] == 'user' and u['is_admin'] == 0
+
+
+def test_admin_page_nav_gates_by_role_not_just_is_admin():
+    # Regression (nav leak): admin pages used to render the nav without `perms`, so
+    # every module tab showed. With perms injected globally, an is_admin session whose
+    # role is 'user' must NOT see ecommerce/billing tabs, while role='admin' does.
+    c = app_module.chatbot_app.test_client()
+    with c.session_transaction() as s:
+        s['logged_in'] = True; s['username'] = 'x'; s['is_admin'] = True; s['role'] = 'user'
+    html = c.get('/admin/users').get_data(as_text=True)
+    assert '/ecommerce/dashboard' not in html      # perms.ecommerce False for 'user'
+    assert '/billing/' not in html                 # perms.billing False for 'user'
+    assert '/admin/audit' in html                  # is_admin still shows the admin tabs
+
+    with c.session_transaction() as s:
+        s['role'] = 'admin'
+    html = c.get('/admin/users').get_data(as_text=True)
+    assert '/ecommerce/dashboard' in html and '/billing/' in html   # admin sees all
+
+
 def test_set_active_deactivates_user():
     c = app_module.chatbot_app.test_client()
     _set_admin_session(c)

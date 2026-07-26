@@ -95,6 +95,14 @@ def _inject_csrf():
     return {'csrf_token': session.get('csrf_token', '')}
 
 
+@chatbot_app.context_processor
+def _inject_perms():
+    """Make `perms` available to EVERY template so the nav gates by role
+    consistently — previously only home/chat/ecommerce passed it, so admin and
+    other pages fell through `perms is not defined` and showed all tabs."""
+    return {'perms': _perms()}
+
+
 # --- Database connection ---
 def get_db_connection():
     conn = pyodbc.connect(

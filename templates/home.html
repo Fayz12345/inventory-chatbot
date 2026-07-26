@@ -9,21 +9,27 @@
     </div>
   </div>
   <div class="cards">
+    {% if perms.chat %}
     <a href="/chat" class="card">
       <div class="card-icon">&#128172;</div>
       <h2>Inventory Chatbot</h2>
       <p class="desc">Ask questions about current inventory using natural language.</p>
     </a>
+    {% endif %}
+    {% if perms.ecommerce %}
     <a href="/ecommerce/dashboard" class="card">
       <div class="card-icon">&#128722;</div>
       <h2>Ecommerce</h2>
       <p class="desc">Pricing dashboard and marketplace listing management.</p>
     </a>
+    {% endif %}
+    {% if perms.analytics %}
     <a href="/analytics/" class="card">
       <div class="card-icon">&#128202;</div>
       <h2>Analytics</h2>
       <p class="desc">Telus Weekly reports, price review, and monthly billing (TMS, OSL).</p>
     </a>
+    {% endif %}
     {% if is_admin %}
     <a href="/admin/users" class="card">
       <div class="card-icon">&#9881;</div>
