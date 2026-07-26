@@ -1,9 +1,49 @@
 import os
 
 import app as app_module
+from ui import shell
 from ui.shell import page_shell
 
 ROOT = os.path.dirname(os.path.abspath(app_module.__file__))
+
+
+def _shell_nav(role, is_admin):
+    """Render just the shell top-nav (ecommerce/analytics/billing pages) for a
+    given session role, inside a request context."""
+    with app_module.chatbot_app.test_request_context('/'):
+        from flask import session
+        session['username'] = 'tester'
+        session['role'] = role
+        session['is_admin'] = is_admin
+        return shell._topnav()
+
+
+def test_shell_nav_admin_sees_every_tab_including_audit():
+    # Regression: the shell nav omitted Audit and showed all module tabs ungated,
+    # so an admin's tab set differed from the Jinja pages (security bug).
+    html = _shell_nav('admin', True)
+    for path in ('/home', '/chat', '/ecommerce/dashboard', '/analytics/',
+                 '/billing/', '/admin/users', '/admin/audit'):
+        assert path in html, "admin shell nav missing " + path
+
+
+def test_shell_nav_user_sees_only_chat_and_analytics():
+    html = _shell_nav('user', False)
+    assert '/chat' in html and '/analytics/' in html
+    for path in ('/ecommerce/dashboard', '/billing/', '/admin/users', '/admin/audit'):
+        assert path not in html, "user shell nav must not include " + path
+
+
+def test_shell_nav_viewer_matches_user_module_gating():
+    html = _shell_nav('viewer', False)
+    assert '/chat' in html and '/analytics/' in html
+    assert '/ecommerce/dashboard' not in html and '/billing/' not in html
+
+
+def test_shell_nav_is_admin_without_role_still_full_access():
+    # A legacy is_admin session with no `role` must resolve to admin (not 'user').
+    html = _shell_nav(None, True)
+    assert '/admin/audit' in html and '/ecommerce/dashboard' in html
 
 
 def test_page_shell_wires_loader_and_bumped_css():

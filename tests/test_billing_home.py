@@ -77,8 +77,12 @@ def test_billing_home_content():
 # ---------------------------------------------------------------------------
 
 def test_page_shell_includes_billing_nav_link():
-    """page_shell(active='billing') must include href="/billing/"."""
+    """page_shell(active='billing') includes href="/billing/" for a billing-authorized
+    role (the nav is now role-gated, so a role without billing correctly omits it)."""
     with app_module.chatbot_app.test_request_context('/billing/'):
+        from flask import session
+        session['role'] = 'admin'
+        session['is_admin'] = True
         html = page_shell('<div></div>', active='billing')
     assert 'href="/billing/"' in html
 

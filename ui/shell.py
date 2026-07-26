@@ -11,6 +11,8 @@ markup, `{{ }}`/`{name}` expressions, ids, classes, and inline <script> intact.
 from flask import has_request_context, session
 from markupsafe import escape
 
+import roles
+
 _CSS_VERSION = "14"
 
 
@@ -20,17 +22,27 @@ def _nav_link(href, label, active, key):
 
 
 def _topnav(active=None):
+    # Gate exactly like templates/_topnav.html so the tab set is identical on
+    # every surface (this shell renders the ecommerce/analytics/billing pages;
+    # the Jinja base renders home/chat/admin). Module tabs by role perms; the
+    # admin area (Users/Audit) by is_admin. Previously this showed ALL module
+    # tabs ungated and omitted Audit, so the nav changed per page (security bug).
     username = session.get("username") if has_request_context() else None
     is_admin = session.get("is_admin") if has_request_context() else False
-    links = [
-        _nav_link("/home", "Home", active, "home"),
-        _nav_link("/chat", "Chatbot", active, "chat"),
-        _nav_link("/ecommerce/dashboard", "Ecommerce", active, "ecommerce"),
-        _nav_link("/analytics/", "Analytics", active, "analytics"),
-        _nav_link("/billing/", "Billing", active, "billing"),
-    ]
+    role = roles.effective_role(
+        session.get("role") if has_request_context() else None, is_admin)
+    links = [_nav_link("/home", "Home", active, "home")]
+    if roles.role_allows(role, "chat"):
+        links.append(_nav_link("/chat", "Chatbot", active, "chat"))
+    if roles.role_allows(role, "ecommerce"):
+        links.append(_nav_link("/ecommerce/dashboard", "Ecommerce", active, "ecommerce"))
+    if roles.role_allows(role, "analytics"):
+        links.append(_nav_link("/analytics/", "Analytics", active, "analytics"))
+    if roles.role_allows(role, "billing"):
+        links.append(_nav_link("/billing/", "Billing", active, "billing"))
     if is_admin:
         links.append(_nav_link("/admin/users", "Users", active, "admin"))
+        links.append(_nav_link("/admin/audit", "Audit", active, "audit"))
     who = ('<span class="who">%s</span>' % escape(username)) if username else ""
     return (
         '<header class="app-header">'
