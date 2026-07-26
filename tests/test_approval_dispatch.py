@@ -1,19 +1,22 @@
-"""Unit tests for the approve/reject route dispatch (ADO #138 / 1D.6 + #198 / 1D.10).
+"""Unit tests for the ecommerce approve / post / mark-listed / reject routes.
 
-Covers:
-  - Amazon CA / eBay CA: dispatch to the listing module; success logs to
-    EcommerceListingsLog and finalizes the claim to 'approved'; failure releases
-    the claim and returns 502 (NOT approved).
-  - Best Buy CA / Reebelo CA: preview-only — no API call, claimed straight to
-    'approved'.
-  - #198 hardening: 401 when unauthenticated; atomic claim prevents double-post
-    (lost race -> 409); reject also claims atomically.
+New flow (posting decoupled from approval):
+  - POST /approve       -> PREVIEW ONLY: returns copy + can_post/env, NO status
+    change, NO marketplace call.
+  - POST /post          -> auto-post to the marketplace API; atomic claim, log,
+    finalize to 'approved'; 502 (claim released) on API failure; 400 if no API.
+  - POST /mark-listed    -> record a MANUAL listing (PlatformListingID='manual')
+    and finalize to 'approved'.
+  - POST /reject         -> atomic claim as 'rejected'.
+Plus listing_availability() — the single source of the modal's Auto-post gate.
 """
 from unittest.mock import patch
 
 import pytest
 
 import app  # ensure dotenv + blueprints are loaded
+import ecommerce.approval as approval
+import ecommerce.config as ecfg
 
 
 @pytest.fixture
@@ -30,7 +33,6 @@ def client():
 
 @pytest.fixture
 def anon_client():
-    """Unauthenticated client — no session."""
     app.chatbot_app.config["TESTING"] = True
     with app.chatbot_app.test_client() as c:
         yield c
@@ -52,7 +54,42 @@ def _copy():
 
 
 # ---------------------------------------------------------------------------
-# Auto-post success / failure
+# approve = PREVIEW ONLY (no status change, no marketplace call)
+# ---------------------------------------------------------------------------
+
+@patch("ecommerce.approval.listing_availability",
+       return_value={"available": True, "reason": "", "env": "sandbox"})
+@patch("ecommerce.approval.db.claim_recommendation")
+@patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
+@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("eBay CA"))
+def test_approve_returns_preview_without_posting(_get, _copy_, mock_claim, _avail, client):
+    resp = client.post("/ecommerce/approve?id=1")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["ok"] is True
+    assert body["listing"]["title"] == "T"
+    assert body["marketplace"] == "eBay CA"
+    assert body["can_post"] is True and body["env"] == "sandbox"
+    assert "posted" not in body            # nothing posted on preview
+    mock_claim.assert_not_called()         # NO status change on approve
+
+
+@patch("ecommerce.approval.listing_availability",
+       return_value={"available": False,
+                     "reason": "No Best Buy catalog match (UPC) for this SKU.",
+                     "env": "production"})
+@patch("ecommerce.approval.db.lookup_product_catalog", return_value={})
+@patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
+@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Best Buy CA"))
+def test_approve_reports_cannot_post_with_reason(_get, _copy_, _catalog, _avail, client):
+    resp = client.post("/ecommerce/approve?id=1")
+    body = resp.get_json()
+    assert resp.status_code == 200 and body["ok"] is True
+    assert body["can_post"] is False and "catalog match" in body["post_reason"].lower()
+
+
+# ---------------------------------------------------------------------------
+# /post — auto-post success / failure / rollback / no-api / race
 # ---------------------------------------------------------------------------
 
 @patch("ecommerce.approval.db.lookup_device_category", return_value="Handset")
@@ -65,70 +102,57 @@ def _copy():
        return_value={"ok": True, "listing_id": "SAMSUNG-S25-A-BLACK", "env": "sandbox"})
 @patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
 @patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Amazon CA"))
-def test_amazon_success_claims_posts_logs_and_approves(
+def test_post_amazon_claims_posts_logs_and_approves(
         _get, _copy_, mock_amazon, _catalog, mock_claim, mock_decision, mock_log, _devcat, client):
-    resp = client.post("/ecommerce/approve?id=1")
+    resp = client.post("/ecommerce/post?id=1")
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["ok"] is True and body["posted"] is True
-    assert body["listing_id"] == "SAMSUNG-S25-A-BLACK"
-    assert body["env"] == "sandbox"
+    assert body["listing_id"] == "SAMSUNG-S25-A-BLACK" and body["env"] == "sandbox"
     mock_amazon.assert_called_once()
-    # device category is resolved and passed to the Amazon listing call (#3).
     assert mock_amazon.call_args.kwargs["device_category"] == "Handset"
-    mock_claim.assert_called_once_with(1, "processing")   # claimed before posting
+    mock_claim.assert_called_once_with(1, "processing")
     mock_log.assert_called_once()
-    mock_decision.assert_called_once_with(1, "approved")  # finalized after log
     assert mock_log.call_args.kwargs["floor_price"] == 850.0
+    mock_decision.assert_called_once_with(1, "approved")
 
 
-@patch("ecommerce.approval.db.lookup_device_category", return_value="Handset")
 @patch("ecommerce.approval.db.create_listing_record")
 @patch("ecommerce.approval.db.update_recommendation_decision")
 @patch("ecommerce.approval.db.release_recommendation")
 @patch("ecommerce.approval.db.claim_recommendation", return_value=True)
-@patch("ecommerce.approval.db.lookup_product_catalog",
-       return_value={"asin": None, "upc": None, "epid": None})
+@patch("ecommerce.approval.db.lookup_product_catalog", return_value={"asin": None, "upc": None})
 @patch("ecommerce.approval.amazon_listings.create_listing",
        return_value={"ok": False, "error": "Amazon SP-API: bad seller_id"})
 @patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
 @patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Amazon CA"))
-def test_amazon_failure_releases_claim_and_returns_502(
-        _get, _copy_, mock_amazon, _catalog, mock_claim, mock_release, mock_decision, mock_log, _devcat, client):
-    resp = client.post("/ecommerce/approve?id=1")
+def test_post_failure_releases_claim_and_returns_502(
+        _get, _copy_, _amazon, _catalog, mock_claim, mock_release, mock_decision, mock_log, client):
+    resp = client.post("/ecommerce/post?id=1")
     assert resp.status_code == 502
-    body = resp.get_json()
-    assert body["ok"] is False and "bad seller_id" in body["error"]
-    mock_amazon.assert_called_once()
-    mock_release.assert_called_once_with(1)   # claim released on failure
+    assert "bad seller_id" in resp.get_json()["error"]
+    mock_release.assert_called_once_with(1)
     mock_log.assert_not_called()
-    mock_decision.assert_not_called()         # NOT approved on failure
+    mock_decision.assert_not_called()
 
 
 @patch("ecommerce.approval.db.create_listing_record", return_value=43)
 @patch("ecommerce.approval.db.update_recommendation_decision")
 @patch("ecommerce.approval.db.claim_recommendation", return_value=True)
-@patch("ecommerce.approval.db.lookup_product_catalog",
-       return_value={"asin": None, "upc": "0123", "epid": "EPID1"})
+@patch("ecommerce.approval.db.lookup_product_catalog", return_value={"asin": None, "upc": "0123"})
 @patch("ecommerce.approval.ebay_listings.create_listing",
-       return_value={"ok": True, "listing_id": "12345", "env": "sandbox"})
+       return_value={"ok": True, "listing_id": "12345", "env": "sandbox",
+                     "public_listing_id": "PUB9", "listing_url": "https://x/9"})
 @patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
 @patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("eBay CA"))
-def test_ebay_success_claims_posts_logs_and_approves(
+def test_post_ebay_success_returns_public_id_and_url(
         _get, _copy_, mock_ebay, _catalog, mock_claim, mock_decision, mock_log, client):
-    resp = client.post("/ecommerce/approve?id=1")
+    resp = client.post("/ecommerce/post?id=1")
     body = resp.get_json()
     assert resp.status_code == 200 and body["posted"] is True
-    assert body["listing_id"] == "12345"
-    mock_ebay.assert_called_once()
-    mock_claim.assert_called_once_with(1, "processing")
-    mock_log.assert_called_once()
+    assert body["public_listing_id"] == "PUB9" and body["listing_url"] == "https://x/9"
     assert mock_log.call_args.kwargs["floor_price"] == 780.0
 
-
-# ---------------------------------------------------------------------------
-# Atomicity: post succeeds but logging fails -> rollback (delist) + release
-# ---------------------------------------------------------------------------
 
 @patch("ecommerce.approval.db.lookup_device_category", return_value="Tablet")
 @patch("ecommerce.approval.amazon_listings.delist", return_value=True)
@@ -141,131 +165,140 @@ def test_ebay_success_claims_posts_logs_and_approves(
        return_value={"ok": True, "listing_id": "SKU-1", "env": "sandbox"})
 @patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
 @patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Amazon CA"))
-def test_log_failure_rolls_back_post_and_releases(
+def test_post_log_failure_rolls_back_and_releases(
         _get, _copy_, _amazon, _catalog, _claim, mock_create, mock_decision,
         mock_release, mock_delist, _devcat, client):
-    resp = client.post("/ecommerce/approve?id=1")
+    resp = client.post("/ecommerce/post?id=1")
     assert resp.status_code == 500
-    assert resp.get_json()["ok"] is False
-    # rolled back with the resolved device category for the productType (#3).
     mock_delist.assert_called_once_with("SKU-1", device_category="Tablet")
     mock_release.assert_called_once_with(1)
-    mock_decision.assert_not_called()              # never finalized to approved
+    mock_decision.assert_not_called()
 
 
-# ---------------------------------------------------------------------------
-# Preview-only marketplaces
-# ---------------------------------------------------------------------------
-
-@patch("ecommerce.approval.db.update_recommendation_decision")
+@patch("ecommerce.approval.db.release_recommendation")
 @patch("ecommerce.approval.db.claim_recommendation", return_value=True)
-@patch("ecommerce.approval.db.create_listing_record")
-@patch("ecommerce.approval.db.lookup_product_catalog", return_value={})   # no UPC match
-@patch("ecommerce.approval.bestbuy_listings.create_listing")
-@patch("ecommerce.approval.amazon_listings.create_listing")
-@patch("ecommerce.approval.ebay_listings.create_listing")
-@patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
-@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Best Buy CA"))
-def test_best_buy_without_upc_stays_preview(
-        _get, _copy_, mock_ebay, mock_amazon, mock_bb, _catalog, mock_log, mock_claim, mock_decision, client):
-    """1D.11: Best Buy is auto-post-capable, but with no catalog UPC it can't be
-    matched, so it falls back to preview-only instead of failing approve."""
-    resp = client.post("/ecommerce/approve?id=1")
-    body = resp.get_json()
-    assert resp.status_code == 200 and body["posted"] is False
-    mock_bb.assert_not_called()                           # no UPC -> no Mirakl call
-    mock_amazon.assert_not_called()
-    mock_ebay.assert_not_called()
-    mock_log.assert_not_called()
-    mock_decision.assert_called_once_with(1, "approved")  # finalized as preview
-
-
-@patch("ecommerce.approval.db.create_listing_record", return_value=99)
-@patch("ecommerce.approval.db.update_recommendation_decision")
-@patch("ecommerce.approval.db.claim_recommendation", return_value=True)
-@patch("ecommerce.approval.db.lookup_product_catalog",
-       return_value={"asin": None, "upc": "999002534166", "epid": None})
-@patch("ecommerce.approval.bestbuy_listings.create_listing",
-       return_value={"ok": True, "listing_id": "SAMSUNG-S25-A-BLACK", "env": "production"})
-@patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
-@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Best Buy CA"))
-def test_best_buy_with_upc_posts_via_mirakl(
-        _get, _copy_, mock_bb, _catalog, mock_claim, mock_decision, mock_log, client):
-    """1D.11: a UPC match routes Best Buy through the Mirakl listing module."""
-    resp = client.post("/ecommerce/approve?id=1")
-    body = resp.get_json()
-    assert resp.status_code == 200 and body["posted"] is True
-    assert body["env"] == "production"
-    mock_bb.assert_called_once()
-    mock_claim.assert_called_once_with(1, "processing")
-    mock_log.assert_called_once()
-    assert mock_log.call_args.kwargs["floor_price"] == 900.0   # BestBuyFloor
-    mock_decision.assert_called_once_with(1, "approved")
-
-
-@patch("ecommerce.approval.db.update_recommendation_decision")
-@patch("ecommerce.approval.db.claim_recommendation", return_value=True)
-@patch("ecommerce.approval.db.create_listing_record")
 @patch("ecommerce.approval.reebelo_listings._have_creds", return_value=False)
 @patch("ecommerce.approval.reebelo_listings.create_listing")
 @patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
 @patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Reebelo CA"))
-def test_reebelo_without_creds_stays_preview(
-        _get, _copy_, mock_reebelo, _havecreds, mock_log, mock_claim, mock_decision, client):
-    """1D.12: Reebelo auto-posts only when its key is configured; without it,
-    preview-only (no failed approve)."""
-    resp = client.post("/ecommerce/approve?id=1")
-    assert resp.status_code == 200 and resp.get_json()["posted"] is False
+def test_post_no_api_marketplace_releases_and_400(
+        _get, _copy_, mock_reebelo, _hc, mock_claim, mock_release, client):
+    resp = client.post("/ecommerce/post?id=1")
+    assert resp.status_code == 400
+    assert "no listing api" in resp.get_json()["error"].lower()
     mock_reebelo.assert_not_called()
-    mock_log.assert_not_called()
-    mock_decision.assert_called_once_with(1, "approved")
-
-
-@patch("ecommerce.approval.db.create_listing_record", return_value=77)
-@patch("ecommerce.approval.db.update_recommendation_decision")
-@patch("ecommerce.approval.db.claim_recommendation", return_value=True)
-@patch("ecommerce.approval.reebelo_listings._have_creds", return_value=True)
-@patch("ecommerce.approval.reebelo_listings.create_listing",
-       return_value={"ok": True, "listing_id": "SAMSUNG-S25-A-BLACK", "env": "sandbox"})
-@patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
-@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Reebelo CA"))
-def test_reebelo_with_creds_posts(
-        _get, _copy_, mock_reebelo, _havecreds, mock_claim, mock_decision, mock_log, client):
-    """1D.12: with a key configured, Reebelo routes through the Cobalt module."""
-    resp = client.post("/ecommerce/approve?id=1")
-    body = resp.get_json()
-    assert resp.status_code == 200 and body["posted"] is True
-    mock_reebelo.assert_called_once()
-    mock_claim.assert_called_once_with(1, "processing")
-    mock_log.assert_called_once()
-    assert mock_log.call_args.kwargs["floor_price"] == 760.0   # ReebeloFloor
-    mock_decision.assert_called_once_with(1, "approved")
-
-
-# ---------------------------------------------------------------------------
-# Auth + race guards (#198)
-# ---------------------------------------------------------------------------
-
-def test_unauthenticated_approve_returns_401(anon_client):
-    resp = anon_client.post("/ecommerce/approve?id=1")
-    assert resp.status_code == 401
-    assert resp.get_json()["ok"] is False
-
-
-def test_unauthenticated_reject_returns_401(anon_client):
-    resp = anon_client.post("/ecommerce/reject?id=1")
-    assert resp.status_code == 401
+    mock_release.assert_called_once_with(1)
 
 
 @patch("ecommerce.approval.amazon_listings.create_listing")
 @patch("ecommerce.approval.db.claim_recommendation", return_value=False)
 @patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
 @patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Amazon CA"))
-def test_lost_race_returns_409_without_posting(_get, _copy_, mock_claim, mock_amazon, client):
-    resp = client.post("/ecommerce/approve?id=1")
+def test_post_lost_race_returns_409_without_posting(_get, _copy_, mock_claim, mock_amazon, client):
+    resp = client.post("/ecommerce/post?id=1")
     assert resp.status_code == 409
-    assert "processed" in resp.get_json()["error"].lower()
-    mock_amazon.assert_not_called()   # never posted — lost the claim
+    mock_amazon.assert_not_called()
+
+
+@patch("ecommerce.approval.db.create_listing_record", return_value=51)
+@patch("ecommerce.approval.db.update_recommendation_decision")
+@patch("ecommerce.approval.db.claim_recommendation", return_value=True)
+@patch("ecommerce.approval.db.lookup_product_catalog", return_value={"asin": "B0", "upc": "0123"})
+@patch("ecommerce.approval.amazon_listings.create_listing",
+       return_value={"ok": True, "listing_id": "SKU-9", "env": "production"})
+@patch("ecommerce.approval.db.lookup_device_category", return_value="Handset")
+@patch("ecommerce.approval.copy_generator.generate_listing_copy")
+@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Amazon CA"))
+def test_post_uses_client_echoed_copy_without_regenerating(
+        _get, mock_gen, _devcat, mock_amazon, _catalog, _claim, _decision, _log, client):
+    resp = client.post("/ecommerce/post?id=1", json={"listing": _copy()})
+    assert resp.status_code == 200
+    mock_gen.assert_not_called()   # valid client copy -> no Claude call
+    assert mock_amazon.call_args.kwargs["listing_copy"]["title"] == "T"
+
+
+# ---------------------------------------------------------------------------
+# /mark-listed — manual resolution (no API call)
+# ---------------------------------------------------------------------------
+
+@patch("ecommerce.approval.db.create_listing_record", return_value=60)
+@patch("ecommerce.approval.db.update_recommendation_decision")
+@patch("ecommerce.approval.db.claim_recommendation", return_value=True)
+@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Best Buy CA"))
+def test_mark_listed_records_manual_and_approves(
+        _get, mock_claim, mock_decision, mock_log, client):
+    resp = client.post("/ecommerce/mark-listed?id=1")
+    body = resp.get_json()
+    assert resp.status_code == 200 and body["ok"] is True and body["posted"] is False
+    mock_claim.assert_called_once_with(1, "processing")
+    assert mock_log.call_args.kwargs["platform_listing_id"] == "manual"
+    assert mock_log.call_args.kwargs["floor_price"] == 900.0
+    mock_decision.assert_called_once_with(1, "approved")
+
+
+@patch("ecommerce.approval.db.release_recommendation")
+@patch("ecommerce.approval.db.update_recommendation_decision")
+@patch("ecommerce.approval.db.create_listing_record", side_effect=Exception("DB down"))
+@patch("ecommerce.approval.db.claim_recommendation", return_value=True)
+@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Reebelo CA"))
+def test_mark_listed_log_failure_releases_and_500(
+        _get, _claim, _log, mock_decision, mock_release, client):
+    resp = client.post("/ecommerce/mark-listed?id=1")
+    assert resp.status_code == 500
+    mock_release.assert_called_once_with(1)
+    mock_decision.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# listing_availability — the Auto-post gate
+# ---------------------------------------------------------------------------
+
+@patch("ecommerce.approval.amazon_listings._have_creds", return_value=False)
+def test_availability_amazon_unconfigured(_hc):
+    r = approval.listing_availability("Amazon CA")
+    assert r["available"] is False and "not configured" in r["reason"].lower()
+
+
+@patch("ecommerce.approval.amazon_listings._have_creds", return_value=True)
+def test_availability_amazon_configured(_hc):
+    assert approval.listing_availability("Amazon")["available"] is True
+
+
+@patch("ecommerce.approval.ebay_listings._have_creds", return_value=True)
+def test_availability_ebay_needs_publish_prereqs(_hc, monkeypatch):
+    monkeypatch.setattr(ecfg, "EBAY_MERCHANT_LOCATION_KEY", "")
+    r = approval.listing_availability("eBay CA")
+    assert r["available"] is False and "prerequisite" in r["reason"].lower()
+
+
+@patch("ecommerce.approval.ebay_listings._have_creds", return_value=True)
+def test_availability_ebay_ready_with_all_prereqs(_hc, monkeypatch):
+    for attr in ("EBAY_MERCHANT_LOCATION_KEY", "EBAY_FULFILLMENT_POLICY_ID",
+                 "EBAY_PAYMENT_POLICY_ID", "EBAY_RETURN_POLICY_ID"):
+        monkeypatch.setattr(ecfg, attr, "X")
+    assert approval.listing_availability("eBay CA")["available"] is True
+
+
+@patch("ecommerce.approval.bestbuy_listings._have_creds", return_value=True)
+def test_availability_bestbuy_requires_catalog_upc(_hc):
+    assert approval.listing_availability("Best Buy CA", catalog={})["available"] is False
+    assert approval.listing_availability("Best Buy CA", catalog={"upc": "1"})["available"] is True
+
+
+def test_availability_unknown_marketplace_is_false():
+    r = approval.listing_availability("Craigslist")
+    assert r["available"] is False and r["env"] is None
+
+
+# ---------------------------------------------------------------------------
+# Auth + reject + shared guards
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("path", ["/ecommerce/approve?id=1", "/ecommerce/post?id=1",
+                                  "/ecommerce/mark-listed?id=1", "/ecommerce/reject?id=1"])
+def test_unauthenticated_returns_401(anon_client, path):
+    resp = anon_client.post(path)
+    assert resp.status_code == 401 and resp.get_json()["ok"] is False
 
 
 @patch("ecommerce.approval.db.claim_recommendation", return_value=True)
@@ -276,14 +309,15 @@ def test_reject_claims_atomically(_get, mock_claim, client):
     mock_claim.assert_called_once_with(1, "rejected")
 
 
+@pytest.mark.parametrize("path", ["/ecommerce/approve?id=1", "/ecommerce/post?id=1",
+                                  "/ecommerce/mark-listed?id=1"])
 @patch("ecommerce.approval.db.get_recommendation_by_id",
        return_value=_rec("Amazon CA", decision="approved"))
-def test_already_decided_returns_409(_get, client):
-    resp = client.post("/ecommerce/approve?id=1")
-    assert resp.status_code == 409
-    assert "Already" in resp.get_json()["error"]
+def test_already_decided_returns_409(_get, client, path):
+    resp = client.post(path)
+    assert resp.status_code == 409 and "Already" in resp.get_json()["error"]
 
 
-def test_missing_id_returns_400(client):
-    resp = client.post("/ecommerce/approve")
-    assert resp.status_code == 400
+@pytest.mark.parametrize("path", ["/ecommerce/approve", "/ecommerce/post", "/ecommerce/mark-listed"])
+def test_missing_id_returns_400(client, path):
+    assert client.post(path).status_code == 400

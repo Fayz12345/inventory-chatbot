@@ -1,12 +1,18 @@
 """
 Ecommerce approval routes — Flask Blueprint.
 
-Serves the pricing dashboard and handles approve/reject actions.
+Serves the pricing dashboard and handles approve/post/mark-listed/reject actions.
 
-Mode: Per ADO #138 (1D.6), approve now AUTO-POSTS to the marketplace API for
-Amazon CA and eBay CA recommendations. Best Buy CA and Reebelo CA stay
-preview-only (no API for these per #138 AC). On API failure, the
-recommendation is NOT marked as approved so the user can retry.
+Mode: **Approve generates the listing PREVIEW only** — no status change, no
+marketplace call — so the operator reviews the copy first. Posting is a
+separate, explicit action:
+  - POST /post — auto-post to the recommendation's marketplace API (only when
+    that marketplace is configured); atomically claimed + logged, with delist
+    rollback if logging fails, and 502 (claim released) on API failure so the
+    user can retry.
+  - POST /mark-listed — record a MANUAL listing for a marketplace with no API,
+    so the recommendation is still clearable after a manual copy/paste.
+Both finalize the recommendation to 'approved'; /reject sets 'rejected'.
 """
 
 import logging
@@ -15,6 +21,7 @@ from flask import Blueprint, jsonify, redirect, request, session, url_for
 
 import admin_audit
 import roles
+from ecommerce import config
 from ecommerce import db
 from ecommerce.pricing import categorize
 from ecommerce.listings import amazon as amazon_listings
@@ -36,6 +43,8 @@ _SELF_GUARDED_JSON_ENDPOINTS = {
     "ecommerce.scrape_settings_save",
     "ecommerce.scrape_preview",
     "ecommerce.approve",
+    "ecommerce.post_listing",
+    "ecommerce.mark_listed",
     "ecommerce.reject",
 }
 
@@ -52,13 +61,6 @@ def _gate_ecommerce():
     role = roles.effective_role(session.get('role'), session.get('is_admin'))
     if not roles.role_allows(role, 'ecommerce'):
         return redirect(url_for('home'))
-
-# Marketplaces that auto-post on approve. Best Buy CA (Mirakl, 1D.11) posts only
-# when a catalog UPC match exists; Reebelo CA (Cobalt, 1D.12) posts only when its
-# API key is configured — both fall back to preview-only otherwise. Anything else
-# is preview-only — the modal still shows the generated copy for manual paste.
-AUTO_POST_MARKETPLACES = {"Amazon CA", "eBay CA", "Amazon", "eBay",
-                          "Best Buy CA", "Best Buy", "Reebelo CA", "Reebelo"}
 
 # Map RecommendedMarketplace -> the per-marketplace floor column on
 # EcommercePricingRecommendation (for the EcommerceListingsLog audit row).
@@ -228,143 +230,301 @@ def _delist_from_marketplace(marketplace, listing_id, product=None):
     return False
 
 
-@approval_bp.route("/approve", methods=["POST"])
-def approve():
-    """Generate listing copy, auto-post to Amazon/eBay if applicable, log it.
+# ---------------------------------------------------------------------------
+# Availability + shared recommendation loaders
+# ---------------------------------------------------------------------------
 
-    Auth-guarded and race-safe (#198): the recommendation is atomically claimed
-    before any marketplace call, so two near-simultaneous approves can't both
-    post. A claim is released back to undecided on any post/log failure, and a
-    post that can't be logged is rolled back (delisted) so a live listing never
-    exists without a DB record.
+def listing_availability(marketplace, catalog=None):
+    """Whether we can auto-post to `marketplace` right now — the single source of
+    truth for the modal's Auto-post button and the /post pre-check. Returns
+    ``{"available": bool, "reason": str, "env": str|None}``.
+
+    eBay additionally requires the publishOffer prerequisites (merchant location
+    + the 3 business policies); Best Buy additionally requires a catalog UPC match
+    (pass `catalog` to reflect it — omit it to check credentials only).
     """
-    guard = _require_login_json()
-    if guard:
-        return guard
+    mp = (marketplace or "").lower()
 
-    rec_id = request.args.get("id", type=int)
-    if not rec_id:
-        return jsonify({"ok": False, "error": "Missing recommendation ID."}), 400
+    if mp in ("amazon ca", "amazon"):
+        if not amazon_listings._have_creds():
+            return {"available": False, "reason": "Amazon SP-API not configured.",
+                    "env": config.AMAZON_ENV}
+        return {"available": True, "reason": "", "env": config.AMAZON_ENV}
 
-    rec = db.get_recommendation_by_id(rec_id)
-    if not rec:
-        return jsonify({"ok": False, "error": "Recommendation not found."}), 404
-    if rec.get("Decision"):
-        return jsonify({"ok": False, "error": f'Already {rec["Decision"]}.'}), 409
+    if mp in ("ebay ca", "ebay"):
+        if not ebay_listings._have_creds():
+            return {"available": False, "reason": "eBay API not configured.",
+                    "env": config.EBAY_ENV}
+        if not all([config.EBAY_MERCHANT_LOCATION_KEY, config.EBAY_FULFILLMENT_POLICY_ID,
+                    config.EBAY_PAYMENT_POLICY_ID, config.EBAY_RETURN_POLICY_ID]):
+            return {"available": False,
+                    "reason": "eBay publish prerequisites missing (merchant location + 3 business policies).",
+                    "env": config.EBAY_ENV}
+        return {"available": True, "reason": "", "env": config.EBAY_ENV}
 
-    marketplace = rec["RecommendedMarketplace"]
-    price = float(rec["RecommendedPrice"])
-    product = {
+    if mp in ("reebelo ca", "reebelo"):
+        if not reebelo_listings._have_creds():
+            return {"available": False, "reason": "Reebelo API not configured.",
+                    "env": config.REEBELO_ENV}
+        return {"available": True, "reason": "", "env": config.REEBELO_ENV}
+
+    if mp in ("best buy ca", "best buy"):
+        # Best Buy Mirakl is production-only (no sandbox).
+        if not bestbuy_listings._have_creds():
+            return {"available": False, "reason": "Best Buy API not configured.",
+                    "env": "production"}
+        if catalog is not None and not catalog.get("upc"):
+            return {"available": False,
+                    "reason": "No Best Buy catalog match (UPC) for this SKU.",
+                    "env": "production"}
+        return {"available": True, "reason": "", "env": "production"}
+
+    return {"available": False, "reason": f"No listing API for {marketplace}.", "env": None}
+
+
+def _catalog_for(product):
+    return db.lookup_product_catalog(
+        product["Manufacturer"], product["Model"], product["Colour"],
+    ) or {}
+
+
+def _product_from_rec(rec):
+    return {
         "Manufacturer": rec["Manufacturer"],
         "Model":        rec["Model"],
         "Colour":       rec["Colour"],
         "Grade":        rec["Grade"],
         "Quantity":     rec["Quantity"],
     }
-    approved_by = session.get("username")
 
-    # Step 1: generate the listing copy (always — preview modal needs it).
+
+def _load_undecided_rec():
+    """Load the recommendation named by ?id=, guarding missing id / not found /
+    already decided. Returns (rec, None) or (None, (json_response, status))."""
+    rec_id = request.args.get("id", type=int)
+    if not rec_id:
+        return None, (jsonify({"ok": False, "error": "Missing recommendation ID."}), 400)
+    rec = db.get_recommendation_by_id(rec_id)
+    if not rec:
+        return None, (jsonify({"ok": False, "error": "Recommendation not found."}), 404)
+    if rec.get("Decision"):
+        return None, (jsonify({"ok": False, "error": f'Already {rec["Decision"]}.'}), 409)
+    return rec, None
+
+
+def _valid_listing_copy(obj):
+    """Accept a client-echoed preview copy only if it matches the generator's
+    shape (title/description/bullets/condition_note); else None so the caller
+    regenerates. Each field is bounded so a tampered client can't post a blob."""
+    if not isinstance(obj, dict):
+        return None
+    title = obj.get("title"); desc = obj.get("description")
+    bullets = obj.get("bullets"); cond = obj.get("condition_note")
+    if not isinstance(title, str) or not isinstance(desc, str):
+        return None
+    if not isinstance(bullets, list) or not all(isinstance(b, str) for b in bullets):
+        return None
+    return {
+        "title":          title[:200],
+        "description":    desc[:2000],
+        "bullets":        [b[:200] for b in bullets][:10],
+        "condition_note": cond[:500] if isinstance(cond, str) else "",
+    }
+
+
+@approval_bp.route("/approve", methods=["POST"])
+def approve():
+    """Generate the listing PREVIEW for a recommendation — no status change and
+    no marketplace call. Posting is a separate, explicit action (/post or
+    /mark-listed) so the operator reviews the copy first; approve is safely
+    re-runnable while the rec is undecided. Returns the copy plus
+    `can_post`/`post_reason`/`env` so the modal shows an Auto-post or a
+    Mark-as-listed button."""
+    guard = _require_login_json()
+    if guard:
+        return guard
+
+    rec, err = _load_undecided_rec()
+    if err:
+        return err
+
+    marketplace = rec["RecommendedMarketplace"]
+    price = float(rec["RecommendedPrice"])
+    product = _product_from_rec(rec)
+
     try:
         listing_copy = copy_generator.generate_listing_copy(product, marketplace)
     except Exception as e:
-        log.error("Listing copy generation failed for rec %s: %s", rec_id, e)
+        log.error("Listing copy generation failed for rec %s: %s", rec["ID"], e)
         return jsonify({"ok": False, "error": f"Listing copy generation failed: {e}"}), 500
 
-    auto_post = marketplace in AUTO_POST_MARKETPLACES
-
-    # Step 2: atomically claim the row BEFORE any marketplace call (race guard).
-    # Auto-post rows are claimed as 'processing' and only become 'approved' once
-    # the post is confirmed (released to NULL on failure, per #138). Preview-only
-    # rows are claimed straight to 'approved'.
-    claim_state = "processing" if auto_post else "approved"
-    if not db.claim_recommendation(rec_id, claim_state):
-        return jsonify({"ok": False, "error": "Already being processed or decided."}), 409
-
-    # Step 3: auto-post to marketplace if applicable.
-    posted     = False
-    listing_id = None
-    env        = None
-    public_listing_id = None
-    listing_url       = None
-    if auto_post:
-        result = _post_to_marketplace(marketplace, product, price, listing_copy)
-        if result is None:
-            # Defensive — marketplace was in AUTO_POST set but dispatch returned
-            # None. Treat as preview-only: finalize the claim to 'approved'.
-            log.warning("Marketplace %r in auto-post set but dispatch returned None.", marketplace)
-            db.update_recommendation_decision(rec_id, "approved")
-        elif not result.get("ok"):
-            # Per #138 AC: post failed -> NOT approved. Release the claim so the
-            # row isn't stuck in 'processing' and the user can retry.
-            db.release_recommendation(rec_id)
-            return jsonify({
-                "ok":    False,
-                "error": result.get("error") or "Marketplace API post failed.",
-            }), 502
-        else:
-            posted     = True
-            listing_id = result.get("listing_id")
-            env        = result.get("env")
-            public_listing_id = result.get("public_listing_id")
-            listing_url       = result.get("listing_url")
-
-    # Step 4: if we posted, log it then finalize. If logging fails after a real
-    # post, roll the post back (delist) and release the claim so we never leave
-    # a live listing with no DB row.
-    if posted and listing_id:
-        try:
-            db.create_listing_record(
-                product=product,
-                platform=marketplace,
-                listing_price=price,
-                floor_price=_floor_price_for(marketplace, rec),
-                platform_listing_id=listing_id,
-                approved_by=approved_by,
-            )
-        except Exception:
-            log.exception("Posted to %s (listing %s) but failed to log — rolling back.",
-                          marketplace, listing_id)
-            rolled_back = _delist_from_marketplace(marketplace, listing_id, product)
-            db.release_recommendation(rec_id)
-            if rolled_back:
-                return jsonify({"ok": False, "error": (
-                    "Posted but could not record the listing; it was rolled back. "
-                    "Please retry."
-                )}), 500
-            return jsonify({"ok": False, "error": (
-                f"Posted to {marketplace} (listing {listing_id}) but could not record it "
-                f"and rollback failed — needs manual reconciliation."
-            )}), 500
-        # Post + log both succeeded -> finalize the claim.
-        db.update_recommendation_decision(rec_id, "approved")
+    # Best Buy availability depends on a catalog UPC match; skip the lookup otherwise.
+    catalog = _catalog_for(product) if marketplace.lower() in ("best buy ca", "best buy") else None
+    avail = listing_availability(marketplace, catalog=catalog)
 
     product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
-    if posted:
-        msg = f"{product_name} approved AND posted to {marketplace} ({env}) at ${price:.2f}."
-    else:
-        msg = f"{product_name} approved for {marketplace} at ${price:.2f} (preview only — paste manually)."
-    try:
-        admin_audit.log_action(
-            approved_by,
-            'ecommerce_approve',
-            target=f"{product['Manufacturer']} {product['Model']} {product.get('Colour', '')} Grade {product['Grade']}".strip(),
-            detail=f"${price:.2f} on {marketplace}" + (f" — posted ({env})" if posted else " — preview only"),
-        )
-    except Exception:
-        log.exception("Audit logging failed for ecommerce approve (rec %s)", rec_id)
     return jsonify({
         "ok":          True,
-        "message":     msg,
         "listing":     listing_copy,
         "marketplace": marketplace,
         "price":       price,
         "product":     product_name,
-        "posted":      posted,
-        "listing_id":  listing_id,
-        "public_listing_id": public_listing_id,
-        "listing_url": listing_url,
-        "env":         env,
+        "can_post":    avail["available"],
+        "post_reason": avail["reason"],
+        "env":         avail["env"],
     })
+
+
+@approval_bp.route("/post", methods=["POST"])
+def post_listing():
+    """Auto-post an already-previewed recommendation to its marketplace API.
+
+    Atomically claims the row, posts, logs to EcommerceListingsLog, finalizes to
+    'approved' — with delist rollback if logging fails. 502 (claim released) on a
+    marketplace failure so the user can retry; 400 if the marketplace has no API.
+    Prefers the exact copy the operator reviewed (echoed from the modal) and
+    regenerates only if it's absent/malformed.
+    """
+    guard = _require_login_json()
+    if guard:
+        return guard
+
+    rec, err = _load_undecided_rec()
+    if err:
+        return err
+
+    marketplace = rec["RecommendedMarketplace"]
+    price = float(rec["RecommendedPrice"])
+    product = _product_from_rec(rec)
+    approved_by = session.get("username")
+
+    listing_copy = _valid_listing_copy((request.get_json(silent=True) or {}).get("listing"))
+    if listing_copy is None:
+        try:
+            listing_copy = copy_generator.generate_listing_copy(product, marketplace)
+        except Exception as e:
+            log.error("Listing copy generation failed for rec %s: %s", rec["ID"], e)
+            return jsonify({"ok": False, "error": f"Listing copy generation failed: {e}"}), 500
+
+    # Atomic claim BEFORE any marketplace call (race guard).
+    if not db.claim_recommendation(rec["ID"], "processing"):
+        return jsonify({"ok": False, "error": "Already being processed or decided."}), 409
+
+    result = _post_to_marketplace(marketplace, product, price, listing_copy)
+    if result is None:
+        # No API path for this marketplace (or Best Buy has no catalog match) —
+        # the button shouldn't have been offered; caller should Mark-as-listed.
+        db.release_recommendation(rec["ID"])
+        return jsonify({"ok": False,
+                        "error": f"No listing API available for {marketplace}."}), 400
+    if not result.get("ok"):
+        db.release_recommendation(rec["ID"])
+        return jsonify({"ok": False,
+                        "error": result.get("error") or "Marketplace API post failed."}), 502
+
+    listing_id        = result.get("listing_id")
+    env               = result.get("env")
+    public_listing_id = result.get("public_listing_id")
+    listing_url       = result.get("listing_url")
+    if not listing_id:
+        db.release_recommendation(rec["ID"])
+        return jsonify({"ok": False, "error": "Marketplace returned no listing id."}), 502
+
+    # Log then finalize; roll the post back (delist) if logging fails so we never
+    # leave a live listing with no DB row.
+    try:
+        db.create_listing_record(
+            product=product,
+            platform=marketplace,
+            listing_price=price,
+            floor_price=_floor_price_for(marketplace, rec),
+            platform_listing_id=listing_id,
+            approved_by=approved_by,
+        )
+    except Exception:
+        log.exception("Posted to %s (listing %s) but failed to log — rolling back.",
+                      marketplace, listing_id)
+        rolled_back = _delist_from_marketplace(marketplace, listing_id, product)
+        db.release_recommendation(rec["ID"])
+        if rolled_back:
+            return jsonify({"ok": False, "error": (
+                "Posted but could not record the listing; it was rolled back. Please retry."
+            )}), 500
+        return jsonify({"ok": False, "error": (
+            f"Posted to {marketplace} (listing {listing_id}) but could not record it "
+            f"and rollback failed — needs manual reconciliation."
+        )}), 500
+    db.update_recommendation_decision(rec["ID"], "approved")
+
+    product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
+    try:
+        admin_audit.log_action(
+            approved_by, 'ecommerce_post',
+            target=f"{product['Manufacturer']} {product['Model']} {product.get('Colour', '')} Grade {product['Grade']}".strip(),
+            detail=f"${price:.2f} on {marketplace} — posted ({env}), listing {listing_id}",
+        )
+    except Exception:
+        log.exception("Audit logging failed for ecommerce post (rec %s)", rec["ID"])
+
+    return jsonify({
+        "ok":                True,
+        "posted":            True,
+        "message":           f"{product_name} posted to {marketplace} ({env}) at ${price:.2f}.",
+        "marketplace":       marketplace,
+        "listing_id":        listing_id,
+        "public_listing_id": public_listing_id,
+        "listing_url":       listing_url,
+        "env":               env,
+    })
+
+
+@approval_bp.route("/mark-listed", methods=["POST"])
+def mark_listed():
+    """Resolve a recommendation as MANUALLY listed (no marketplace API call) — for
+    marketplaces with no configured API. Records a manual EcommerceListingsLog row
+    (PlatformListingID='manual') and finalizes the decision to 'approved'."""
+    guard = _require_login_json()
+    if guard:
+        return guard
+
+    rec, err = _load_undecided_rec()
+    if err:
+        return err
+
+    marketplace = rec["RecommendedMarketplace"]
+    price = float(rec["RecommendedPrice"])
+    product = _product_from_rec(rec)
+    approved_by = session.get("username")
+
+    if not db.claim_recommendation(rec["ID"], "processing"):
+        return jsonify({"ok": False, "error": "Already being processed or decided."}), 409
+    try:
+        db.create_listing_record(
+            product=product,
+            platform=marketplace,
+            listing_price=price,
+            floor_price=_floor_price_for(marketplace, rec),
+            platform_listing_id="manual",
+            approved_by=approved_by,
+        )
+    except Exception:
+        log.exception("Failed to record manual listing for rec %s", rec["ID"])
+        db.release_recommendation(rec["ID"])
+        return jsonify({"ok": False, "error": "Could not record the manual listing. Please retry."}), 500
+    db.update_recommendation_decision(rec["ID"], "approved")
+
+    product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
+    try:
+        admin_audit.log_action(
+            approved_by, 'ecommerce_mark_listed',
+            target=f"{product['Manufacturer']} {product['Model']} {product.get('Colour', '')} Grade {product['Grade']}".strip(),
+            detail=f"${price:.2f} on {marketplace} — marked listed (manual)",
+        )
+    except Exception:
+        log.exception("Audit logging failed for ecommerce mark-listed (rec %s)", rec["ID"])
+
+    return jsonify({"ok": True, "posted": False,
+                    "message": f"{product_name} marked as listed on {marketplace}."})
 
 
 @approval_bp.route("/reject", methods=["POST"])

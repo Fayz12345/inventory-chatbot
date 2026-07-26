@@ -1,4 +1,4 @@
-"""Tests that approve/reject write to the admin audit trail.
+"""Tests that post/mark-listed/reject write to the admin audit trail.
 
 Mirrors the harness in test_approval_dispatch.py (same client fixture, same
 _rec/_copy helpers). Patches admin_audit.log_action directly to capture calls
@@ -54,15 +54,16 @@ def _copy():
        return_value={"ok": True, "listing_id": "SAMSUNG-S25-A-BLACK", "env": "sandbox"})
 @patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
 @patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Amazon CA"))
-def test_approve_logs_to_audit(
+def test_post_logs_to_audit(
         _get, _copy_, _amazon, _catalog, _claim, _decision, _log_record, _devcat, mock_audit, client):
-    resp = client.post("/ecommerce/approve?id=1")
+    # Auditing now happens on the explicit POST /post (not on the approve preview).
+    resp = client.post("/ecommerce/post?id=1")
     assert resp.status_code == 200 and resp.get_json()["ok"] is True
     mock_audit.assert_called_once()
     call_kwargs = mock_audit.call_args
     actor, action = call_kwargs.args[0], call_kwargs.args[1]
     assert actor == "tester"
-    assert action == "ecommerce_approve"
+    assert action == "ecommerce_post"
     assert "Samsung" in call_kwargs.kwargs["target"]
     assert "S25 Ultra" in call_kwargs.kwargs["target"]
     assert "Grade A" in call_kwargs.kwargs["target"]
@@ -105,10 +106,10 @@ def test_reject_logs_to_audit(_get, _claim, mock_audit, client):
        return_value={"ok": True, "listing_id": "SAMSUNG-S25-A-BLACK", "env": "sandbox"})
 @patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
 @patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Amazon CA"))
-def test_audit_failure_does_not_break_approve(
+def test_audit_failure_does_not_break_post(
         _get, _copy_, _amazon, _catalog, _claim, _decision, _log_record, _devcat, mock_audit, client):
-    """If admin_audit.log_action raises, approve() must still return ok=True."""
-    resp = client.post("/ecommerce/approve?id=1")
+    """If admin_audit.log_action raises, /post must still return ok=True."""
+    resp = client.post("/ecommerce/post?id=1")
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["ok"] is True

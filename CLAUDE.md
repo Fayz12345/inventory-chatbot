@@ -42,7 +42,7 @@ ecommerce/
 
 The pricing dashboard replaces the email digest. After each weekly pipeline run, recommendations are persisted to `EcommercePricingBatch` / `EcommercePricingRecommendation` tables and viewable at `/ecommerce/dashboard`. Approve/reject actions are handled inline via AJAX.
 
-**Current mode (1D-ii): Preview only** — Approve generates listing copy via Claude and displays it in a preview modal with copy-to-clipboard buttons. No marketplace API calls yet. Once confidence is built, 1D-iii will enable auto-listing via Amazon SP-API / eBay Inventory API.
+**Current mode: preview → explicit post.** Approve **generates the listing preview only** (Claude copy, no status change, no marketplace call). The preview modal then offers, per the recommendation's winning marketplace: an **Auto-post** button when that marketplace's API is configured (`POST /ecommerce/post` — atomic claim → SP-API/eBay/Best Buy/Reebelo call → `EcommerceListingsLog` row → Decision `approved`, with delist rollback + 502 on failure; always asks for confirmation), or a **Mark as listed** button when it isn't (`POST /ecommerce/mark-listed` — records a manual `EcommerceListingsLog` row with `PlatformListingID='manual'`). Copy-to-clipboard + Reject stay. `approval.listing_availability(marketplace)` is the single source for whether Auto-post is offered (wraps each module's `_have_creds()`; eBay also needs merchant-location + 3 policy IDs; Best Buy needs a catalog UPC match).
 
 ### Dashboard — Scrape scope control
 

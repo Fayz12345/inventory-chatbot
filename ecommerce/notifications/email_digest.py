@@ -415,7 +415,8 @@ DASHBOARD_TEMPLATE = Template("""
                 <label>Condition Note</label>
                 <div class="value" id="listing-condition"></div>
             </div>
-            <div style="margin-top: 20px;">
+            <div id="modal-action" style="margin-top: 20px;"></div>
+            <div style="margin-top: 12px;">
                 <button class="btn-copy" onclick="copyAll()">Copy All to Clipboard</button>
                 <button class="btn-copy" onclick="copyField('listing-title')" style="background:#78909C;">Copy Title</button>
                 <button class="btn-copy" onclick="copyField('listing-description')" style="background:#78909C;">Copy Description</button>
@@ -441,50 +442,49 @@ function decide(recId, action) {
     }
 
     // Open the modal immediately on approve so the user sees a spinner
-    // instead of an idle page while Claude + the marketplace API runs.
+    // instead of an idle page while Claude generates the copy.
     if (action === 'approve') {
-        openModalWithLoader('Generating listing copy and posting…');
+        openModalWithLoader('Generating listing copy…');
     }
+
+    var restore = function() {
+        buttons.forEach(function(btn, i) {
+            btn.disabled = false;
+            btn.className = btn.dataset.cls || (i === 0 ? 'btn btn-approve' : 'btn btn-reject');
+            btn.textContent = originalLabels[i];
+        });
+    };
 
     fetch('/ecommerce/' + action + '?id=' + recId, { method: 'POST' })
         .then(function(resp) { return resp.json(); })
         .then(function(data) {
-            var cell = buttons[0].parentNode;
-            if (data.ok) {
-                var label = action === 'approve' ? 'Approved' : 'Rejected';
-                var cls = action === 'approve' ? 'decision-approved' : 'decision-rejected';
+            if (!data.ok) {
+                closeModal();
+                restore();
+                showToast(data.error || 'Action failed', 'error');
+                return;
+            }
+            if (action === 'reject') {
+                var cell = buttons[0].parentNode;
                 cell.innerHTML = '';
                 var span = document.createElement('span');
-                span.className = cls;
-                span.textContent = label;
+                span.className = 'decision-rejected';
+                span.textContent = 'Rejected';
                 cell.appendChild(span);
                 showToast(data.message, 'success');
-
-                if (action === 'approve' && data.listing) {
-                    showListingPreview(data);
-                } else {
-                    closeModal();
-                }
-            } else {
-                // Restore the buttons so the user can retry (per #138 AC:
-                // on API failure the recommendation is NOT marked approved).
                 closeModal();
-                buttons.forEach(function(btn, i) {
-                    btn.disabled = false;
-                    btn.className = btn.dataset.cls || (i === 0 ? 'btn btn-approve' : 'btn btn-reject');
-                    btn.textContent = originalLabels[i];
-                });
-                showToast(data.error || 'Action failed', 'error');
+            } else {
+                // Approve = PREVIEW ONLY: no status change. Re-enable the row so
+                // the user can still Reject or re-open the preview, then show the
+                // modal with an Auto-post (API) or Mark-as-listed (no API) button.
+                restore();
+                showListingPreview(data, recId);
             }
         })
         .catch(function() {
             closeModal();
+            restore();
             showToast('Network error', 'error');
-            buttons.forEach(function(btn, i) {
-                btn.disabled = false;
-                btn.className = btn.dataset.cls || (i === 0 ? 'btn btn-approve' : 'btn btn-reject');
-                btn.textContent = originalLabels[i];
-            });
         });
 }
 
@@ -501,7 +501,7 @@ function openModalWithLoader(message) {
     modal.classList.add('active');
 }
 
-function showListingPreview(data) {
+function showListingPreview(data, recId) {
     var listing = data.listing;
     // Hide the spinner and reveal the populated body.
     document.getElementById('modal-loader').style.display = 'none';
@@ -510,54 +510,11 @@ function showListingPreview(data) {
     document.getElementById('modal-meta').textContent =
         data.product + ' \u2014 ' + data.marketplace + ' \u2014 $' + parseFloat(data.price).toFixed(2);
 
-    // 1D.6: green banner when auto-posted, yellow when preview-only.
-    // Build with createElement + textContent to avoid innerHTML interpolation
-    // of marketplace / env / listing_id values.
+    // Preview only \u2014 nothing is posted yet, so hide the status banner (it's shown
+    // by postListing() after a successful post).
     var status = document.getElementById('post-status');
     status.textContent = '';
-    status.style.display = 'block';
-    if (data.posted) {
-        status.style.background = '#e8f5e9';
-        status.style.color = '#2e7d32';
-        status.style.border = '1px solid #a5d6a7';
-        status.appendChild(document.createTextNode('\u2705 Auto-posted to '));
-        var mp = document.createElement('b');
-        mp.textContent = data.marketplace;
-        status.appendChild(mp);
-        status.appendChild(document.createTextNode(' ('));
-        var envEl = document.createElement('b');
-        envEl.textContent = data.env || 'production';
-        status.appendChild(envEl);
-        status.appendChild(document.createTextNode(') \u2014 listing ID: '));
-        var idEl = document.createElement('code');
-        idEl.textContent = data.public_listing_id || data.listing_id || '?';
-        status.appendChild(idEl);
-        if (data.listing_url) {
-            status.appendChild(document.createTextNode('  '));
-            var viewLink = document.createElement('a');
-            viewLink.href = data.listing_url;
-            viewLink.target = '_blank';
-            viewLink.rel = 'noopener';
-            viewLink.textContent = 'View listing \u2192';
-            viewLink.style.fontWeight = 'bold';
-            viewLink.style.color = '#1b5e20';
-            status.appendChild(viewLink);
-        }
-    } else {
-        status.style.background = '#fffde7';
-        status.style.color = '#f57f17';
-        status.style.border = '1px solid #fff59d';
-        status.appendChild(document.createTextNode('\U0001F4CB '));
-        var pv = document.createElement('b');
-        pv.textContent = 'Preview only';
-        status.appendChild(pv);
-        status.appendChild(document.createTextNode(' \u2014 no API for '));
-        var mp2 = document.createElement('b');
-        mp2.textContent = data.marketplace;
-        status.appendChild(mp2);
-        status.appendChild(document.createTextNode(
-            '. Copy the content below and paste it into the marketplace manually.'));
-    }
+    status.style.display = 'none';
 
     document.getElementById('listing-title').textContent = listing.title || '';
     document.getElementById('listing-description').textContent = listing.description || '';
@@ -573,7 +530,143 @@ function showListingPreview(data) {
         });
     }
 
+    // Action area: Auto-post when the marketplace API is configured, else a
+    // manual Mark-as-listed resolver (shown with the reason).
+    var action = document.getElementById('modal-action');
+    action.textContent = '';
+    if (data.can_post) {
+        var envLabel = data.env ? (' (' + data.env + ')') : '';
+        var postBtn = document.createElement('button');
+        postBtn.className = 'btn btn-approve';
+        postBtn.id = 'modal-post-btn';
+        postBtn.textContent = 'Auto-post to ' + data.marketplace + envLabel;
+        postBtn.onclick = function() { postListing(recId, data, postBtn); };
+        action.appendChild(postBtn);
+    } else {
+        var note = document.createElement('div');
+        note.style.cssText = 'color:#f57f17; font-size:13px; margin-bottom:8px;';
+        note.textContent = (data.post_reason || ('No API for ' + data.marketplace + '.')) +
+                           ' Copy the content below and list it manually.';
+        action.appendChild(note);
+        var markBtn = document.createElement('button');
+        markBtn.className = 'btn btn-approve';
+        markBtn.id = 'modal-mark-btn';
+        markBtn.textContent = 'Mark as listed';
+        markBtn.onclick = function() { markListed(recId, data, markBtn); };
+        action.appendChild(markBtn);
+    }
+
     document.getElementById('listing-modal').classList.add('active');
+}
+
+function postListing(recId, data, btn) {
+    var env = data.env || 'production';
+    if (!confirm('Create a ' + env + ' listing on ' + data.marketplace +
+                 ' at $' + parseFloat(data.price).toFixed(2) + '?\\nThis posts to the marketplace.')) {
+        return;
+    }
+    var restoreLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Posting\u2026';
+    fetch('/ecommerce/post?id=' + recId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listing: data.listing }),
+    })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.ok) {
+                showPostedBanner(res);
+                markRowResolved(recId, 'Posted');
+                showToast(res.message || 'Posted', 'success');
+            } else {
+                btn.disabled = false;
+                btn.textContent = restoreLabel;
+                showToast(res.error || 'Post failed', 'error');
+            }
+        })
+        .catch(function() {
+            btn.disabled = false;
+            btn.textContent = restoreLabel;
+            showToast('Network error', 'error');
+        });
+}
+
+function markListed(recId, data, btn) {
+    if (!confirm('Mark this recommendation as listed on ' + data.marketplace + ' (manual)?')) {
+        return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Saving\u2026';
+    fetch('/ecommerce/mark-listed?id=' + recId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+    })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.ok) {
+                markRowResolved(recId, 'Listed');
+                document.getElementById('modal-action').textContent = '';
+                showToast(res.message || 'Marked as listed', 'success');
+            } else {
+                btn.disabled = false;
+                btn.textContent = 'Mark as listed';
+                showToast(res.error || 'Failed', 'error');
+            }
+        })
+        .catch(function() {
+            btn.disabled = false;
+            btn.textContent = 'Mark as listed';
+            showToast('Network error', 'error');
+        });
+}
+
+function markRowResolved(recId, label) {
+    var row = document.getElementById('rec-' + recId);
+    if (!row) return;
+    var btns = row.querySelectorAll('button');
+    if (btns[0]) {
+        var cell = btns[0].parentNode;
+        cell.innerHTML = '';
+        var span = document.createElement('span');
+        span.className = 'decision-approved';
+        span.textContent = label;
+        cell.appendChild(span);
+    }
+}
+
+function showPostedBanner(res) {
+    var status = document.getElementById('post-status');
+    status.textContent = '';
+    status.style.display = 'block';
+    status.style.background = '#e8f5e9';
+    status.style.color = '#2e7d32';
+    status.style.border = '1px solid #a5d6a7';
+    status.appendChild(document.createTextNode('\u2705 Posted to '));
+    var mp = document.createElement('b');
+    mp.textContent = res.marketplace;
+    status.appendChild(mp);
+    status.appendChild(document.createTextNode(' ('));
+    var envEl = document.createElement('b');
+    envEl.textContent = res.env || 'production';
+    status.appendChild(envEl);
+    status.appendChild(document.createTextNode(') \u2014 listing ID: '));
+    var idEl = document.createElement('code');
+    idEl.textContent = res.public_listing_id || res.listing_id || '?';
+    status.appendChild(idEl);
+    if (res.listing_url) {
+        status.appendChild(document.createTextNode('  '));
+        var viewLink = document.createElement('a');
+        viewLink.href = res.listing_url;
+        viewLink.target = '_blank';
+        viewLink.rel = 'noopener';
+        viewLink.textContent = 'View listing \u2192';
+        viewLink.style.fontWeight = 'bold';
+        viewLink.style.color = '#1b5e20';
+        status.appendChild(viewLink);
+    }
+    // Posting is a terminal action \u2014 clear the action button.
+    document.getElementById('modal-action').textContent = '';
 }
 
 function closeModal() {
