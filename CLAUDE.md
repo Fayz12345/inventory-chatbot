@@ -56,6 +56,16 @@ The batch-list page (`/ecommerce/dashboard`) has a **Scrape scope** card that co
 
 Choices persist to a single-row **SQL Server** table `EcommerceScrapeSettings` (Id=1), read/written via `ecommerce/db.py` (`get_scrape_settings` / `save_scrape_settings`); pure defaults/validation live in `ecommerce_settings.py`. **One-time setup:** run the `CREATE TABLE` (`ecommerce/queries.py::create_scrape_settings_table_query`, also in `Queries.txt`) on the bridge SQL Server — until then reads fall back to defaults (phones+wearables+tablets, all). `run_pipeline` reads the settings right after `fetch_all_pending_products()` and logs the scope (`Scrape scope: N/M groups kept ...`). **No on-demand trigger** — settings apply on the next weekly cron; **accessories default OFF**. Routes: `POST /ecommerce/scrape-settings` (save), `GET /ecommerce/scrape-preview` (impact counts). A CLI `--limit` still overrides the saved top-N for dev.
 
+### eBay Marketplace Account Deletion (MAD) webhook
+
+eBay requires every **production** app keyset to register a public HTTPS *Marketplace Account Deletion / closure* notification endpoint. Ours is a **top-level, login-free, CSRF-exempt** route `GET|POST /ebay/account-deletion` in `app.py` (deliberately NOT under the ecommerce blueprint, which force-logins every route). Logic lives in `ecommerce/notifications/ebay_deletion.py`:
+- **GET** `?challenge_code=X` → returns `{"challengeResponse": sha256_hex(challengeCode + verificationToken + endpoint)}` (200, `application/json`) — eBay's exact concatenation order; `endpoint` must equal the registered URL char-for-char.
+- **POST** deletion notification → always acks **200**; on a well-formed payload it emails an alert (via the shared `mailer.send_email`) to **`ECOMMERCE_EMAIL_TO`** — the *same* recipients as the weekly run report — and logs it. No signature verification (v1); best-effort in-memory dedupe by `notificationId`. We store **no eBay buyer PII** (we scrape prices, not buyers), so there's nothing to purge — the notification is informational.
+
+**Config (`.env`):** `EBAY_VERIFICATION_TOKEN` (32–80 chars `[A-Za-z0-9_-]`; invent one, paste the SAME value into eBay's portal AND here) + `EBAY_DELETION_ENDPOINT` (defaults to `APP_URL` + `/ebay/account-deletion`). **Registered URL:** `https://ai.bridge-renew.net/ebay/account-deletion`. **One-time setup:** in eBay dev portal → Alerts & Notifications → Production → Marketplace Account Deletion, enter the endpoint URL + verification token → **Save** triggers eBay's challenge → validated → then create the production keyset.
+
+**Recipients are comma/semicolon-multi:** `ECOMMERCE_EMAIL_TO` already supports multiple addresses (`mailer.recipients()` splits on `,`/`;`) — used by both the run report and this alert.
+
 ### Key DB Details
 
 - Inventory location filter: `Product_Place = 'E-Commerce Store Front'` (note the exact spelling with hyphens and spaces)

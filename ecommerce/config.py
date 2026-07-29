@@ -131,6 +131,18 @@ ECOMMERCE_EMAIL_FROM = _env("ECOMMERCE_EMAIL_FROM") or M365_SENDER
 # Base URL for dashboard links in the report email.
 APP_URL = _env("APP_URL", "https://ai.bridge-renew.net")
 
+# ---------------------------------------------------------------------------
+# eBay Marketplace Account Deletion (MAD) webhook — required to enable the
+# PRODUCTION eBay keyset. `EBAY_VERIFICATION_TOKEN` (32-80 chars, [A-Za-z0-9_-])
+# is a value we invent and paste into BOTH the eBay portal and here.
+# `EBAY_DELETION_ENDPOINT` must EXACTLY equal the URL registered in eBay — it is
+# hashed into the challenge response, so any mismatch fails validation. Defaults
+# to APP_URL + the route path (defined here, after APP_URL, so it can reuse it).
+# ---------------------------------------------------------------------------
+EBAY_VERIFICATION_TOKEN = _env("EBAY_VERIFICATION_TOKEN")
+EBAY_DELETION_ENDPOINT  = _env("EBAY_DELETION_ENDPOINT",
+                               APP_URL.rstrip("/") + "/ebay/account-deletion")
+
 
 # ---------------------------------------------------------------------------
 # Marketplace condition mapping (Grade -> per-marketplace enum)

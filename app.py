@@ -74,6 +74,9 @@ chatbot_app.register_blueprint(approval_bp)
 chatbot_app.register_blueprint(analytics_bp)
 chatbot_app.register_blueprint(billing_bp)
 
+# eBay Marketplace Account Deletion (MAD) webhook helpers (public route below).
+from ecommerce.notifications import ebay_deletion
+
 
 # --- CSRF protection ---
 @chatbot_app.before_request
@@ -101,6 +104,28 @@ def _inject_perms():
     consistently — previously only home/chat/ecommerce passed it, so admin and
     other pages fell through `perms is not defined` and showed all tabs."""
     return {'perms': _perms()}
+
+
+# --- eBay Marketplace Account Deletion (MAD) webhook ---
+# PUBLIC endpoint (no login) required to enable the production eBay keyset. It is
+# CSRF-exempt because _csrf_guard only protects /admin/, /ask, /profile POSTs, and
+# it lives at the top level (NOT under the ecommerce blueprint, which force-logins
+# every route). Exact path with no trailing slash so eBay's ?challenge_code= GET
+# isn't 30x-redirected (which eBay rejects). See ecommerce/notifications/ebay_deletion.py.
+@chatbot_app.route('/ebay/account-deletion', methods=['GET', 'POST'])
+def ebay_account_deletion():
+    if request.method == 'GET':
+        code = request.args.get('challenge_code')
+        if not code:
+            return jsonify({'error': 'missing challenge_code'}), 400
+        # 200 + application/json {"challengeResponse": sha256(code+token+endpoint)}
+        return jsonify({'challengeResponse': ebay_deletion.challenge_response(code)}), 200
+    # POST: always ack 200; email + log on a valid payload; never 5xx back to eBay.
+    try:
+        ebay_deletion.handle_notification(request.get_json(silent=True) or {})
+    except Exception:
+        chatbot_app.logger.exception("eBay deletion notification handling failed")
+    return '', 200
 
 
 # --- Database connection ---
