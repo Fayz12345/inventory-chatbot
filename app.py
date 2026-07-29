@@ -128,6 +128,16 @@ def ebay_account_deletion():
     return '', 200
 
 
+# --- Public privacy policy ---
+# PUBLIC page (no login) linked from eBay's OAuth consent screen at
+# https://ai.bridge-renew.net/privacy — it must return 200 with a real policy.
+# Top-level route (NOT under the ecommerce blueprint, which force-logins every
+# route) and no login decorator; it's a standalone legal page with no app nav.
+@chatbot_app.route('/privacy', methods=['GET'])
+def privacy():
+    return render_template('privacy.html')
+
+
 # --- Database connection ---
 def get_db_connection():
     conn = pyodbc.connect(
