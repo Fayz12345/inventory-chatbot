@@ -9,17 +9,18 @@ Two Mirakl facts that shape this module (confirmed live against the account):
   - Only state_code "11" (New) is offered, so used-device grade is carried in
     the offer `description` (matching the existing seller pattern, e.g.
     "A grade - HSO").
-  - An offer must match a Best Buy catalog product, referenced here by UPC
-    (`product_references` of type UPC-A). Products without a UPC in
-    EcommerceProductCatalog can't be matched — same gap as Amazon's ASIN, so
-    the dispatcher keeps those preview-only.
+  - An offer must reference a Best Buy catalog product. We reference it by product
+    SKU (`product-id-type=SKU`), resolved on the fly from the pricing search
+    (`ecommerce/pricing/bestbuy.find_product_sku`), so no UPC seeding is needed; a
+    UPC in EcommerceProductCatalog is an optional fallback.
 
 Offer create/update is asynchronous: POST /api/offers returns an import_id; we
 poll GET /api/offers/imports/{id} to confirm it processed without errors.
 
-NOTE: the read path (auth, base URL, offer/account shape) is live-verified. The
-POST /api/offers + import-poll contract follows the Mirakl Offers API and should
-be confirmed with one real offer before it's relied on in production.
+NOTE: both the read AND write paths are LIVE-VERIFIED against the production account
+— a real offer was posted by `product-id-type=SKU` (import 39173735: 0 errors, 1
+inserted) and then deleted, confirming the POST /api/offers + import-poll contract
+and that Mirakl accepts SKU product references.
 """
 
 import hashlib
