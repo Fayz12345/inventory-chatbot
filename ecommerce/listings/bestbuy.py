@@ -107,16 +107,25 @@ def create_listing(product, price, listing_copy, catalog_info=None):
 
     Returns {'ok': True, 'listing_id': shop_sku, 'env': 'production'} on success;
     {'ok': False, 'error': str} on failure. The caller keeps products with no
-    UPC match preview-only, so this expects a UPC in catalog_info.
+    catalog match preview-only, so this expects a product SKU or UPC in catalog_info.
     """
     if not _have_creds():
         return {"ok": False, "error": "Best Buy (Mirakl) API key not configured in .env "
                                       "— set BESTBUY_API_KEY."}
 
+    # Reference the Best Buy catalog product: prefer the on-the-fly product SKU
+    # (product-id-type=SKU, resolved from the pricing search), fall back to a seeded
+    # UPC. Either resolves the same catalog product; the SKU path is what removes the
+    # UPC-seeding requirement.
+    sku = (catalog_info or {}).get("product_sku")
     upc = (catalog_info or {}).get("upc")
-    if not upc:
-        return {"ok": False, "error": "No Best Buy product match (UPC) — populate "
-                                      "EcommerceProductCatalog (1D.1) before auto-posting."}
+    if sku:
+        product_id, product_id_type = sku, "SKU"
+    elif upc:
+        product_id, product_id_type = upc, config.BESTBUY_PRODUCT_ID_TYPE
+    else:
+        return {"ok": False, "error": "No Best Buy product match (product SKU or UPC) — "
+                                      "could not resolve a bestbuy.ca product for this device."}
 
     shop_sku = _shop_sku(product)
     # BESTBUY_FORCE_QUANTITY (e.g. "0" for a demo) overrides real stock when set.
@@ -125,8 +134,8 @@ def create_listing(product, price, listing_copy, catalog_info=None):
         qty = int(config.BESTBUY_FORCE_QUANTITY)
     offer = {
         "shop_sku":         shop_sku,
-        "product_id":       upc,
-        "product_id_type":  config.BESTBUY_PRODUCT_ID_TYPE,
+        "product_id":       product_id,
+        "product_id_type":  product_id_type,
         "price":            float(price),
         "quantity":         qty,
         "state_code":       config.BESTBUY_STATE_CODE,

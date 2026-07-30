@@ -332,14 +332,60 @@ def test_availability_ebay_ready_with_all_prereqs(_hc, monkeypatch):
 
 
 @patch("ecommerce.approval.bestbuy_listings._have_creds", return_value=True)
-def test_availability_bestbuy_requires_catalog_upc(_hc):
-    assert approval.listing_availability("Best Buy CA", catalog={})["available"] is False
+def test_availability_bestbuy_creds_only_no_upc_needed(_hc):
+    # The product SKU is resolved on the fly at post time, so no catalog UPC is required.
+    assert approval.listing_availability("Best Buy CA", catalog={})["available"] is True
     assert approval.listing_availability("Best Buy CA", catalog={"upc": "1"})["available"] is True
+
+
+@patch("ecommerce.approval.bestbuy_listings._have_creds", return_value=False)
+def test_availability_bestbuy_needs_creds(_hc):
+    assert approval.listing_availability("Best Buy CA", catalog={})["available"] is False
 
 
 def test_availability_unknown_marketplace_is_false():
     r = approval.listing_availability("Craigslist")
     assert r["available"] is False and r["env"] is None
+
+
+# ---------------------------------------------------------------------------
+# Best Buy post — SKU resolved on the fly (no seeded UPC)
+# ---------------------------------------------------------------------------
+
+@patch("ecommerce.approval.db.create_listing_record", return_value=61)
+@patch("ecommerce.approval.db.save_listing_copy")
+@patch("ecommerce.approval.db.update_recommendation_decision")
+@patch("ecommerce.approval.db.claim_recommendation", return_value=True)
+@patch("ecommerce.approval.bestbuy_listings.create_listing",
+       return_value={"ok": True, "listing_id": "SAMSUNG-S25-ULTRA-A-BLACK",
+                     "env": "production", "listing_url": "u"})
+@patch("ecommerce.approval.bestbuy_pricing.find_product_sku", return_value="15997245")
+@patch("ecommerce.approval.db.lookup_product_catalog", return_value={})
+@patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
+@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Best Buy CA"))
+def test_post_bestbuy_resolves_sku_on_the_fly_and_posts(
+        _get, _copy_, _catalog, mock_find, mock_create, mock_claim, mock_decision, _save, mock_log, client):
+    resp = client.post("/ecommerce/post?id=1")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["ok"] is True and body["posted"] is True
+    mock_find.assert_called_once()                                     # SKU resolved on the fly
+    assert mock_create.call_args.kwargs["catalog_info"]["product_sku"] == "15997245"   # no UPC needed
+    mock_claim.assert_called_once_with(1, "processing")
+    mock_decision.assert_called_once_with(1, "approved")
+
+
+@patch("ecommerce.approval.db.release_recommendation")
+@patch("ecommerce.approval.db.claim_recommendation", return_value=True)
+@patch("ecommerce.approval.bestbuy_pricing.find_product_sku", return_value=None)
+@patch("ecommerce.approval.db.lookup_product_catalog", return_value={})
+@patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
+@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("Best Buy CA"))
+def test_post_bestbuy_no_sku_no_upc_is_400_and_releases(
+        _get, _copy_, _catalog, mock_find, mock_claim, mock_release, client):
+    resp = client.post("/ecommerce/post?id=1")
+    assert resp.status_code == 400                       # no product ref -> preview-only path
+    mock_release.assert_called_once_with(1)              # claim released
 
 
 # ---------------------------------------------------------------------------

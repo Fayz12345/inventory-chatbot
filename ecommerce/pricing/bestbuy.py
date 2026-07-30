@@ -127,6 +127,48 @@ def _search_one(keyword, min_price, max_results, proxies, via):
     return out
 
 
+def find_product_sku(keyword, colour=None):
+    """Resolve the Best Buy CATALOG product SKU for a device, on the fly, from the
+    same bestbuy.ca search used for pricing. Lets a Mirakl offer reference the
+    product by SKU (product-id-type=SKU) so auto-post needs no seeded UPC.
+
+    Matches the device VARIANT (model + storage tokens, via _title_matches). Does
+    NOT filter by refurb condition — the product-page SKU is the same regardless of
+    the listed offers' conditions. When `colour` is given, prefer a result whose
+    name contains it (Best Buy SKUs are per-colour); else fall back to the best
+    variant match and log that colour wasn't confirmed.
+
+    Returns the SKU string, or None if nothing matches / the search is blocked.
+    """
+    proxies, via = proxy.proxies_for(config.BESTBUY_USE_APIFY_PROXY, "bestbuy")
+    products = _search(keyword, PAGE_SIZE, proxies, via)
+    if not products:
+        log.info("Best Buy CA: no product SKU resolvable for '%s' (no results / blocked).", keyword)
+        return None
+
+    tokens = _match_tokens(keyword)
+    matches = [p for p in products
+               if p.get("sku")
+               and not is_accessory(p.get("name") or "")
+               and _title_matches(p.get("name") or "", tokens)]
+    if not matches:
+        log.info("Best Buy CA: %d results but no variant match for '%s' — no SKU.",
+                 len(products), keyword)
+        return None
+
+    if colour:
+        c = _normalize(colour)
+        for p in matches:
+            if c and c in _normalize(p.get("name") or ""):
+                log.info("Best Buy CA: product SKU %s for '%s' (%s).", p["sku"], keyword, colour)
+                return p["sku"]
+
+    chosen = matches[0]
+    log.info("Best Buy CA: product SKU %s for '%s' (variant match; colour '%s' not "
+             "confirmed in title).", chosen["sku"], keyword, colour)
+    return chosen["sku"]
+
+
 def _search(keyword, max_results, proxies, via):
     """One search request. Returns the products list (possibly empty), or None on failure.
     Retries on a block/transport error — a residential retry gets a fresh exit IP."""

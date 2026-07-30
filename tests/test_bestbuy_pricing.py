@@ -138,3 +138,48 @@ def test_price_prefers_saleprice():
     assert bestbuy._price({"salePrice": 100.0, "regularPrice": 200.0}) == 100.0
     assert bestbuy._price({"salePrice": None, "regularPrice": 200.0}) == 200.0
     assert bestbuy._price({"salePrice": 0, "regularPrice": 0}) is None
+
+
+# --- find_product_sku: on-the-fly Best Buy catalog SKU for auto-post -----------
+
+@patch("ecommerce.pricing.bestbuy.time.sleep", lambda *a: None)
+@patch("ecommerce.pricing.bestbuy.requests")
+def test_find_product_sku_variant_match_ignores_condition(mock_requests, monkeypatch):
+    _direct(monkeypatch)
+    mock_requests.get.return_value = _resp(200, _search(
+        _prod("Phone Case for Samsung Galaxy Watch5 44mm", 20.0, sku="acc1"),      # accessory -> skip
+        _prod("Samsung Galaxy Watch5 Pro 45mm - Black", 250.0, sku="wrong"),       # Pro/45mm -> skip
+        _prod("Samsung Galaxy Watch5 44mm - Blue - New", 300.0, sku="15997245"),   # NEW still gives a SKU
+    ))
+    assert bestbuy.find_product_sku("Samsung Galaxy Watch5 44mm") == "15997245"
+
+
+@patch("ecommerce.pricing.bestbuy.time.sleep", lambda *a: None)
+@patch("ecommerce.pricing.bestbuy.requests")
+def test_find_product_sku_prefers_colour(mock_requests, monkeypatch):
+    _direct(monkeypatch)
+    mock_requests.get.return_value = _resp(200, _search(
+        _prod("Samsung Galaxy Watch5 44mm - Blue", 300.0, sku="blue-sku"),
+        _prod("Samsung Galaxy Watch5 44mm - Graphite", 310.0, sku="graphite-sku"),
+    ))
+    assert bestbuy.find_product_sku("Samsung Galaxy Watch5 44mm", colour="Graphite") == "graphite-sku"
+    # colour not present in any title -> fall back to the first variant match
+    assert bestbuy.find_product_sku("Samsung Galaxy Watch5 44mm", colour="Pink") == "blue-sku"
+
+
+@patch("ecommerce.pricing.bestbuy.time.sleep", lambda *a: None)
+@patch("ecommerce.pricing.bestbuy.requests")
+def test_find_product_sku_no_variant_match_returns_none(mock_requests, monkeypatch):
+    _direct(monkeypatch)
+    mock_requests.get.return_value = _resp(200, _search(
+        _prod("Apple iPhone 15 Pro 256GB", 1200.0, sku="x"),
+    ))
+    assert bestbuy.find_product_sku("Samsung Galaxy Watch5 44mm") is None
+
+
+@patch("ecommerce.pricing.bestbuy.time.sleep", lambda *a: None)
+@patch("ecommerce.pricing.bestbuy.requests")
+def test_find_product_sku_blocked_returns_none(mock_requests, monkeypatch):
+    _direct(monkeypatch)
+    mock_requests.get.return_value = _resp(403, {"error": "blocked"})
+    assert bestbuy.find_product_sku("Samsung Galaxy Watch5 44mm") is None

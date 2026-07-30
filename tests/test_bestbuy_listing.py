@@ -44,10 +44,11 @@ def test_no_creds_returns_error(monkeypatch):
     assert out["ok"] is False and "not configured" in out["error"]
 
 
-def test_no_upc_returns_error(monkeypatch):
+def test_no_product_ref_returns_error(monkeypatch):
+    # Neither a product SKU nor a UPC -> can't reference a Best Buy catalog product.
     _creds(monkeypatch)
     out = bestbuy.create_listing(_product(), 299.99, _copy(), catalog_info={})
-    assert out["ok"] is False and "UPC" in out["error"]
+    assert out["ok"] is False and "SKU" in out["error"] and "UPC" in out["error"]
 
 
 def test_description_carries_grade_since_only_new_state(monkeypatch):
@@ -78,6 +79,33 @@ def test_create_listing_happy_path_builds_offer_and_confirms(mock_requests, monk
     # Mirakl-required additional field (live-verified rejection without it).
     assert offer["offer_additional_fields"] == [
         {"code": "manufacturer-warranty", "value": "365"}]
+
+
+@patch("ecommerce.listings.bestbuy.requests")
+def test_create_listing_with_product_sku_references_by_sku(mock_requests, monkeypatch):
+    # On-the-fly path: a resolved Best Buy product SKU -> product-id-type=SKU (no UPC).
+    _creds(monkeypatch)
+    mock_requests.post.return_value = _resp(201, {"import_id": 8888})
+    mock_requests.get.return_value = _resp(200, {"status": "COMPLETE", "lines_in_error": 0})
+
+    out = bestbuy.create_listing(_product(), 299.99, _copy(),
+                                 catalog_info={"product_sku": "15997245"})
+    assert out["ok"] is True
+    offer = mock_requests.post.call_args.kwargs["json"]["offers"][0]
+    assert offer["product_id"] == "15997245"
+    assert offer["product_id_type"] == "SKU"
+
+
+@patch("ecommerce.listings.bestbuy.requests")
+def test_product_sku_preferred_over_upc(mock_requests, monkeypatch):
+    _creds(monkeypatch)
+    mock_requests.post.return_value = _resp(201, {"import_id": 8889})
+    mock_requests.get.return_value = _resp(200, {"status": "COMPLETE", "lines_in_error": 0})
+    out = bestbuy.create_listing(_product(), 299.99, _copy(),
+                                 catalog_info={"product_sku": "SKU123", "upc": "999002534166"})
+    assert out["ok"] is True
+    offer = mock_requests.post.call_args.kwargs["json"]["offers"][0]
+    assert offer["product_id"] == "SKU123" and offer["product_id_type"] == "SKU"
 
 
 @patch("ecommerce.listings.bestbuy.requests")

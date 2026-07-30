@@ -24,6 +24,8 @@ import roles
 from ecommerce import config
 from ecommerce import db
 from ecommerce.pricing import categorize
+from ecommerce.pricing import bestbuy as bestbuy_pricing
+from ecommerce.pricing.query import clean_search_query
 from ecommerce.listings import amazon as amazon_listings
 from ecommerce.listings import bestbuy as bestbuy_listings
 from ecommerce.listings import copy_generator
@@ -200,15 +202,23 @@ def _post_to_marketplace(marketplace, product, price, listing_copy):
             catalog_info=catalog,
         )
 
-    # Best Buy (Mirakl, 1D.11): an offer must match a catalog product by UPC.
-    # Without one we can't list, so stay preview-only rather than fail approve.
+    # Best Buy (Mirakl, 1D.11): an offer must reference a Best Buy catalog product.
+    # Prefer a seeded UPC; otherwise resolve the product SKU on the fly from the same
+    # bestbuy.ca search used for pricing (Mirakl accepts product-id-type=SKU), so no
+    # UPC seeding is needed. Only stay preview-only if neither can be resolved.
+    sku = None
     if not catalog.get("upc"):
+        sku = bestbuy_pricing.find_product_sku(
+            clean_search_query(product["Manufacturer"], product["Model"]),
+            colour=product.get("Colour"),
+        )
+    if not (catalog.get("upc") or sku):
         return None
     return bestbuy_listings.create_listing(
         product=product,
         price=price,
         listing_copy=listing_copy,
-        catalog_info=catalog,
+        catalog_info={**catalog, "product_sku": sku},
     )
 
 
@@ -241,8 +251,9 @@ def listing_availability(marketplace, catalog=None):
     ``{"available": bool, "reason": str, "env": str|None}``.
 
     eBay additionally requires the publishOffer prerequisites (merchant location
-    + the 3 business policies); Best Buy additionally requires a catalog UPC match
-    (pass `catalog` to reflect it — omit it to check credentials only).
+    + the 3 business policies). Best Buy needs only credentials — its product SKU is
+    resolved on the fly at post time, so no catalog UPC is required (the `catalog`
+    param is accepted for signature compatibility but no longer gates Best Buy).
     """
     mp = (marketplace or "").lower()
 
@@ -274,10 +285,8 @@ def listing_availability(marketplace, catalog=None):
         if not bestbuy_listings._have_creds():
             return {"available": False, "reason": "Best Buy API not configured.",
                     "env": "production"}
-        if catalog is not None and not catalog.get("upc"):
-            return {"available": False,
-                    "reason": "No Best Buy catalog match (UPC) for this SKU.",
-                    "env": "production"}
+        # No catalog UPC required — the Best Buy product SKU is resolved on the fly
+        # from the pricing search at post time (a Best Buy win implies a real product).
         return {"available": True, "reason": "", "env": "production"}
 
     return {"available": False, "reason": f"No listing API for {marketplace}.", "env": None}
