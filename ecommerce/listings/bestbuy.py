@@ -22,6 +22,7 @@ POST /api/offers + import-poll contract follows the Mirakl Offers API and should
 be confirmed with one real offer before it's relied on in production.
 """
 
+import hashlib
 import logging
 import re
 import time
@@ -74,11 +75,21 @@ def _description(product, listing_copy):
     return " - ".join(parts) or "Refurbished"
 
 
+_SHOP_SKU_MAX = 40  # Mirakl offer `sku` field limit (chars)
+
+
 def _shop_sku(product):
-    return (
-        f"{product['Manufacturer']}-{product['Model']}-"
-        f"{product['Grade']}-{product['Colour']}"
-    ).replace(" ", "-").upper()
+    """Our seller SKU for the offer — unique per (device, grade, colour), <= 40 chars
+    (Mirakl's limit) and [A-Z0-9-] only ('/' is forbidden; spaces/parens/SKU-code
+    punctuation stripped). Long identities (e.g. a raw inventory Model with a code +
+    parentheses) are truncated with a deterministic hash suffix, so the SKU stays
+    unique AND stable across runs — the latter matters because delist targets it."""
+    raw = f"{product['Manufacturer']}-{product['Model']}-{product['Grade']}-{product['Colour']}"
+    sku = re.sub(r"[^A-Z0-9]+", "-", raw.upper()).strip("-")
+    if len(sku) <= _SHOP_SKU_MAX:
+        return sku
+    suffix = hashlib.sha1(sku.encode()).hexdigest()[:8].upper()
+    return sku[: _SHOP_SKU_MAX - len(suffix) - 1].strip("-") + "-" + suffix
 
 
 def _poll_import(import_id):

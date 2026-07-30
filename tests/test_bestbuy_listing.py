@@ -3,6 +3,7 @@
 The read path (auth/base URL) is verified live; these lock the create-offer
 payload + the submit/poll flow with the network mocked.
 """
+import re
 from unittest.mock import MagicMock, patch
 
 from ecommerce.listings import bestbuy
@@ -54,6 +55,25 @@ def test_no_product_ref_returns_error(monkeypatch):
 def test_description_carries_grade_since_only_new_state(monkeypatch):
     # State is always "New" on this marketplace, so grade must be in the text.
     assert bestbuy._description(_product(), _copy()).startswith("Grade A")
+
+
+def test_shop_sku_short_model_unchanged():
+    # Short identities are used as-is (no truncation), uppercase, hyphen-joined.
+    assert bestbuy._shop_sku(_product()) == "SAMSUNG-GALAXY-S21-A-BLACK"
+
+
+def test_shop_sku_long_model_fits_40_and_is_clean_and_stable():
+    # A raw inventory Model with a SKU code + parentheses blows past Mirakl's 40-char
+    # limit; it must be truncated (with a stable hash) and stripped to [A-Z0-9-].
+    p = {"Manufacturer": "Motorola", "Model": "XT2615-1 (Moto G Play (2026)-64GB)",
+         "Colour": "Pantone Tapestry", "Grade": "C", "Quantity": 1}
+    sku = bestbuy._shop_sku(p)
+    assert len(sku) <= 40
+    assert re.fullmatch(r"[A-Z0-9-]+", sku)           # no spaces / parens / slashes
+    assert bestbuy._shop_sku(p) == sku                # deterministic & stable
+    # a different colour -> a different sku (uniqueness preserved via the hash)
+    p2 = {**p, "Colour": "Sage Green"}
+    assert bestbuy._shop_sku(p2) != sku
 
 
 @patch("ecommerce.listings.bestbuy.requests")
