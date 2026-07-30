@@ -23,7 +23,7 @@ ecommerce/
 ├── approval.py            # Flask Blueprint — dashboard at /ecommerce/dashboard, approve/reject via AJAX
 ├── pricing/
 │   ├── apify_client.py    # Apify SDK wrapper — run actors, retrieve datasets
-│   ├── amazon.py          # Run Amazon actor → floor prices by ASIN
+│   ├── amazon.py          # Amazon actor (keyword search) → floor; variant-matched like eBay/BestBuy/Reebelo (title tokens + plus/pro/max parity; wrong year/storage/model dropped; no match → no price, not a wrong one)
 │   ├── ebay.py            # Run eBay actor → floor prices by keyword
 │   ├── bestbuy.py         # Best Buy CA refurb floor via bestbuy.ca search API (keyword, no Apify)
 │   ├── reebelo.py         # Reebelo CA floor prices via reebelo.ca catalog API (Apify residential proxy)
