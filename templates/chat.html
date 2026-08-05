@@ -22,7 +22,7 @@
     <div class="composer-hint" id="composer-hint">Press <kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</div>
     <div class="chat-suggestions" id="chat-suggestions">
       <button type="button" onclick="useSuggestion(this)">How many iPhone 14 Pros are in the Product Room?</button>
-      <button type="button" onclick="useSuggestion(this)">Total device cost received in February 2026</button>
+      <button type="button" onclick="useSuggestion(this)">How many devices have we listed on each marketplace?</button>
       <button type="button" onclick="useSuggestion(this)">Count of devices by manufacturer</button>
     </div>
   </div>
@@ -33,7 +33,9 @@
     const chatEl = document.getElementById('chat');
     const questionEl = document.getElementById('question');
     const CSRF = document.querySelector('meta[name=csrf-token]').content;
+    const USERNAME = {{ (username or '')|tojson }};
     let chatHistory = [];
+    let transcript = [];   // persisted per browser tab so the conversation survives navigation
 
     const STAGE_LABELS = {
         writing_query: 'Writing the query…',
@@ -140,6 +142,8 @@
             chatHistory.push({ role: 'user', content: question });
             chatHistory.push({ role: 'assistant', content: answerText });
             if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);  // 6 turns
+            transcript.push({ q: question, answer: answerText, meta: meta });
+            saveTranscript();
         } catch (e) {
             stageEl.remove();
             answerEl.innerHTML = formatAnswer('Something went wrong. Please try again.');
@@ -266,5 +270,41 @@
     function scrollToBottom() {
         window.scrollTo(0, document.documentElement.scrollHeight);
     }
+
+    // --- Persist the conversation for this browser tab (sessionStorage) so it
+    // survives navigating away and back, and is cleared when the tab closes /
+    // a different user signs in. Keyed by username to avoid cross-user leakage. ---
+    const STORE_KEY = 'chat_transcript_v1';
+    function saveTranscript() {
+        try { sessionStorage.setItem(STORE_KEY, JSON.stringify({ u: USERNAME, t: transcript.slice(-25) })); }
+        catch (e) {}
+    }
+    function renderExchange(ex) {
+        appendMessage(ex.q, 'user');
+        const msg = document.createElement('div'); msg.className = 'message bot';
+        const metaEl = document.createElement('div');
+        const answerEl = document.createElement('div'); answerEl.className = 'chat-answer';
+        const actionsEl = document.createElement('div');
+        msg.append(metaEl, answerEl, actionsEl);
+        document.getElementById('chat-window').appendChild(msg);
+        if (ex.meta) { renderMeta(metaEl, ex.meta); addActions(actionsEl, ex.meta, answerEl); }
+        answerEl.innerHTML = formatAnswer(ex.answer || '');
+    }
+    function restoreTranscript() {
+        let data;
+        try { data = JSON.parse(sessionStorage.getItem(STORE_KEY) || 'null'); } catch (e) { return; }
+        if (!data || data.u !== USERNAME || !Array.isArray(data.t) || !data.t.length) return;
+        transcript = data.t;
+        activateConversation();
+        transcript.forEach(renderExchange);
+        chatHistory = [];
+        transcript.forEach(ex => {
+            chatHistory.push({ role: 'user', content: ex.q });
+            chatHistory.push({ role: 'assistant', content: ex.answer || '' });
+        });
+        if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
+        scrollToBottom();
+    }
+    restoreTranscript();
 </script>
 {% endblock %}

@@ -57,6 +57,31 @@ def test_dbo_qualified_ref_accepted():
     assert "ReportingInventoryFlat" in out
 
 
+# --- ecommerce tables now allowed (Tier 1) ---
+
+@pytest.mark.parametrize("sql", [
+    "SELECT COUNT(*) FROM EcommerceListingsLog WHERE Manufacturer LIKE '%Samsung%'",
+    "SELECT Platform, COUNT(*) AS c FROM EcommerceListingsLog GROUP BY Platform",
+    "SELECT COUNT(*) FROM EcommercePricingRecommendation WHERE Decision IS NULL",
+    "SELECT TOP 10 Model, RecommendedPrice FROM EcommercePricingRecommendation",
+    # recommendation joined to its batch — the one allowed cross-table join
+    "SELECT r.Model, b.CreatedAt FROM EcommercePricingRecommendation r "
+    "JOIN EcommercePricingBatch b ON r.BatchID = b.ID",
+])
+def test_ecommerce_tables_allowed(sql):
+    assert validate_sql(sql)
+
+
+@pytest.mark.parametrize("bad", [
+    "SELECT * FROM OrderHeader",                     # sales/orders — not exposed (Tier 2)
+    "SELECT * FROM OrderDetail",
+    "SELECT COUNT(*) FROM EcommerceProductCatalog",  # exists but intentionally not exposed
+])
+def test_non_exposed_tables_rejected(bad):
+    with pytest.raises(SqlValidationError):
+        validate_sql(bad)
+
+
 def test_build_count_query_wraps_and_strips_order_by():
     out = build_count_query(
         "SELECT ESN FROM ReportingInventoryFlat ORDER BY ReceiveDate")

@@ -8,7 +8,12 @@ import re
 import sqlglot
 from sqlglot import exp
 
-ALLOWED_TABLES = {"reportinginventoryflat"}  # lowercase names
+ALLOWED_TABLES = {                         # lowercase names
+    "reportinginventoryflat",              # in-stock inventory
+    "ecommercelistingslog",                # marketplace listings we've posted
+    "ecommercepricingrecommendation",      # weekly pricing recommendations
+    "ecommercepricingbatch",               # pricing-run batches (BatchID -> date)
+}
 
 # Statement/expression types that must never appear. exp.Command catches
 # constructs sqlglot doesn't model as structured DML (e.g. WAITFOR, EXEC).
