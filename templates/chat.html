@@ -32,29 +32,25 @@
 <script>
     const chatEl = document.getElementById('chat');
     const questionEl = document.getElementById('question');
+    const CSRF = document.querySelector('meta[name=csrf-token]').content;
     let chatHistory = [];
 
-    // Enter sends; Shift+Enter inserts a newline (multi-line questions).
-    questionEl.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendQuestion();
-        }
+    const STAGE_LABELS = {
+        writing_query: 'Writing the query…',
+        retrying: 'Fixing the query…',
+        running: 'Running…',
+        summarizing: 'Summarizing…',
+    };
+
+    questionEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
     });
-    // Auto-grow the textarea up to a max height as the user types.
     questionEl.addEventListener('input', autogrow);
     function autogrow() {
         questionEl.style.height = 'auto';
         questionEl.style.height = Math.min(questionEl.scrollHeight, 200) + 'px';
     }
-
-    function useSuggestion(btn) {
-        questionEl.value = btn.textContent.trim();
-        autogrow();
-        sendQuestion();
-    }
-
-    // First message collapses the centered hero into the conversation view.
+    function useSuggestion(btn) { questionEl.value = btn.textContent.trim(); autogrow(); sendQuestion(); }
     function activateConversation() {
         if (chatEl.classList.contains('is-empty')) {
             chatEl.classList.remove('is-empty');
@@ -62,73 +58,206 @@
         }
     }
 
-    // Minimal, safe formatting for the assistant's text: escape HTML, then
-    // render **bold** and newlines. (The model returns light markdown.)
+    function esc(s) {
+        return String(s ?? '')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function inline(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>'); }
+    // Light markdown: escape, **bold**, "- " bullet lists, newlines.
     function formatAnswer(text) {
-        return String(text)
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\n/g, '<br>');
+        const lines = String(text || '').split('\n');
+        let html = '', inList = false;
+        for (const line of lines) {
+            const m = line.match(/^\s*[-•]\s+(.*)$/);
+            if (m) {
+                if (!inList) { html += '<ul>'; inList = true; }
+                html += '<li>' + inline(m[1]) + '</li>';
+            } else {
+                if (inList) { html += '</ul>'; inList = false; }
+                html += line.trim() === '' ? '<br>' : inline(line) + '<br>';
+            }
+        }
+        if (inList) html += '</ul>';
+        return html;
     }
 
-    function sendQuestion() {
+    async function sendQuestion() {
         const question = questionEl.value.trim();
         if (!question) return;
 
         activateConversation();
-
         appendMessage(question, 'user');
-        questionEl.value = '';
-        questionEl.style.height = 'auto';
+        questionEl.value = ''; questionEl.style.height = 'auto';
         document.getElementById('send-btn').disabled = true;
 
-        const thinking = appendMessage('Thinking…', 'bot thinking');
+        // Assistant message shell: a live stage line, a meta area (sql/table/chart/actions), and the streamed answer.
+        const msg = document.createElement('div'); msg.className = 'message bot';
+        const stageEl = document.createElement('div'); stageEl.className = 'chat-stage'; stageEl.textContent = 'Thinking…';
+        const metaEl = document.createElement('div');
+        const answerEl = document.createElement('div'); answerEl.className = 'chat-answer';
+        msg.append(stageEl, metaEl, answerEl);
+        document.getElementById('chat-window').appendChild(msg); scrollToBottom();
 
-        fetch('/ask', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name=csrf-token]').content },
-            body: JSON.stringify({ question, history: chatHistory })
-        })
-        .then(r => r.json())
-        .then(data => {
-            thinking.remove();
-            let html = `<div>${formatAnswer(data.answer)}</div>`;
-            if (data.sql) {
-                html += `<div class="sql">${data.sql}</div>`;
+        let answerText = '', meta = null;
+        try {
+            const resp = await fetch('/ask/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+                body: JSON.stringify({ question, history: chatHistory }),
+            });
+            if (!resp.ok || !resp.body) throw new Error('bad response');
+
+            const reader = resp.body.getReader(), dec = new TextDecoder();
+            let buf = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += dec.decode(value, { stream: true });
+                let nl;
+                while ((nl = buf.indexOf('\n')) >= 0) {
+                    const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+                    if (!line.trim()) continue;
+                    let evt; try { evt = JSON.parse(line); } catch { continue; }
+                    if (evt.type === 'stage') {
+                        stageEl.textContent = STAGE_LABELS[evt.stage] || 'Working…';
+                    } else if (evt.type === 'meta') {
+                        meta = evt; renderMeta(metaEl, evt); scrollToBottom();
+                    } else if (evt.type === 'delta') {
+                        answerText += evt.text; answerEl.innerHTML = formatAnswer(answerText); scrollToBottom();
+                    } else if (evt.type === 'final') {
+                        answerText = evt.answer || ''; answerEl.innerHTML = formatAnswer(answerText);
+                        if (evt.sql && !meta) metaEl.innerHTML = `<div class="sql">${esc(evt.sql)}</div>`;
+                    } else if (evt.type === 'error') {
+                        answerText = 'Something went wrong. Please try again.';
+                        answerEl.innerHTML = formatAnswer(answerText);
+                    } else if (evt.type === 'done') {
+                        stageEl.remove();
+                    }
+                }
             }
-            if (data.columns && data.rows && data.rows.length > 0 && data.rows.length > 1) {
-                html += buildTable(data.columns, data.rows);
-            }
-            if (data.truncated) {
-                const shown = data.rows.length;
-                const total = data.total_rows != null ? data.total_rows : 'many';
-                html += `<div class="truncation-note">Showing first ${shown} of ${total} rows.</div>`;
-            }
-            const msg = document.createElement('div');
-            msg.className = 'message bot';
-            msg.innerHTML = html;
-            document.getElementById('chat-window').appendChild(msg);
-            scrollToBottom();
+            stageEl.remove();
             chatHistory.push({ role: 'user', content: question });
-            chatHistory.push({ role: 'assistant', content: data.answer || '' });
+            chatHistory.push({ role: 'assistant', content: answerText });
             if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);  // 6 turns
-        })
-        .catch(() => {
-            thinking.remove();
-            appendMessage('Something went wrong. Please try again.', 'bot');
-        })
-        .finally(() => {
+        } catch (e) {
+            stageEl.remove();
+            answerEl.innerHTML = formatAnswer('Something went wrong. Please try again.');
+        } finally {
             document.getElementById('send-btn').disabled = false;
             questionEl.focus();
+        }
+    }
+
+    function renderMeta(container, meta) {
+        const cols = meta.columns || [], rows = meta.rows || [];
+        let html = '';
+        if (meta.sql) html += `<div class="sql">${esc(meta.sql)}</div>`;
+        if (rows.length === 1) html += buildKvCard(cols, rows[0]);
+        else if (rows.length > 1) html += buildTable(cols, rows);
+        if (meta.truncated) {
+            const total = meta.total_rows != null ? meta.total_rows : 'many';
+            html += `<div class="truncation-note">Showing first ${rows.length} of ${total} rows.</div>`;
+        }
+        container.innerHTML = html;
+        if (rows.length >= 2) maybeChart(container, cols, rows);
+        if (rows.length >= 1) addActions(container, meta);
+    }
+
+    function buildTable(cols, rows) {
+        let h = '<div class="table-wrap tbl"><table><tr>' + cols.map(c => `<th>${esc(c)}</th>`).join('') + '</tr>';
+        rows.forEach(r => { h += '<tr>' + r.map(c => `<td>${esc(c ?? '')}</td>`).join('') + '</tr>'; });
+        return h + '</table></div>';
+    }
+    function buildKvCard(cols, row) {
+        let h = '<div class="kv-card">';
+        cols.forEach((c, i) => {
+            h += `<div class="kv-row"><span class="kv-k">${esc(c)}</span><span class="kv-v">${esc(row[i] ?? '')}</span></div>`;
+        });
+        return h + '</div>';
+    }
+
+    // --- Chart (inline SVG bars) when one label col + one numeric col, 2..30 rows ---
+    function chartable(cols, rows) {
+        if (rows.length < 2 || rows.length > 30 || cols.length < 2) return null;
+        const isNum = i => rows.every(r => r[i] !== null && r[i] !== '' && !isNaN(Number(r[i])));
+        let valIdx = -1;
+        for (let i = cols.length - 1; i >= 0; i--) { if (isNum(i)) { valIdx = i; break; } }
+        if (valIdx < 0) return null;
+        let labIdx = -1;
+        for (let i = 0; i < cols.length; i++) { if (i !== valIdx && !isNum(i)) { labIdx = i; break; } }
+        if (labIdx < 0) labIdx = (valIdx === 0 ? 1 : 0);
+        return { labIdx, valIdx };
+    }
+    function fmtNum(n) { return (Math.round(n * 100) / 100).toLocaleString(); }
+    function maybeChart(container, cols, rows) {
+        const c = chartable(cols, rows);
+        if (!c) return;
+        const data = rows.map(r => ({ label: String(r[c.labIdx] ?? ''), value: Number(r[c.valIdx]) || 0 }));
+        const max = Math.max(...data.map(d => d.value), 0) || 1;
+        const barH = 22, gap = 8, padL = 150, padR = 54, w = 560, h = data.length * (barH + gap) + 8;
+        let bars = '';
+        data.forEach((d, i) => {
+            const y = i * (barH + gap) + 4;
+            const bw = Math.max(2, Math.round((w - padL - padR) * (d.value / max)));
+            const lbl = d.label.length > 24 ? d.label.slice(0, 23) + '…' : d.label;
+            bars += `<text x="${padL - 8}" y="${y + barH / 2 + 4}" text-anchor="end" class="c-lbl">${esc(lbl)}</text>`;
+            bars += `<rect x="${padL}" y="${y}" width="${bw}" height="${barH}" rx="3" class="c-bar"></rect>`;
+            bars += `<text x="${padL + bw + 6}" y="${y + barH / 2 + 4}" class="c-val">${esc(fmtNum(d.value))}</text>`;
+        });
+        const svg = `<svg class="chart-svg" viewBox="0 0 ${w} ${h}" width="100%" preserveAspectRatio="xMinYMin meet" role="img" aria-label="bar chart">${bars}</svg>`;
+        const wrap = document.createElement('div'); wrap.className = 'chat-chart';
+        const toggle = document.createElement('div'); toggle.className = 'chart-toggle';
+        toggle.innerHTML = '<button type="button" class="on" data-view="chart">Chart</button><button type="button" data-view="table">Table</button>';
+        const chartView = document.createElement('div'); chartView.className = 'chart-view'; chartView.innerHTML = svg;
+        const tableView = container.querySelector('.tbl');
+        wrap.append(toggle, chartView);
+        if (tableView) { container.insertBefore(wrap, tableView); tableView.style.display = 'none'; }
+        else { container.appendChild(wrap); }
+        toggle.querySelectorAll('button').forEach(b => {
+            b.onclick = () => {
+                toggle.querySelectorAll('button').forEach(x => x.classList.remove('on'));
+                b.classList.add('on');
+                const showChart = b.dataset.view === 'chart';
+                chartView.style.display = showChart ? '' : 'none';
+                if (tableView) tableView.style.display = showChart ? 'none' : '';
+            };
         });
     }
 
-    function buildTable(columns, rows) {
-        let html = '<table><tr>' + columns.map(c => `<th>${c}</th>`).join('') + '</tr>';
-        rows.forEach(row => {
-            html += '<tr>' + row.map(cell => `<td>${cell ?? ''}</td>`).join('') + '</tr>';
-        });
-        return html + '</table>';
+    // --- Export + copy ---
+    function addActions(container, meta) {
+        const rows = meta.rows || [], cols = meta.columns || [];
+        const answerEl = container.parentElement ? container.parentElement.querySelector('.chat-answer') : null;
+        const bar = document.createElement('div'); bar.className = 'chat-actions';
+        const mk = (label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.onclick = fn; return b; };
+        if (meta.sql && rows.length) {
+            bar.append(
+                mk('Excel', () => downloadExport(meta.sql, 'xlsx')),
+                mk('CSV', () => downloadExport(meta.sql, 'csv')),
+                mk('Copy table', () => copyText(toTSV(cols, rows))),
+            );
+        }
+        if (answerEl) bar.append(mk('Copy answer', () => copyText(answerEl.textContent || '')));
+        if (bar.children.length) container.appendChild(bar);
+    }
+    function toTSV(cols, rows) {
+        return [cols.join('\t')].concat(rows.map(r => r.map(c => c ?? '').join('\t'))).join('\n');
+    }
+    function copyText(t) { try { navigator.clipboard.writeText(t); } catch (e) {} }
+    async function downloadExport(sql, fmt) {
+        try {
+            const resp = await fetch('/ask/export', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+                body: JSON.stringify({ sql, format: fmt }),
+            });
+            if (!resp.ok) { alert('Export failed.'); return; }
+            const blob = await resp.blob(), url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'inventory-export.' + (fmt === 'csv' ? 'csv' : 'xlsx');
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 2000);
+        } catch (e) { alert('Export failed.'); }
     }
 
     function appendMessage(text, className) {
@@ -139,7 +268,6 @@
         scrollToBottom();
         return div;
     }
-
     function scrollToBottom() {
         const win = document.getElementById('chat-window');
         win.scrollTop = win.scrollHeight;

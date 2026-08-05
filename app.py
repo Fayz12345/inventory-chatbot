@@ -3,9 +3,11 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from flask import Flask, render_template, request, session, redirect, url_for, jsonify
+from flask import Flask, render_template, request, session, redirect, url_for, jsonify, Response
 from werkzeug.security import check_password_hash
 from functools import wraps
+import csv
+import io
 import json
 import os
 import secrets as _secrets
@@ -23,6 +25,7 @@ import roles
 CHAT_SQL_MODEL = getattr(config, "CHAT_SQL_MODEL", "claude-sonnet-4-6")
 CHAT_ANSWER_MODEL = getattr(config, "CHAT_ANSWER_MODEL", "claude-haiku-4-5-20251001")
 CHAT_ROW_CAP = 50
+EXPORT_ROW_CAP = 5000
 CHAT_HISTORY_TURNS = 6
 
 _anthropic = None
@@ -84,7 +87,7 @@ def _csrf_guard():
     if session.get('logged_in') and not session.get('csrf_token'):
         session['csrf_token'] = _secrets.token_urlsafe(32)
     protected = request.method == 'POST' and (
-        request.path.startswith('/admin/') or request.path in ('/ask',) or request.path.startswith('/profile'))
+        request.path.startswith('/admin/') or request.path.startswith('/ask') or request.path.startswith('/profile'))
     if protected:
         token = session.get('csrf_token')
         # reject when there is no session token (avoids a None==None pass for an
@@ -325,20 +328,107 @@ def generate_sql(messages):
     return message.content[0].text.strip(), message.usage
 
 # --- Format result into a readable answer ---
-def format_answer(sql, data, user_question, truncated=False, total_rows=None):
-    rows_preview = str(data['rows'])
+ANSWER_SYSTEM = ("You are a helpful inventory assistant. Given a SQL query result, answer the "
+                 "user's question in plain English. Be concise and direct. If it's a count or "
+                 "sum, state the number clearly. When listing multiple items, use short bullet "
+                 "points (lines starting with '- ').")
+
+# Shown to the user in place of a raw DB/SQL error string (which stays in the log only).
+FRIENDLY_ERROR = "I couldn't run a query for that — try rephrasing your question."
+
+
+def _answer_prompt(sql, data, user_question, truncated, total_rows):
     note = ""
     if truncated:
         note = (f"\nNOTE: results were truncated to the first {CHAT_ROW_CAP} of "
                 f"{total_rows if total_rows is not None else 'many'} rows. Do NOT "
                 f"claim this is the complete set; say it's a sample.")
+    return (f"Question: {user_question}\nSQL used: {sql}\nColumns: {data['columns']}\n"
+            f"Data: {str(data['rows'])}{note}\n\nAnswer the question in plain English.")
+
+
+def format_answer(sql, data, user_question, truncated=False, total_rows=None):
     message = _anthropic_client().messages.create(
-        model=CHAT_ANSWER_MODEL, max_tokens=500,
-        system="You are a helpful inventory assistant. Given a SQL query result, answer the user's question in plain English. Be concise and direct. If it's a count or sum, state the number clearly.",
-        messages=[{"role": "user",
-                   "content": f"Question: {user_question}\nSQL used: {sql}\nColumns: {data['columns']}\nData: {rows_preview}{note}\n\nAnswer the question in plain English."}],
+        model=CHAT_ANSWER_MODEL, max_tokens=500, system=ANSWER_SYSTEM,
+        messages=[{"role": "user", "content": _answer_prompt(sql, data, user_question, truncated, total_rows)}],
     )
     return message.content[0].text.strip()
+
+
+def format_answer_stream(sql, data, user_question, truncated, total_rows, usage_out):
+    """Yield the answer text chunk-by-chunk (streaming). Populates usage_out with
+    the final token counts once the stream completes."""
+    with _anthropic_client().messages.stream(
+        model=CHAT_ANSWER_MODEL, max_tokens=500, system=ANSWER_SYSTEM,
+        messages=[{"role": "user", "content": _answer_prompt(sql, data, user_question, truncated, total_rows)}],
+    ) as stream:
+        for text in stream.text_stream:
+            yield text
+        final = stream.get_final_message()
+        usage_out['input_tokens'] = getattr(final.usage, 'input_tokens', 0)
+        usage_out['output_tokens'] = getattr(final.usage, 'output_tokens', 0)
+
+
+def _resolve_stream(user_question, history):
+    """Generator over the SQL gen + self-correcting retry + run pipeline. Yields
+    ``{"stage": name}`` progress events, then a final ``{"result": {...}, "in_tok",
+    "out_tok", "retries"}``. `result["kind"]` is one of unable / error / empty / ok.
+    Reused by both /ask (drain for the result) and /ask/stream (relay the stages)."""
+    in_tok = out_tok = retries = 0
+    messages = history + [{"role": "user", "content": user_question}]
+    sql = data = error = None
+    for attempt in range(CHAT_MAX_RETRIES + 1):
+        yield {"stage": "writing_query" if attempt == 0 else "retrying"}
+        sql, _usage = generate_sql(messages)
+        in_tok += getattr(_usage, 'input_tokens', 0)
+        out_tok += getattr(_usage, 'output_tokens', 0)
+        if sql == 'UNABLE_TO_ANSWER':
+            yield {"result": {"kind": "unable"}, "in_tok": in_tok, "out_tok": out_tok, "retries": retries}
+            return
+        yield {"stage": "running"}
+        data, error = run_query(sql)
+        if not error:
+            break
+        if attempt < CHAT_MAX_RETRIES:
+            retries += 1
+        messages.append({"role": "assistant", "content": sql})
+        messages.append({"role": "user",
+                         "content": f"That query failed with error: {error}. Return a corrected single T-SQL SELECT only."})
+    if error:
+        yield {"result": {"kind": "error", "sql": sql, "error": error},
+               "in_tok": in_tok, "out_tok": out_tok, "retries": retries}
+        return
+    if not data['rows']:
+        yield {"result": {"kind": "empty", "sql": sql, "columns": data['columns']},
+               "in_tok": in_tok, "out_tok": out_tok, "retries": retries}
+        return
+    total_rows = len(data['rows'])
+    if data.get('truncated'):
+        count_data, _ = run_query_raw(chat_sql.build_count_query(sql))
+        total_rows = count_data['rows'][0][0] if count_data else None
+    yield {"result": {"kind": "ok", "sql": sql, "data": data,
+                      "truncated": bool(data.get('truncated')), "total_rows": total_rows},
+           "in_tok": in_tok, "out_tok": out_tok, "retries": retries}
+
+
+def _resolve_and_run(user_question, history):
+    """Non-streaming wrapper: drain _resolve_stream and return the final tuple."""
+    final = None
+    for item in _resolve_stream(user_question, history):
+        if "result" in item:
+            final = item
+    return final["result"], final["in_tok"], final["out_tok"], final["retries"]
+
+
+def _log_ask(username, question, t0, *, ok, sql=None, error=None, row_count=None,
+             retries=0, in_tok=0, out_tok=0):
+    try:
+        chat_log.log_query(username=username, question=question, sql=sql, ok=ok, error=error,
+                           row_count=row_count, retries=retries,
+                           latency_ms=int((time.time() - t0) * 1000),
+                           input_tokens=in_tok, output_tokens=out_tok)
+    except Exception:
+        pass
 
 # --- Routes ---
 @chatbot_app.route('/', methods=['GET', 'POST'])
@@ -382,62 +472,172 @@ def chat():
 
 @chatbot_app.route('/ask', methods=['POST'])
 def ask():
+    """Non-streaming fallback — full JSON answer in one response."""
     if not session.get('logged_in'):
         return jsonify({'error': 'Not logged in'}), 401
-
-    user_question = request.json.get('question', '').strip()
+    user_question = (request.json or {}).get('question', '').strip()
     if not user_question:
         return jsonify({'error': 'No question provided'}), 400
 
-    _t0 = time.time()
-    retries = 0
-    in_tok = out_tok = 0
-
-    def _finish(payload, *, ok, sql=None, error=None, row_count=None):
-        try:
-            chat_log.log_query(username=session.get('username'), question=user_question,
-                               sql=sql, ok=ok, error=error, row_count=row_count,
-                               retries=retries, latency_ms=int((time.time() - _t0) * 1000),
-                               input_tokens=in_tok, output_tokens=out_tok)
-        except Exception:
-            pass
-        return jsonify(payload)
-
+    t0 = time.time()
+    username = session.get('username')
     history = _sanitize_history((request.json or {}).get('history'))
-    messages = history + [{"role": "user", "content": user_question}]
-    sql, data, error = None, None, None
-    for attempt in range(CHAT_MAX_RETRIES + 1):
-        sql, _usage = generate_sql(messages)
-        in_tok += getattr(_usage, 'input_tokens', 0)
-        out_tok += getattr(_usage, 'output_tokens', 0)
-        if sql == 'UNABLE_TO_ANSWER':
-            return _finish({'answer': "I'm unable to answer that from the inventory data I have access to.", 'sql': ''},
-                           ok=False, sql='')
-        data, error = run_query(sql)
-        if not error:
-            break
-        if attempt < CHAT_MAX_RETRIES:
-            retries += 1
-        # feed the failure back so the model can self-correct
-        messages.append({"role": "assistant", "content": sql})
-        messages.append({"role": "user",
-                         "content": f"That query failed with error: {error}. Return a corrected single T-SQL SELECT only."})
-    if error:
-        return _finish({'answer': f'There was an error running the query: {error}', 'sql': sql},
-                       ok=False, sql=sql, error=error)
-    if not data['rows']:
-        return _finish({'answer': 'No results found for your question.', 'sql': sql},
-                       ok=True, sql=sql, row_count=0)
+    result, in_tok, out_tok, retries = _resolve_and_run(user_question, history)
+    kind = result["kind"]
 
-    total_rows = len(data['rows'])
-    if data.get('truncated'):
-        count_data, _ = run_query_raw(chat_sql.build_count_query(sql))
-        total_rows = count_data['rows'][0][0] if count_data else None
-    answer = format_answer(sql, data, user_question, truncated=data.get('truncated'), total_rows=total_rows)
-    return _finish({'answer': answer, 'sql': sql, 'rows': data['rows'][:CHAT_ROW_CAP],
-                    'columns': data['columns'], 'truncated': bool(data.get('truncated')),
-                    'total_rows': total_rows},
-                   ok=True, sql=sql, row_count=total_rows)
+    if kind == "unable":
+        _log_ask(username, user_question, t0, ok=False, sql='', retries=retries, in_tok=in_tok, out_tok=out_tok)
+        return jsonify({'answer': "I'm unable to answer that from the inventory data I have access to.", 'sql': ''})
+    if kind == "error":
+        _log_ask(username, user_question, t0, ok=False, sql=result["sql"], error=result["error"],
+                 retries=retries, in_tok=in_tok, out_tok=out_tok)
+        return jsonify({'answer': FRIENDLY_ERROR, 'sql': result["sql"]})
+    if kind == "empty":
+        _log_ask(username, user_question, t0, ok=True, sql=result["sql"], row_count=0,
+                 retries=retries, in_tok=in_tok, out_tok=out_tok)
+        return jsonify({'answer': 'No results found for your question.', 'sql': result["sql"],
+                        'columns': result["columns"], 'rows': []})
+
+    sql, data = result["sql"], result["data"]
+    answer = format_answer(sql, data, user_question, truncated=result["truncated"], total_rows=result["total_rows"])
+    _log_ask(username, user_question, t0, ok=True, sql=sql, row_count=result["total_rows"],
+             retries=retries, in_tok=in_tok, out_tok=out_tok)
+    return jsonify({'answer': answer, 'sql': sql, 'rows': data['rows'][:CHAT_ROW_CAP],
+                    'columns': data['columns'], 'truncated': result["truncated"], 'total_rows': result["total_rows"]})
+
+
+@chatbot_app.route('/ask/stream', methods=['POST'])
+def ask_stream():
+    """Streaming answer over newline-delimited JSON events: stage → meta → delta → done."""
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Not logged in'}), 401
+    user_question = (request.json or {}).get('question', '').strip()
+    if not user_question:
+        return jsonify({'error': 'No question provided'}), 400
+    history = _sanitize_history((request.json or {}).get('history'))
+    username = session.get('username')
+
+    def ev(**kw):
+        return json.dumps(kw) + "\n"
+
+    def gen():
+        t0 = time.time()
+        in_tok = out_tok = retries = 0
+        result = None
+        sql = None
+        try:
+            for item in _resolve_stream(user_question, history):
+                if "stage" in item:
+                    yield ev(type="stage", stage=item["stage"])
+                else:
+                    result = item["result"]
+                    in_tok, out_tok, retries = item["in_tok"], item["out_tok"], item["retries"]
+            kind = result["kind"]
+            if kind == "unable":
+                yield ev(type="final", answer="I'm unable to answer that from the inventory data I have access to.", sql="")
+                yield ev(type="done")
+                _log_ask(username, user_question, t0, ok=False, sql='', retries=retries, in_tok=in_tok, out_tok=out_tok)
+                return
+            if kind == "error":
+                sql = result["sql"]
+                yield ev(type="final", answer=FRIENDLY_ERROR, sql=sql, error=True)
+                yield ev(type="done")
+                _log_ask(username, user_question, t0, ok=False, sql=sql, error=result["error"],
+                         retries=retries, in_tok=in_tok, out_tok=out_tok)
+                return
+            if kind == "empty":
+                sql = result["sql"]
+                yield ev(type="meta", sql=sql, columns=result["columns"], rows=[], truncated=False, total_rows=0)
+                yield ev(type="final", answer="No results found for your question.", sql=sql)
+                yield ev(type="done")
+                _log_ask(username, user_question, t0, ok=True, sql=sql, row_count=0,
+                         retries=retries, in_tok=in_tok, out_tok=out_tok)
+                return
+
+            sql, data = result["sql"], result["data"]
+            yield ev(type="meta", sql=sql, columns=data['columns'], rows=data['rows'][:CHAT_ROW_CAP],
+                     truncated=result["truncated"], total_rows=result["total_rows"])
+            yield ev(type="stage", stage="summarizing")
+            usage_out = {}
+            for chunk in format_answer_stream(sql, data, user_question, result["truncated"],
+                                              result["total_rows"], usage_out):
+                yield ev(type="delta", text=chunk)
+            in_tok += usage_out.get('input_tokens', 0)
+            out_tok += usage_out.get('output_tokens', 0)
+            yield ev(type="done")
+            _log_ask(username, user_question, t0, ok=True, sql=sql, row_count=result["total_rows"],
+                     retries=retries, in_tok=in_tok, out_tok=out_tok)
+        except Exception as e:
+            try:
+                yield ev(type="error", message="Something went wrong. Please try again.")
+            except Exception:
+                pass
+            _log_ask(username, user_question, t0, ok=False, sql=sql, error=str(e),
+                     retries=retries, in_tok=in_tok, out_tok=out_tok)
+
+    return Response(gen(), mimetype="application/x-ndjson",
+                    headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
+
+
+def _xl(v):
+    """Coerce a DB value to something openpyxl can write."""
+    import datetime as _dt
+    from decimal import Decimal
+    if v is None or isinstance(v, (str, int, float, bool, Decimal, _dt.datetime, _dt.date, _dt.time)):
+        return v
+    return str(v)
+
+
+@chatbot_app.route('/ask/export', methods=['POST'])
+def ask_export():
+    """Download the current query's full results as Excel or CSV (SQL re-validated,
+    SELECT-only over the single allowed table)."""
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Not logged in'}), 401
+    body = request.json or {}
+    sql = (body.get('sql') or '').strip()
+    fmt = (body.get('format') or 'xlsx').lower()
+    if not sql:
+        return jsonify({'error': 'No query to export'}), 400
+    try:
+        safe_sql = chat_sql.validate_sql(sql)
+    except chat_sql.SqlValidationError as e:
+        return jsonify({'error': f'Query not allowed: {e}'}), 400
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(safe_sql)
+        cols = [c[0] for c in cur.description]
+        rows = [list(r) for r in cur.fetchmany(EXPORT_ROW_CAP)]
+        conn.close()
+    except Exception:
+        return jsonify({'error': 'Could not run the query.'}), 500
+
+    if fmt == 'csv':
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(cols)
+        w.writerows(rows)
+        return Response(buf.getvalue().encode('utf-8-sig'), mimetype='text/csv',
+                        headers={'Content-Disposition': 'attachment; filename="inventory-export.csv"'})
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Results"
+    ws.append(cols)
+    for c in range(1, len(cols) + 1):
+        cell = ws.cell(row=1, column=c)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="2563EB")
+    for r in rows:
+        ws.append([_xl(v) for v in r])
+    out = io.BytesIO()
+    wb.save(out)
+    return Response(out.getvalue(),
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': 'attachment; filename="inventory-export.xlsx"'})
 
 @chatbot_app.route('/logout')
 def logout():

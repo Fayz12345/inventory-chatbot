@@ -292,6 +292,43 @@ input.changed, input[type=number].changed, input[type=text].changed { border-col
 .chat-suggestions button { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 9px 15px; font-size: 13px; color: var(--ink-2); cursor: pointer; transition: color .15s, background .15s, border-color .15s; font-family: inherit; }
 .chat-suggestions button:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-50); }
 
+/* ---- Chat: streaming stage, answer, results ---- */
+.chat-stage { color: var(--muted); font-style: italic; font-size: 13px; margin-bottom: 2px; }
+.chat-answer ul { margin: 6px 0 2px; padding-left: 20px; }
+.chat-answer li { margin: 2px 0; }
+.message.bot .kv-card { margin-top: 8px; border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
+.kv-row { display: flex; justify-content: space-between; gap: 16px; padding: 6px 10px; font-size: 12.5px; }
+.kv-row:nth-child(even) { background: var(--surface-2); }
+.kv-k { color: var(--ink-2); }
+.kv-v { font-weight: 600; text-align: right; }
+.truncation-note { color: var(--faint); font-size: 11.5px; margin-top: 6px; }
+
+/* results action bar (export / copy) */
+.chat-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chat-actions button { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 4px 11px; font-size: 11.5px; color: var(--ink-2); cursor: pointer; font-family: inherit; transition: color .15s, border-color .15s, background .15s; }
+.chat-actions button:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-50); }
+
+/* inline SVG bar chart */
+.chat-chart { margin-top: 10px; }
+.chart-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r-pill); overflow: hidden; margin-bottom: 8px; }
+.chart-toggle button { background: var(--surface); border: none; padding: 4px 12px; font-size: 11.5px; color: var(--muted); cursor: pointer; font-family: inherit; }
+.chart-toggle button.on { background: var(--brand); color: #fff; }
+.chart-view { overflow-x: auto; }
+.chart-svg { max-width: 100%; display: block; }
+.chart-svg .c-bar { fill: var(--brand); }
+.chart-svg .c-lbl { fill: var(--ink-2); font-size: 11px; }
+.chart-svg .c-val { fill: var(--muted); font-size: 11px; font-weight: 600; }
+
+/* ---- Chat: mobile ---- */
+@media (max-width: 640px) {
+    .chat-shell { padding: 0 12px; }
+    .message { max-width: 92%; }
+    .chat-shell.is-active { padding-bottom: 0; }
+    .chat-shell.is-active .composer-wrap { position: sticky; bottom: 0; padding: 8px 0 10px; background: var(--bg); border-top: 1px solid var(--border); }
+    .message.bot .table-wrap, .chart-view { overflow-x: auto; }
+    .chart-svg { min-width: 420px; }
+}
+
 /* ---- Auth (login / set password) ---- */
 .auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: radial-gradient(1200px 600px at 50% -10%, #eef2ff 0%, var(--bg) 55%); }
 .auth-card { width: 360px; max-width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 34px 30px; box-shadow: var(--sh-2); }
