@@ -21,3 +21,10 @@
   </div>
 </div>
 {% endblock %}
+{% block scripts %}
+<script>
+  // Logged-out state: clear any persisted chat conversation so it doesn't linger in
+  // this browser tab for whoever signs in next (privacy on shared machines).
+  try { sessionStorage.removeItem('chat_transcript_v1'); } catch (e) {}
+</script>
+{% endblock %}

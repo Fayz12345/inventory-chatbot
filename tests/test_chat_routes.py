@@ -147,6 +147,14 @@ def test_sanitize_history():
     assert len(result[0]["content"]) == 4000
 
 
+def test_login_page_clears_persisted_chat():
+    # The logged-out (login) page must wipe the sessionStorage chat transcript so a
+    # prior user's conversation can't linger in the tab for the next person.
+    client = app.chatbot_app.test_client()
+    html = client.get("/").data.decode()
+    assert "sessionStorage.removeItem('chat_transcript_v1')" in html
+
+
 def test_ask_writes_a_log_row(monkeypatch):
     written = {}
     monkeypatch.setattr(app.chat_log, "log_query", lambda **k: written.update(k))
