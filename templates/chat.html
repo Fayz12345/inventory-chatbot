@@ -95,7 +95,8 @@
         const stageEl = document.createElement('div'); stageEl.className = 'chat-stage'; stageEl.textContent = 'Thinking…';
         const metaEl = document.createElement('div');
         const answerEl = document.createElement('div'); answerEl.className = 'chat-answer';
-        msg.append(stageEl, metaEl, answerEl);
+        const actionsEl = document.createElement('div');   // export/copy — sits at the bottom
+        msg.append(stageEl, metaEl, answerEl, actionsEl);
         document.getElementById('chat-window').appendChild(msg); scrollToBottom();
 
         let answerText = '', meta = null;
@@ -121,7 +122,7 @@
                     if (evt.type === 'stage') {
                         stageEl.textContent = STAGE_LABELS[evt.stage] || 'Working…';
                     } else if (evt.type === 'meta') {
-                        meta = evt; renderMeta(metaEl, evt); scrollToBottom();
+                        meta = evt; renderMeta(metaEl, evt); addActions(actionsEl, evt, answerEl); scrollToBottom();
                     } else if (evt.type === 'delta') {
                         answerText += evt.text; answerEl.innerHTML = formatAnswer(answerText); scrollToBottom();
                     } else if (evt.type === 'final') {
@@ -160,7 +161,6 @@
         }
         container.innerHTML = html;
         if (rows.length >= 2) maybeChart(container, cols, rows);
-        if (rows.length >= 1) addActions(container, meta);
     }
 
     function buildTable(cols, rows) {
@@ -224,24 +224,19 @@
         });
     }
 
-    // --- Export + copy ---
-    function addActions(container, meta) {
-        const rows = meta.rows || [], cols = meta.columns || [];
-        const answerEl = container.parentElement ? container.parentElement.querySelector('.chat-answer') : null;
+    // --- Export + copy (shown at the bottom of the message) ---
+    function addActions(container, meta, answerEl) {
+        const rows = meta.rows || [];
         const bar = document.createElement('div'); bar.className = 'chat-actions';
         const mk = (label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.onclick = fn; return b; };
         if (meta.sql && rows.length) {
             bar.append(
                 mk('Excel', () => downloadExport(meta.sql, 'xlsx')),
                 mk('CSV', () => downloadExport(meta.sql, 'csv')),
-                mk('Copy table', () => copyText(toTSV(cols, rows))),
             );
         }
         if (answerEl) bar.append(mk('Copy answer', () => copyText(answerEl.textContent || '')));
         if (bar.children.length) container.appendChild(bar);
-    }
-    function toTSV(cols, rows) {
-        return [cols.join('\t')].concat(rows.map(r => r.map(c => c ?? '').join('\t'))).join('\n');
     }
     function copyText(t) { try { navigator.clipboard.writeText(t); } catch (e) {} }
     async function downloadExport(sql, fmt) {
@@ -269,8 +264,7 @@
         return div;
     }
     function scrollToBottom() {
-        const win = document.getElementById('chat-window');
-        win.scrollTop = win.scrollHeight;
+        window.scrollTo(0, document.documentElement.scrollHeight);
     }
 </script>
 {% endblock %}
