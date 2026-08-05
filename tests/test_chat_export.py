@@ -61,6 +61,19 @@ def test_export_xlsx(monkeypatch):
     assert r.data[:2] == b'PK' and len(r.data) > 100     # .xlsx is a zip archive
 
 
+def test_export_neutralizes_formula_injection(monkeypatch):
+    # A cell starting with a formula trigger must be prefixed with an apostrophe
+    # so Excel/Sheets treat it as text, not a formula.
+    _patch_db(monkeypatch, ['Model', 'Note'], [['=CMD()', '-2+3'], ['Normal', '@evil']])
+    client = app.chatbot_app.test_client(); _login(client)
+    r = client.post("/ask/export", json={"sql": SEL, "format": "csv"}, headers=_CH)
+    body = r.data.decode('utf-8-sig')
+    assert "'=CMD()" in body and "'-2+3" in body and "'@evil" in body
+    # helper: strings with a trigger are prefixed; safe strings and numbers untouched
+    assert app._safe_cell('=x') == "'=x"
+    assert app._safe_cell('Apple') == 'Apple' and app._safe_cell(-5) == -5
+
+
 def test_export_requires_auth():
     client = app.chatbot_app.test_client()
     r = client.post("/ask/export", json={"sql": SEL, "format": "csv"})

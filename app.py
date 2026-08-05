@@ -588,6 +588,17 @@ def _xl(v):
     return str(v)
 
 
+# Neutralize spreadsheet formula injection: a *string* cell that begins with a
+# formula trigger gets a leading apostrophe so Excel/Sheets treat it as text.
+_FORMULA_TRIGGERS = ('=', '+', '-', '@', '\t', '\r')
+
+
+def _safe_cell(v):
+    if isinstance(v, str) and v.startswith(_FORMULA_TRIGGERS):
+        return "'" + v
+    return v
+
+
 @chatbot_app.route('/ask/export', methods=['POST'])
 def ask_export():
     """Download the current query's full results as Excel or CSV (SQL re-validated,
@@ -616,8 +627,8 @@ def ask_export():
     if fmt == 'csv':
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow(cols)
-        w.writerows(rows)
+        w.writerow([_safe_cell(c) for c in cols])
+        w.writerows([[_safe_cell(v) for v in r] for r in rows])
         return Response(buf.getvalue().encode('utf-8-sig'), mimetype='text/csv',
                         headers={'Content-Disposition': 'attachment; filename="inventory-export.csv"'})
 
@@ -626,13 +637,13 @@ def ask_export():
     wb = Workbook()
     ws = wb.active
     ws.title = "Results"
-    ws.append(cols)
+    ws.append([_safe_cell(c) for c in cols])
     for c in range(1, len(cols) + 1):
         cell = ws.cell(row=1, column=c)
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="2563EB")
     for r in rows:
-        ws.append([_xl(v) for v in r])
+        ws.append([_safe_cell(_xl(v)) for v in r])
     out = io.BytesIO()
     wb.save(out)
     return Response(out.getvalue(),
