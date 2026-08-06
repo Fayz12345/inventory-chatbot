@@ -43,7 +43,9 @@ def _topnav(active=None):
     if is_admin:
         links.append(_nav_link("/admin/users", "Users", active, "admin"))
         links.append(_nav_link("/admin/audit", "Audit", active, "audit"))
-    who = ('<span class="who">%s</span>' % escape(username)) if username else ""
+    # Show a "Profile" link (was the bare username) — mirrors templates/_topnav.html.
+    who = ('<a href="/profile" class="%s" style="font-weight:500">Profile</a>'
+           % ('active' if active == 'profile' else '')) if username else ""
     return (
         '<header class="app-header">'
         '<a class="app-header__brand" href="/chat"><span class="dot"></span> Bridge Platform</a>'
