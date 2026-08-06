@@ -180,6 +180,12 @@ def create_listing(product, price, listing_copy, catalog_info=None):
             return {"ok": False, "error": f"Best Buy offer not accepted: {detail}"}
 
         listing_url = _offer_product_url(shop_sku)
+        if not listing_url and product_id_type == "SKU":
+            # The immediate Mirakl re-query (_offer_product_url) can come back empty
+            # right after an async import. product_id IS the Best Buy catalog
+            # product_sku here, so build the product-page URL directly — bestbuy.ca
+            # resolves by SKU, the slug segment is cosmetic. Guarantees a live link.
+            listing_url = "https://www.bestbuy.ca/en-ca/product/%s" % product_id
         log.info("Best Buy offer posted (production): shop_sku=%s import=%s url=%s",
                  shop_sku, import_id, listing_url)
         return {"ok": True, "listing_id": shop_sku, "env": "production",

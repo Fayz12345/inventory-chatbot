@@ -465,6 +465,14 @@ def post_listing():
             f"and rollback failed — needs manual reconciliation."
         )}), 500
     db.update_recommendation_decision(rec["ID"], "approved")
+    # Persist the live-listing link (and ids) inside the saved copy so the "View"
+    # modal can re-show a clickable link anytime later — no schema change needed.
+    listing_copy["_meta"] = {
+        "listing_url":         listing_url,
+        "public_listing_id":   public_listing_id,
+        "platform_listing_id": listing_id,
+        "env":                 env,
+    }
     db.save_listing_copy(rec["ID"], listing_copy)  # so it can be re-viewed later
 
     product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
@@ -556,14 +564,19 @@ def view_listing(rec_id):
         return jsonify({"ok": False,
                         "error": "No saved listing content for this recommendation."}), 404
     product = _product_from_rec(rec)
+    meta = (copy or {}).get("_meta") or {}
     return jsonify({
-        "ok":          True,
-        "readonly":    True,
-        "listing":     copy,
-        "marketplace": rec["RecommendedMarketplace"],
-        "price":       float(rec["RecommendedPrice"]),
-        "product":     f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}",
-        "decision":    rec.get("Decision"),
+        "ok":                True,
+        "readonly":          True,
+        "listing":           copy,
+        "marketplace":       rec["RecommendedMarketplace"],
+        "price":             float(rec["RecommendedPrice"]),
+        "product":           f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}",
+        "decision":          rec.get("Decision"),
+        "listing_url":       meta.get("listing_url"),
+        "public_listing_id": meta.get("public_listing_id"),
+        "listing_id":        meta.get("platform_listing_id"),
+        "env":               meta.get("env"),
     })
 
 

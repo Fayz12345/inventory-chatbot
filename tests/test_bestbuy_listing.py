@@ -129,6 +129,38 @@ def test_product_sku_preferred_over_upc(mock_requests, monkeypatch):
 
 
 @patch("ecommerce.listings.bestbuy.requests")
+def test_listing_url_falls_back_to_catalog_sku(mock_requests, monkeypatch):
+    # After the async import, the same mocked GET makes _offer_product_url find no
+    # offers (returns None) -> the URL is built directly from the catalog product_sku
+    # so a live link is always available for the "View listing" feature.
+    _creds(monkeypatch)
+    mock_requests.post.return_value = _resp(201, {"import_id": 8888})
+    mock_requests.get.return_value = _resp(200, {"status": "COMPLETE", "lines_in_error": 0})
+    out = bestbuy.create_listing(_product(), 299.99, _copy(),
+                                 catalog_info={"product_sku": "15997245"})
+    assert out["ok"] is True
+    assert out["listing_url"] == "https://www.bestbuy.ca/en-ca/product/15997245"
+
+
+@patch("ecommerce.listings.bestbuy.requests")
+def test_listing_url_prefers_offer_slug_url_when_mirakl_returns_offer(mock_requests, monkeypatch):
+    # When Mirakl DOES return the offer, the nicer slug URL wins over the fallback.
+    _creds(monkeypatch)
+    mock_requests.post.return_value = _resp(201, {"import_id": 8888})
+
+    def _get(url, **kw):
+        if "/offers/imports/" in url:            # the import poll
+            return _resp(200, {"status": "COMPLETE", "lines_in_error": 0})
+        return _resp(200, {"offers": [           # _offer_product_url re-query
+            {"product_sku": "77777", "product_title": "Moto G Play (2026)"}]})
+    mock_requests.get.side_effect = _get
+
+    out = bestbuy.create_listing(_product(), 299.99, _copy(),
+                                 catalog_info={"product_sku": "15997245"})
+    assert out["listing_url"] == "https://www.bestbuy.ca/en-ca/product/moto-g-play-2026/77777"
+
+
+@patch("ecommerce.listings.bestbuy.requests")
 def test_create_listing_rejected_offer_returns_error(mock_requests, monkeypatch):
     _creds(monkeypatch)
     mock_requests.post.return_value = _resp(201, {"import_id": 8888})

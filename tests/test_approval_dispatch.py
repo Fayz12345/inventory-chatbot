@@ -281,6 +281,28 @@ def test_mark_listed_persists_client_copy(_get, _claim, _dec, _log, mock_save, c
     assert mock_save.call_args.args[1]["title"] == "T"
 
 
+@patch("ecommerce.approval.db.save_listing_copy")
+@patch("ecommerce.approval.db.create_listing_record", return_value=43)
+@patch("ecommerce.approval.db.update_recommendation_decision")
+@patch("ecommerce.approval.db.claim_recommendation", return_value=True)
+@patch("ecommerce.approval.db.lookup_product_catalog", return_value={"asin": None, "upc": "0123"})
+@patch("ecommerce.approval.ebay_listings.create_listing",
+       return_value={"ok": True, "listing_id": "12345", "env": "sandbox",
+                     "public_listing_id": "PUB9", "listing_url": "https://x/9"})
+@patch("ecommerce.approval.copy_generator.generate_listing_copy", return_value=_copy())
+@patch("ecommerce.approval.db.get_recommendation_by_id", return_value=_rec("eBay CA"))
+def test_post_persists_live_listing_link_in_meta(
+        _get, _cp, _ebay, _cat, _claim, _dec, _log, mock_save, client):
+    # The live URL + ids are tucked into the saved copy's _meta so the View modal
+    # can re-show a clickable link later (no DB schema change).
+    assert client.post("/ecommerce/post?id=1").status_code == 200
+    saved = mock_save.call_args.args[1]
+    assert saved["_meta"]["listing_url"] == "https://x/9"
+    assert saved["_meta"]["public_listing_id"] == "PUB9"
+    assert saved["_meta"]["platform_listing_id"] == "12345"
+    assert saved["_meta"]["env"] == "sandbox"
+
+
 @patch("ecommerce.approval.db.get_listing_copy", return_value=_copy())
 @patch("ecommerce.approval.db.get_recommendation_by_id",
        return_value=_rec("eBay CA", decision="approved"))
@@ -288,6 +310,21 @@ def test_view_listing_returns_saved_copy_readonly(_get, _copy_, client):
     body = client.get("/ecommerce/listing/1").get_json()
     assert body["ok"] is True and body["readonly"] is True
     assert body["listing"]["title"] == "T" and body["marketplace"] == "eBay CA"
+    assert body["listing_url"] is None          # no _meta saved -> no link (older rows)
+
+
+@patch("ecommerce.approval.db.get_listing_copy",
+       return_value={**_copy(), "_meta": {"listing_url": "https://x/9",
+                                          "public_listing_id": "PUB9",
+                                          "platform_listing_id": "12345", "env": "sandbox"}})
+@patch("ecommerce.approval.db.get_recommendation_by_id",
+       return_value=_rec("eBay CA", decision="approved"))
+def test_view_listing_surfaces_saved_live_link(_get, _copy_, client):
+    body = client.get("/ecommerce/listing/1").get_json()
+    assert body["ok"] is True
+    assert body["listing_url"] == "https://x/9"
+    assert body["public_listing_id"] == "PUB9" and body["listing_id"] == "12345"
+    assert body["env"] == "sandbox"
 
 
 @patch("ecommerce.approval.db.get_listing_copy", return_value=None)

@@ -548,6 +548,7 @@ function showListingPreview(data, recId) {
         st.style.color = '#3730a3';
         st.style.border = '1px solid #c7d2fe';
         st.appendChild(document.createTextNode('✓ Resolved listing — read-only. Copy the content below.'));
+        appendListingLink(st, data.listing_url);   // clickable live link, if we saved one at post time
     } else if (data.can_post) {
         var envLabel = data.env ? (' (' + data.env + ')') : '';
         var postBtn = document.createElement('button');
@@ -642,11 +643,36 @@ function markRowResolved(recId, label) {
     if (btns[0]) {
         var cell = btns[0].parentNode;
         cell.innerHTML = '';
+        var wrap = document.createElement('div');
+        wrap.className = 'actions actions--inline';
         var span = document.createElement('span');
         span.className = 'decision-approved';
         span.textContent = label;
-        cell.appendChild(span);
+        wrap.appendChild(span);
+        // Mirror the server-rendered View button so the listing (and its live link)
+        // is re-openable immediately, without waiting for a page reload.
+        var viewBtn = document.createElement('button');
+        viewBtn.textContent = 'View';
+        viewBtn.setAttribute('style', 'padding:5px 12px;border:1px solid #cbd5e1;background:#f1f5f9;color:#334155;border-radius:6px;font-size:13px;cursor:pointer');
+        viewBtn.onclick = function() { viewListing(recId); };
+        wrap.appendChild(viewBtn);
+        cell.appendChild(wrap);
     }
+}
+
+function appendListingLink(el, url) {
+    // Append a "View listing ->" anchor to the live marketplace post. Shared by the
+    // post-success banner and the read-only re-view banner.
+    if (!url) return;
+    el.appendChild(document.createTextNode('  '));
+    var a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = 'View listing \u2192';
+    a.style.fontWeight = 'bold';
+    a.style.color = '#1b5e20';
+    el.appendChild(a);
 }
 
 function showPostedBanner(res) {
@@ -668,17 +694,7 @@ function showPostedBanner(res) {
     var idEl = document.createElement('code');
     idEl.textContent = res.public_listing_id || res.listing_id || '?';
     status.appendChild(idEl);
-    if (res.listing_url) {
-        status.appendChild(document.createTextNode('  '));
-        var viewLink = document.createElement('a');
-        viewLink.href = res.listing_url;
-        viewLink.target = '_blank';
-        viewLink.rel = 'noopener';
-        viewLink.textContent = 'View listing \u2192';
-        viewLink.style.fontWeight = 'bold';
-        viewLink.style.color = '#1b5e20';
-        status.appendChild(viewLink);
-    }
+    appendListingLink(status, res.listing_url);
     // Posting is a terminal action \u2014 clear the action button.
     document.getElementById('modal-action').textContent = '';
 }
