@@ -390,6 +390,19 @@ DASHBOARD_TEMPLATE = Template("""
 
 <div id="toast" class="toast"></div>
 
+<!-- Confirm dialog (styled replacement for window.confirm). z-index above the
+     preview modal since it's triggered from inside it. -->
+<div id="confirm-modal" class="modal-overlay" style="z-index:2500" onclick="if(event.target===this)hideConfirm()">
+    <div class="modal" style="width:420px">
+        <h3 id="confirm-title" style="margin:0 0 10px;">Please confirm</h3>
+        <p id="confirm-message" style="color:var(--ink-2); font-size:14px; line-height:1.55; margin:0; white-space:pre-line;"></p>
+        <div class="modal-actions" style="justify-content:flex-end; margin-top:22px;">
+            <button type="button" class="btn btn-secondary" onclick="hideConfirm()">Cancel</button>
+            <button type="button" class="btn btn-approve" id="confirm-ok">Confirm</button>
+        </div>
+    </div>
+</div>
+
 <!-- Listing preview modal -->
 <div id="listing-modal" class="modal-overlay" onclick="if(event.target===this)closeModal()">
     <div class="modal modal--wide">
@@ -574,66 +587,88 @@ function showListingPreview(data, recId) {
     document.getElementById('listing-modal').classList.add('active');
 }
 
+// Styled confirm dialog (replaces window.confirm). opts: {title, message, okLabel, okClass}.
+function showConfirm(opts, onConfirm) {
+    document.getElementById('confirm-title').textContent = opts.title || 'Please confirm';
+    document.getElementById('confirm-message').textContent = opts.message || '';
+    var ok = document.getElementById('confirm-ok');
+    ok.textContent = opts.okLabel || 'Confirm';
+    ok.className = 'btn ' + (opts.okClass || 'btn-approve');
+    ok.onclick = function() { hideConfirm(); onConfirm(); };
+    document.getElementById('confirm-modal').classList.add('active');
+}
+function hideConfirm() {
+    document.getElementById('confirm-modal').classList.remove('active');
+}
+
 function postListing(recId, data, btn) {
     var env = data.env || 'production';
-    if (!confirm('Create a ' + env + ' listing on ' + data.marketplace +
-                 ' at $' + parseFloat(data.price).toFixed(2) + '?\\nThis posts to the marketplace.')) {
-        return;
-    }
-    var restoreLabel = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'Posting\u2026';
-    fetch('/ecommerce/post?id=' + recId, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ listing: data.listing }),
-    })
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-            if (res.ok) {
-                showPostedBanner(res);
-                markRowResolved(recId, 'Posted');
-                showToast(res.message || 'Posted', 'success');
-            } else {
+    showConfirm({
+        title: 'Post to ' + data.marketplace + '?',
+        message: 'Create a ' + env + ' listing on ' + data.marketplace +
+                 ' at $' + parseFloat(data.price).toFixed(2) + '.\nThis posts live to the marketplace.',
+        okLabel: 'Post to ' + data.marketplace,
+        okClass: 'btn-approve'
+    }, function() {
+        var restoreLabel = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Posting\u2026';
+        fetch('/ecommerce/post?id=' + recId, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ listing: data.listing }),
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (res.ok) {
+                    showPostedBanner(res);
+                    markRowResolved(recId, 'Posted');
+                    showToast(res.message || 'Posted', 'success');
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = restoreLabel;
+                    showToast(res.error || 'Post failed', 'error');
+                }
+            })
+            .catch(function() {
                 btn.disabled = false;
                 btn.textContent = restoreLabel;
-                showToast(res.error || 'Post failed', 'error');
-            }
-        })
-        .catch(function() {
-            btn.disabled = false;
-            btn.textContent = restoreLabel;
-            showToast('Network error', 'error');
-        });
+                showToast('Network error', 'error');
+            });
+    });
 }
 
 function markListed(recId, data, btn) {
-    if (!confirm('Mark this recommendation as listed on ' + data.marketplace + ' (manual)?')) {
-        return;
-    }
-    btn.disabled = true;
-    btn.textContent = 'Saving\u2026';
-    fetch('/ecommerce/mark-listed?id=' + recId, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-    })
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-            if (res.ok) {
-                markRowResolved(recId, 'Listed');
-                document.getElementById('modal-action').textContent = '';
-                showToast(res.message || 'Marked as listed', 'success');
-            } else {
+    showConfirm({
+        title: 'Mark as listed?',
+        message: 'Mark this recommendation as listed on ' + data.marketplace + ' (manual \u2014 no marketplace call).',
+        okLabel: 'Mark as listed',
+        okClass: 'btn-approve'
+    }, function() {
+        btn.disabled = true;
+        btn.textContent = 'Saving\u2026';
+        fetch('/ecommerce/mark-listed?id=' + recId, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (res.ok) {
+                    markRowResolved(recId, 'Listed');
+                    document.getElementById('modal-action').textContent = '';
+                    showToast(res.message || 'Marked as listed', 'success');
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = 'Mark as listed';
+                    showToast(res.error || 'Failed', 'error');
+                }
+            })
+            .catch(function() {
                 btn.disabled = false;
                 btn.textContent = 'Mark as listed';
-                showToast(res.error || 'Failed', 'error');
-            }
-        })
-        .catch(function() {
-            btn.disabled = false;
-            btn.textContent = 'Mark as listed';
-            showToast('Network error', 'error');
-        });
+                showToast('Network error', 'error');
+            });
+    });
 }
 
 function markRowResolved(recId, label) {
@@ -661,18 +696,27 @@ function markRowResolved(recId, label) {
 }
 
 function appendListingLink(el, url) {
-    // Append a "View listing ->" anchor to the live marketplace post. Shared by the
-    // post-success banner and the read-only re-view banner.
+    // Render a prominent, SEPARATE "View listing" button on its own line (not an
+    // inline link crammed after the id text). Shared by the post-success banner
+    // and the read-only re-view banner.
     if (!url) return;
-    el.appendChild(document.createTextNode('  '));
+    var wrap = document.createElement('div');
+    wrap.style.marginTop = '12px';
     var a = document.createElement('a');
     a.href = url;
     a.target = '_blank';
     a.rel = 'noopener';
     a.textContent = 'View listing \u2192';
-    a.style.fontWeight = 'bold';
-    a.style.color = '#1b5e20';
-    el.appendChild(a);
+    a.style.display = 'inline-block';
+    a.style.padding = '9px 18px';
+    a.style.background = '#2e7d32';
+    a.style.color = '#fff';
+    a.style.borderRadius = '6px';
+    a.style.fontWeight = '600';
+    a.style.fontSize = '13.5px';
+    a.style.textDecoration = 'none';
+    wrap.appendChild(a);
+    el.appendChild(wrap);
 }
 
 function showPostedBanner(res) {
@@ -755,8 +799,12 @@ function showToast(msg, type) {
     setTimeout(function() { t.style.display = 'none'; }, 3000);
 }
 
-// Close modal on Escape
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeModal(); });
+// Close on Escape — the confirm dialog (if open) first, else the preview modal.
+document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Escape') return;
+    if (document.getElementById('confirm-modal').classList.contains('active')) hideConfirm();
+    else closeModal();
+});
 </script>
 """)
 
