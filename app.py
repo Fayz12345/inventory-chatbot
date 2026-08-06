@@ -780,6 +780,8 @@ def admin_create_user():
     is_admin = bool(data.get('is_admin', False))
     if not new_username or not new_email:
         return jsonify({'ok': False, 'error': 'Username and email are required'})
+    if users_db.email_in_use(new_email):
+        return jsonify({'ok': False, 'error': f'Email "{new_email}" is already used by another account'})
     try:
         token = users_db.create_user(new_username, new_email, is_admin,
                                      created_by=session.get('username'))
@@ -900,6 +902,8 @@ def admin_edit_user():
     new_email = (d.get('email') or '').strip()
     if not new_username:
         return jsonify({'ok': False, 'error': 'Username required'})
+    if new_email and users_db.email_in_use(new_email, exclude_id=user['id']):
+        return jsonify({'ok': False, 'error': f'Email "{new_email}" is already used by another account'})
     is_self = user['username'] == session.get('username')
     actor = session.get('username')
     try:
@@ -983,7 +987,10 @@ def profile_email():
         return jsonify({'ok': False, 'error': 'Not logged in'}), 401
     d = request.get_json() or {}
     uid = users_db._row_by_username(session['username'])['id']
-    users_db.set_email(uid, (d.get('email') or '').strip())
+    new_email = (d.get('email') or '').strip()
+    if new_email and users_db.email_in_use(new_email, exclude_id=uid):
+        return jsonify({'ok': False, 'error': 'That email is already used by another account'})
+    users_db.set_email(uid, new_email)
     return jsonify({'ok': True})
 
 

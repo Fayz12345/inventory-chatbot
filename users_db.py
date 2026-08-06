@@ -73,16 +73,40 @@ def seed_admin_if_empty():
     conn.close()
 
 
-def get_by_identifier(identifier):
-    """Look up a user by username OR email — both case-insensitive. Invites are
-    delivered to a person's email and address them by name, so people naturally
-    try to sign in with the email; accepting either avoids the "Invalid username
-    or password" dead-end when they type the email instead of the username."""
+def email_in_use(email, exclude_id=None):
+    """True if another user already has this email (case-insensitive). Used to
+    keep email unique so email-based login is unambiguous. Blank/NULL is never
+    'in use'. Pass exclude_id when editing so a user doesn't clash with itself."""
+    email = (email or '').strip()
+    if not email:
+        return False
     conn = _get_conn()
-    row = conn.execute(
-        'SELECT * FROM users WHERE username = ? '
-        'OR (email IS NOT NULL AND email <> "" AND LOWER(email) = LOWER(?))',
-        (identifier, identifier)).fetchone()
+    if exclude_id is None:
+        row = conn.execute(
+            'SELECT 1 FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1', (email,)).fetchone()
+    else:
+        row = conn.execute(
+            'SELECT 1 FROM users WHERE LOWER(email) = LOWER(?) AND id <> ? LIMIT 1',
+            (email, exclude_id)).fetchone()
+    conn.close()
+    return row is not None
+
+
+def get_by_identifier(identifier):
+    """Resolve a login identifier to a single user. Username is matched first
+    (it is UNIQUE); email is only a fallback and resolves ONLY when it maps to
+    exactly one account. A duplicated email therefore never resolves — it can't
+    log anyone into the wrong account — while each user can still use their
+    unique username. Invites arrive by email and greet people by name, so
+    accepting the email avoids the "Invalid username or password" dead-end."""
+    conn = _get_conn()
+    row = conn.execute('SELECT * FROM users WHERE username = ?', (identifier,)).fetchone()
+    if row is None and (identifier or '').strip():
+        matches = conn.execute(
+            'SELECT * FROM users WHERE email IS NOT NULL AND email <> "" '
+            'AND LOWER(email) = LOWER(?)', (identifier,)).fetchall()
+        if len(matches) == 1:
+            row = matches[0]
     conn.close()
     return dict(row) if row else None
 

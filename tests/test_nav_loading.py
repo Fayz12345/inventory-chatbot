@@ -59,8 +59,8 @@ def test_base_template_wires_loader_and_bumped_css():
     with open(os.path.join(ROOT, 'templates', '_base.html')) as f:
         src = f.read()
     assert 'nav-loading.js' in src
-    assert 'app.css?v=15' in src
-    assert 'app.css?v=14' not in src
+    assert 'app.css?v=16' in src
+    assert 'app.css?v=15' not in src
 
 
 def test_nav_loading_js_has_safety_guards():

@@ -64,6 +64,50 @@ def test_invite_with_admin_flag_creates_admin_role(monkeypatch):
     assert u['role'] == 'user' and u['is_admin'] == 0
 
 
+def test_create_user_rejects_duplicate_email(monkeypatch):
+    # Email must stay unique — it's a login identifier, so a shared email would
+    # make email login ambiguous.
+    monkeypatch.setattr(app_module, 'send_invite_email', lambda *a, **k: None)
+    c = app_module.chatbot_app.test_client(); _set_admin_session(c)
+    r1 = c.post('/admin/users/create',
+                json={'username': 'u1', 'email': 'dup@x.com', 'is_admin': False}, headers=_ch())
+    assert r1.get_json().get('ok') is True
+    # same email, different case -> rejected
+    r2 = c.post('/admin/users/create',
+                json={'username': 'u2', 'email': 'DUP@X.com', 'is_admin': False}, headers=_ch())
+    body = r2.get_json()
+    assert body.get('ok') is False and 'already used' in body['error'].lower()
+    assert users_db._row_by_username('u2') is None   # not created
+
+
+def test_edit_user_rejects_duplicate_email(monkeypatch):
+    monkeypatch.setattr(app_module, 'send_invite_email', lambda *a, **k: None)
+    c = app_module.chatbot_app.test_client(); _set_admin_session(c)
+    _make_user('alpha')                       # alpha@x.com
+    id_beta = _make_user('beta')              # beta@x.com
+    # move beta onto alpha's email -> rejected
+    r = c.post('/admin/users/edit',
+               json={'id': id_beta, 'username': 'beta', 'email': 'alpha@x.com'}, headers=_ch())
+    body = r.get_json()
+    assert body.get('ok') is False and 'already used' in body['error'].lower()
+    # keeping beta's own email is fine (self is not a clash)
+    r2 = c.post('/admin/users/edit',
+                json={'id': id_beta, 'username': 'beta', 'email': 'beta@x.com'}, headers=_ch())
+    assert r2.get_json().get('ok') is True
+
+
+def test_set_password_page_has_visibility_toggle():
+    # Show/hide (eye) toggle on both password fields of the set-password page
+    # (invite + reset flows share this template).
+    id_ = _make_user('pwviz')
+    token = users_db.generate_invite_token(id_)
+    c = app_module.chatbot_app.test_client()
+    html = c.get('/set-password/' + token).get_data(as_text=True)
+    assert html.count('class="pw-toggle"') == 2
+    assert 'data-target="password"' in html and 'data-target="confirm"' in html
+    assert 'app.css?v=16' in html
+
+
 def test_admin_page_nav_gates_by_role_not_just_is_admin():
     # Regression (nav leak): admin pages used to render the nav without `perms`, so
     # every module tab showed. With perms injected globally, an is_admin session whose

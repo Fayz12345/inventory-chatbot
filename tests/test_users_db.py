@@ -100,6 +100,27 @@ def test_authenticate_by_username_or_email():
     assert users_db.get_by_identifier("nobody") is None
 
 
+def test_email_in_use_case_insensitive_and_self_exclusion():
+    users_db.create_user("carol", "Carol@Example.com", created_by="t")
+    uid = next(u for u in users_db.get_all_users() if u["username"] == "carol")["id"]
+    assert users_db.email_in_use("carol@example.com") is True     # case-insensitive
+    assert users_db.email_in_use("CAROL@EXAMPLE.COM") is True
+    assert users_db.email_in_use("someone@else.com") is False
+    assert users_db.email_in_use("") is False
+    assert users_db.email_in_use(None) is False
+    assert users_db.email_in_use("carol@example.com", exclude_id=uid) is False  # self
+
+
+def test_duplicate_email_does_not_resolve_by_email():
+    # Two accounts sharing an email (legacy data) must NOT resolve by email —
+    # otherwise email login is ambiguous. Each username still resolves uniquely.
+    users_db.create_user("dave", "shared@x.com", created_by="t")
+    users_db.create_user("erin", "shared@x.com", created_by="t")
+    assert users_db.get_by_identifier("shared@x.com") is None        # ambiguous -> no match
+    assert users_db.get_by_identifier("dave")["username"] == "dave"  # username still works
+    assert users_db.get_by_identifier("erin")["username"] == "erin"
+
+
 def test_email_login_failure_counts_against_username():
     # A wrong-password attempt made via EMAIL must still record against the real
     # username so the lockout counter works no matter which identifier was used.
