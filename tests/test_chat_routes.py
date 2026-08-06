@@ -147,6 +147,18 @@ def test_sanitize_history():
     assert len(result[0]["content"]) == 4000
 
 
+def test_login_lands_on_chat_not_home(monkeypatch):
+    # Home was retired: a successful login now drops the user on the chatbot,
+    # not the /home workspace launcher.
+    monkeypatch.setattr(app.users_db, "authenticate",
+                        lambda u, p: {"username": "x", "is_admin": 1, "role": "admin"})
+    monkeypatch.setattr(app.users_db, "_row_by_username", lambda u: None)
+    client = app.chatbot_app.test_client()
+    r = client.post("/", data={"username": "x", "password": "y"})
+    assert r.status_code == 302
+    assert r.headers["Location"].rstrip("/").endswith("/chat")
+
+
 def test_login_page_clears_persisted_chat():
     # The logged-out (login) page must wipe the sessionStorage chat transcript so a
     # prior user's conversation can't linger in the tab for the next person.

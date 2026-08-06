@@ -31,7 +31,7 @@ def _topnav(active=None):
     is_admin = session.get("is_admin") if has_request_context() else False
     role = roles.effective_role(
         session.get("role") if has_request_context() else None, is_admin)
-    links = [_nav_link("/home", "Home", active, "home")]
+    links = []
     if roles.role_allows(role, "chat"):
         links.append(_nav_link("/chat", "Chatbot", active, "chat"))
     if roles.role_allows(role, "ecommerce"):
@@ -46,7 +46,7 @@ def _topnav(active=None):
     who = ('<span class="who">%s</span>' % escape(username)) if username else ""
     return (
         '<header class="app-header">'
-        '<a class="app-header__brand" href="/home"><span class="dot"></span> Bridge Platform</a>'
+        '<a class="app-header__brand" href="/chat"><span class="dot"></span> Bridge Platform</a>'
         '<nav class="app-nav">' + "".join(links) + "</nav>"
         '<div class="app-header__right">' + who + '<a href="/logout">Sign out</a></div>'
         "</header>"

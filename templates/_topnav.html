@@ -1,7 +1,6 @@
 <header class="app-header">
-  <a class="app-header__brand" href="/home"><span class="dot"></span> Bridge Platform</a>
+  <a class="app-header__brand" href="/chat"><span class="dot"></span> Bridge Platform</a>
   <nav class="app-nav">
-    <a href="/home" class="{{ 'active' if active == 'home' }}">Home</a>
     {% if perms is not defined or perms.chat %}<a href="/chat" class="{{ 'active' if active == 'chat' }}">Chatbot</a>{% endif %}
     {% if perms is not defined or perms.ecommerce %}<a href="/ecommerce/dashboard" class="{{ 'active' if active == 'ecommerce' }}">Ecommerce</a>{% endif %}
     {% if perms is not defined or perms.analytics %}<a href="/analytics/" class="{{ 'active' if active == 'analytics' }}">Analytics</a>{% endif %}

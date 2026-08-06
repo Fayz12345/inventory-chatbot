@@ -22,9 +22,12 @@ def test_shell_nav_admin_sees_every_tab_including_audit():
     # Regression: the shell nav omitted Audit and showed all module tabs ungated,
     # so an admin's tab set differed from the Jinja pages (security bug).
     html = _shell_nav('admin', True)
-    for path in ('/home', '/chat', '/ecommerce/dashboard', '/analytics/',
+    for path in ('/chat', '/ecommerce/dashboard', '/analytics/',
                  '/billing/', '/admin/users', '/admin/audit'):
         assert path in html, "admin shell nav missing " + path
+    # Home was retired from the nav (its workspace cards are now the tabs); the
+    # brand links to /chat, so /home must not appear anywhere in the shell nav.
+    assert '/home' not in html, "Home link should be removed from the nav"
 
 
 def test_shell_nav_user_sees_only_chat_and_analytics():

@@ -491,7 +491,7 @@ def login():
             session['username'] = user['username']
             session['role'] = user.get('role') or ('admin' if user['is_admin'] else 'user')
             session['is_admin'] = bool(user['is_admin'])
-            return redirect(url_for('home'))
+            return redirect(url_for('chat'))
         # distinguish disabled / locked / bad-credential
         row = users_db._row_by_username(username)
         if row and not row.get('is_active', 1):
