@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import users_db
 import admin_audit
@@ -105,7 +107,7 @@ def test_set_password_page_has_visibility_toggle():
     html = c.get('/set-password/' + token).get_data(as_text=True)
     assert html.count('class="pw-toggle"') == 2
     assert 'data-target="password"' in html and 'data-target="confirm"' in html
-    assert 'app.css?v=16' in html
+    assert 'app.css?v=17' in html
 
 
 def test_admin_page_nav_gates_by_role_not_just_is_admin():
@@ -327,11 +329,15 @@ def test_edit_invalid_role_returns_error():
 
 
 def test_edit_role_writes_audit_row():
+    # Regression for the old 3-row behavior: /admin/users/edit now writes ONE
+    # merged 'edit_user' row with a `changes` dict, not a separate 'set_role' row.
     uid = _make_user("auditrole")
     c = app_module.chatbot_app.test_client()
     _set_admin_session(c)
     c.post("/admin/users/edit",
            json={"id": uid, "username": "auditrole", "email": "auditrole@x.com", "role": "viewer"},
            headers=_ch())
-    assert any(r["action"] == "set_role" and r["target"] == "auditrole" and r["detail"] == "viewer"
-               for r in admin_audit.recent(50))
+    row = next(r for r in admin_audit.recent(50)
+               if r["action"] == "edit_user" and r["target"] == "auditrole")
+    detail = json.loads(row["detail"])
+    assert detail["changes"]["role"] == {"old": "user", "new": "viewer"}

@@ -4,6 +4,7 @@ import decimal
 
 from flask import Blueprint, request, jsonify, session, redirect, url_for, Response
 
+import admin_audit
 from billing import osl, templates, tms, export
 import roles
 
@@ -20,13 +21,14 @@ def _gate_billing():
 XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 
-def _raw_download(engine, prefix, sheet_title):
+def _raw_download(engine, prefix, sheet_title, audit_action):
     redir = _require_login()
     if redir:
         return redir
     year, month, err = _parse_year_month(request.args)
     if err:
         return err, 400
+    admin_audit.stash(action=audit_action, category='action', target=f'{year}-{month:02d}')
     try:
         columns, rows = engine.get_raw_rows(year, month)
         data = export.rows_to_xlsx(columns, rows, sheet_title=sheet_title)
@@ -79,6 +81,7 @@ def tms_generate():
     year, month, err = _parse_year_month(data)
     if err:
         return jsonify({'ok': False, 'error': err})
+    admin_audit.stash(action='tms_report', target=f'{year}-{month:02d}')
     try:
         report = tms.generate_report(year, month)
         return jsonify({'ok': True, 'report': report})
@@ -88,7 +91,7 @@ def tms_generate():
 
 @billing_bp.route('/tms/raw')
 def tms_raw():
-    return _raw_download(tms, 'TMS_Raw', 'TMS Raw Data')
+    return _raw_download(tms, 'TMS_Raw', 'TMS Raw Data', 'tms_raw_download')
 
 
 FLAT_ROW_CAP = 1000
@@ -115,6 +118,7 @@ def tms_flat():
     year, month, err = _parse_year_month(request.args)
     if err:
         return jsonify({'ok': False, 'error': err}), 400
+    admin_audit.stash(target=f'{year}-{month:02d}')
     try:
         columns, rows = tms.get_raw_rows(year, month)
     except Exception as e:
@@ -150,6 +154,7 @@ def osl_generate():
     # provided the recompute is pure Python — no DB round-trip.
     overrides = data.get('overrides') or []
     models = data.get('models')
+    admin_audit.stash(action='osl_report', target=f'{year}-{month:02d}', overrides=len(overrides))
     try:
         result = osl.generate(year, month, overrides=overrides, models=models)
         return jsonify({
@@ -163,4 +168,4 @@ def osl_generate():
 
 @billing_bp.route('/osl/raw')
 def osl_raw():
-    return _raw_download(osl, 'OSL_Raw', 'OSL Raw Data')
+    return _raw_download(osl, 'OSL_Raw', 'OSL Raw Data', 'osl_raw_download')

@@ -96,6 +96,18 @@ def _require_login_json():
     return None
 
 
+def _stash(**kwargs):
+    """Best-effort wrapper around admin_audit.stash. The real function never
+    raises on its own, but these handlers call it mid-flow — sometimes after a
+    marketplace API call and a DB write have already succeeded — so a belt-
+    and-braces guard here ensures an audit hiccup can never surface as a
+    broken response for an otherwise-successful post/mark-listed/reject."""
+    try:
+        admin_audit.stash(**kwargs)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Dashboard pages
 # ---------------------------------------------------------------------------
@@ -130,10 +142,9 @@ def scrape_settings_save():
     saved = db.save_scrape_settings(
         data.get("categories"), data.get("scope_mode"), data.get("top_n"),
         actor=session.get("username"))
-    admin_audit.log_action(
-        session.get("username"), "ecommerce_scrape_settings",
-        detail="categories=%s mode=%s top_n=%s" % (
-            saved["categories"], saved["scope_mode"], saved["top_n"]))
+    _stash(
+        action="ecommerce_scrape_settings",
+        categories=saved["categories"], scope_mode=saved["scope_mode"], top_n=saved["top_n"])
     return jsonify({"ok": True, "settings": saved})
 
 
@@ -361,6 +372,10 @@ def approve():
     marketplace = rec["RecommendedMarketplace"]
     price = float(rec["RecommendedPrice"])
     product = _product_from_rec(rec)
+    _stash(
+        action="ecommerce_preview",
+        target=f"{product['Manufacturer']} {product['Model']} {product.get('Colour', '')} Grade {product['Grade']}".strip(),
+        marketplace=marketplace, price=price)
 
     try:
         listing_copy = copy_generator.generate_listing_copy(product, marketplace)
@@ -371,6 +386,7 @@ def approve():
     # Best Buy availability depends on a catalog UPC match; skip the lookup otherwise.
     catalog = _catalog_for(product) if marketplace.lower() in ("best buy ca", "best buy") else None
     avail = listing_availability(marketplace, catalog=catalog)
+    _stash(can_post=avail["available"])
 
     product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
     return jsonify({
@@ -407,6 +423,10 @@ def post_listing():
     price = float(rec["RecommendedPrice"])
     product = _product_from_rec(rec)
     approved_by = session.get("username")
+    _stash(
+        action="ecommerce_post",
+        target=f"{product['Manufacturer']} {product['Model']} {product.get('Colour', '')} Grade {product['Grade']}".strip(),
+        marketplace=marketplace, price=price, rec_id=rec["ID"])
 
     listing_copy = _valid_listing_copy((request.get_json(silent=True) or {}).get("listing"))
     if listing_copy is None:
@@ -474,17 +494,10 @@ def post_listing():
         "env":                 env,
     }
     db.save_listing_copy(rec["ID"], listing_copy)  # so it can be re-viewed later
+    _stash(listing_id=listing_id, env=env, listing_url=listing_url,
+           public_listing_id=public_listing_id)
 
     product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
-    try:
-        admin_audit.log_action(
-            approved_by, 'ecommerce_post',
-            target=f"{product['Manufacturer']} {product['Model']} {product.get('Colour', '')} Grade {product['Grade']}".strip(),
-            detail=f"${price:.2f} on {marketplace} — posted ({env}), listing {listing_id}",
-        )
-    except Exception:
-        log.exception("Audit logging failed for ecommerce post (rec %s)", rec["ID"])
-
     return jsonify({
         "ok":                True,
         "posted":            True,
@@ -515,6 +528,10 @@ def mark_listed():
     product = _product_from_rec(rec)
     approved_by = session.get("username")
     listing_copy = _valid_listing_copy((request.get_json(silent=True) or {}).get("listing"))
+    _stash(
+        action="ecommerce_mark_listed",
+        target=f"{product['Manufacturer']} {product['Model']} {product.get('Colour', '')} Grade {product['Grade']}".strip(),
+        marketplace=marketplace, price=price, rec_id=rec["ID"])
 
     if not db.claim_recommendation(rec["ID"], "processing"):
         return jsonify({"ok": False, "error": "Already being processed or decided."}), 409
@@ -534,17 +551,9 @@ def mark_listed():
     db.update_recommendation_decision(rec["ID"], "approved")
     if listing_copy:
         db.save_listing_copy(rec["ID"], listing_copy)  # so it can be re-viewed later
+    _stash(manual=True)
 
     product_name = f"{product['Manufacturer']} {product['Model']} Grade {product['Grade']}"
-    try:
-        admin_audit.log_action(
-            approved_by, 'ecommerce_mark_listed',
-            target=f"{product['Manufacturer']} {product['Model']} {product.get('Colour', '')} Grade {product['Grade']}".strip(),
-            detail=f"${price:.2f} on {marketplace} — marked listed (manual)",
-        )
-    except Exception:
-        log.exception("Audit logging failed for ecommerce mark-listed (rec %s)", rec["ID"])
-
     return jsonify({"ok": True, "posted": False,
                     "message": f"{product_name} marked as listed on {marketplace}."})
 
@@ -596,18 +605,14 @@ def reject():
     if rec.get("Decision"):
         return jsonify({"ok": False, "error": f'Already {rec["Decision"]}.'}), 409
 
+    _stash(
+        action="ecommerce_reject",
+        target=f"{rec['Manufacturer']} {rec['Model']} {rec.get('Colour', '')} Grade {rec['Grade']}".strip(),
+        marketplace=rec["RecommendedMarketplace"], price=float(rec["RecommendedPrice"]), rec_id=rec_id)
+
     # Atomically claim as 'rejected'; loses gracefully to a concurrent decision.
     if not db.claim_recommendation(rec_id, "rejected"):
         return jsonify({"ok": False, "error": "Already being processed or decided."}), 409
 
     product_name = f"{rec['Manufacturer']} {rec['Model']} Grade {rec['Grade']}"
-    try:
-        admin_audit.log_action(
-            session.get('username'),
-            'ecommerce_reject',
-            target=f"{rec['Manufacturer']} {rec['Model']} {rec.get('Colour', '')} Grade {rec['Grade']}".strip(),
-            detail=f"${float(rec['RecommendedPrice']):.2f} on {rec['RecommendedMarketplace']}",
-        )
-    except Exception:
-        log.exception("Audit logging failed for ecommerce reject (rec %s)", rec_id)
     return jsonify({"ok": True, "message": f"{product_name} rejected."})

@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, session, redirect, url_for, Respo
 from analytics import db, pricing, templates
 from io import BytesIO
 from datetime import datetime
+import admin_audit
 import roles
 
 analytics_bp = Blueprint('analytics', __name__, url_prefix='/analytics')
@@ -81,6 +82,7 @@ def telus_weekly_report():
 
     project_tag = request.form.get('project_tag', '').strip()
     client_name = request.form.get('client_name', '').strip() or None
+    admin_audit.stash(action='telus_report', target=project_tag, client=client_name)
 
     if not project_tag:
         project_tags, client_names = _telus_options()
@@ -91,6 +93,7 @@ def telus_weekly_report():
     try:
         devices = db.call_repair_assessment(project_tag, client_name)
     except Exception as e:
+        admin_audit.stash(result='db_error', error=str(e)[:300])
         project_tags, client_names = _telus_options()
         return templates.render_telus_weekly_form(
             error=f'Database error: {e}',
@@ -99,6 +102,7 @@ def telus_weekly_report():
             project_tags=project_tags, client_names=client_names)
 
     if not devices:
+        admin_audit.stash(result='no_devices')
         project_tags, client_names = _telus_options()
         return templates.render_telus_weekly_form(
             error=f'No devices found for ProjectTag "{project_tag}".',
@@ -108,6 +112,7 @@ def telus_weekly_report():
 
     pricing_map = db.get_pricing_map()
     enriched, summary = pricing.compute_report(devices, pricing_map)
+    admin_audit.stash(device_count=summary['total_devices'], total_lot_value=summary['total_lot_value'])
 
     return templates.render_telus_weekly_report(
         project_tag, client_name, enriched, summary,
@@ -122,6 +127,7 @@ def telus_weekly_export():
 
     project_tag = request.form.get('project_tag', '').strip()
     client_name = request.form.get('client_name', '').strip() or None
+    admin_audit.stash(action='telus_export', target=project_tag, client=client_name)
 
     if not project_tag:
         return redirect(url_for('analytics.telus_weekly_form'))
@@ -129,6 +135,7 @@ def telus_weekly_export():
     devices = db.call_repair_assessment(project_tag, client_name)
     pricing_map = db.get_pricing_map()
     enriched, summary = pricing.compute_report(devices, pricing_map)
+    admin_audit.stash(device_count=len(enriched))
 
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment
@@ -239,6 +246,7 @@ def telus_weekly_export():
 
     today = datetime.now().strftime('%Y%m%d')
     filename = f'TW_{project_tag}_{today}.xlsx'
+    admin_audit.stash(filename=filename)
 
     return Response(
         buf.getvalue(),
@@ -310,6 +318,50 @@ def price_review():
     return templates.render_price_review(models)
 
 
+
+# maps a price-review update's field name -> the TelusWeeklyPricingMaster
+# column returned by db.get_all_pricing_models(), for the old->new audit diff.
+_PRICE_UPDATE_FIELDS = {
+    'grade_a':     'GradeA_Price',
+    'grade_b':     'GradeB_Price',
+    'grade_c':     'GradeC_Price',
+    'defective':   'Defective_Price',
+    'frp':         'FRP_Price',
+    'device_type': 'DeviceType',
+}
+
+
+def _price_update_changes(updates):
+    """Old->new diff for the price_update audit stash, keyed by model name,
+    capped at 20 models + 'more': N. Only fields that actually changed are
+    included. Raises on DB error — the caller falls back to new-values-only
+    so a failed audit lookup never blocks the save."""
+    ids = {u.get('id') for u in updates if u.get('id') is not None}
+    old_by_id = {row['ID']: row for row in db.get_all_pricing_models() if row.get('ID') in ids}
+    changes = {}
+    for u in updates:
+        old = old_by_id.get(u.get('id'))
+        if not old:
+            continue
+        model_name = old.get('Model') or str(u.get('id'))
+        field_changes = {}
+        for key, col in _PRICE_UPDATE_FIELDS.items():
+            new_val = u.get(key)
+            old_val = old.get(col)
+            if key != 'device_type':
+                old_val = float(old_val) if old_val is not None else None
+                new_val = float(new_val) if new_val is not None else None
+            if old_val != new_val:
+                field_changes[key] = {'old': old_val, 'new': new_val}
+        if field_changes:
+            changes[model_name] = field_changes
+    if len(changes) > 20:
+        capped = dict(list(changes.items())[:20])
+        capped['more'] = len(changes) - 20
+        return capped
+    return changes
+
+
 @analytics_bp.route('/price-review/save', methods=['POST'])
 def price_review_save():
     if not session.get('logged_in'):
@@ -319,6 +371,12 @@ def price_review_save():
     updates = data.get('updates', [])
     if not updates:
         return jsonify({'ok': False, 'error': 'No updates provided'})
+
+    try:
+        changes = _price_update_changes(updates)
+        admin_audit.stash(action='price_update', count=len(updates), changes=changes)
+    except Exception:
+        admin_audit.stash(action='price_update', count=len(updates), values=updates[:20])
 
     try:
         db.bulk_update_pricing(updates, updated_by=session.get('username'))
@@ -336,6 +394,9 @@ def price_review_bulk_add():
     models = data.get('models', [])
     if not models:
         return jsonify({'ok': False, 'error': 'No models provided'})
+
+    admin_audit.stash(action='price_bulk_add', count=len(models),
+                      models=[(m.get('model') or '')[:80] for m in models][:20])
 
     try:
         new_ids = db.bulk_insert_pricing_models(models)
@@ -357,15 +418,19 @@ def price_review_add():
     if not model:
         return jsonify({'ok': False, 'error': 'Model name required'})
 
+    grade_a = float(data.get('grade_a', 0))
+    grade_b = float(data.get('grade_b', 0))
+    grade_c = float(data.get('grade_c', 0))
+    defective = float(data.get('defective', 0))
+    frp = float(data.get('frp', 0))
+    device_type = data.get('device_type', 'Phone')
+    admin_audit.stash(action='price_add', target=model,
+                      prices={'grade_a': grade_a, 'grade_b': grade_b, 'grade_c': grade_c,
+                              'defective': defective, 'frp': frp, 'device_type': device_type})
+
     try:
         new_id = db.insert_pricing_model(
-            model,
-            float(data.get('grade_a', 0)),
-            float(data.get('grade_b', 0)),
-            float(data.get('grade_c', 0)),
-            float(data.get('defective', 0)),
-            float(data.get('frp', 0)),
-            data.get('device_type', 'Phone'),
+            model, grade_a, grade_b, grade_c, defective, frp, device_type,
         )
         return jsonify({'ok': True, 'id': new_id})
     except Exception as e:

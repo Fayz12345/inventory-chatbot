@@ -835,6 +835,17 @@ input.manual { width: 80px; padding: 6px 8px; }
   .bhac-label svg.bhac-chevron { transition: none; }
   .bhac-trigger { transition: none; }
 }
+/* audit log */
+.audit-filters { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
+.audit-filters input[type=date], .audit-filters select { font: inherit; padding:7px 10px; border:1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--surface); }
+.badge-cat-navigation { background:#eef2ff; color:#3730a3; }
+.badge-cat-action     { background: var(--brand-50); color: var(--brand-700); }
+.badge-cat-chat       { background:#ecfdf5; color:#047857; }
+.badge-cat-auth       { background:#fff7ed; color:#c2410c; }
+.status-err { color: var(--danger); font-weight:600; }
+.audit-detail-pre { background: var(--surface-2); border-radius: var(--r-sm); padding:14px; font-size:12.5px; white-space:pre-wrap; word-break:break-word; max-height:60vh; overflow:auto; }
+.pager { display:flex; gap:12px; align-items:center; justify-content:center; margin-top:18px; color: var(--muted); font-size:13px; }
+
 @media (max-width: 480px) {
   .bhac-row { padding: 8px 10px; }
   .bhac-label { min-width: 90px; font-size: 12.5px; }

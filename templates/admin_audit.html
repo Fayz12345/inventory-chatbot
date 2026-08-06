@@ -3,8 +3,30 @@
 {% block body %}
 <div class="page page--narrow">
   <div class="page-head">
-    <div><h1>Audit Log <span class="count">({{ logs | length }})</span></h1></div>
+    <div>
+      <h1>Audit Log <span class="count">({{ total }})</span></h1>
+      <div class="sub">Page {{ page }} of {{ pages }} &middot; times shown in UTC</div>
+    </div>
   </div>
+
+  <form method="get" class="audit-filters">
+    <input type="date" name="from" value="{{ filters.from }}" aria-label="From date (UTC)">
+    <input type="date" name="to" value="{{ filters.to }}" aria-label="To date (UTC)">
+    <select name="action" aria-label="Filter by action">
+      <option value="">All actions</option>
+      {% for a in actions %}
+      <option value="{{ a }}" {% if a == filters.action %}selected{% endif %}>{{ a }}</option>
+      {% endfor %}
+    </select>
+    <select name="actor" aria-label="Filter by actor">
+      <option value="">All actors</option>
+      {% for a in actors %}
+      <option value="{{ a }}" {% if a == filters.actor %}selected{% endif %}>{{ a }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('admin_audit_view') }}">Clear</a>
+  </form>
 
   <div class="table-wrap">
     <table>
@@ -12,8 +34,10 @@
         <tr>
           <th>When</th>
           <th>Actor</th>
+          <th>Category</th>
           <th>Action</th>
           <th>Target</th>
+          <th>Status</th>
           <th>Detail</th>
         </tr>
       </thead>
@@ -21,14 +45,58 @@
         {% for l in logs %}
         <tr>
           <td>{{ l.created_at }}</td>
-          <td>{{ l.actor }}</td>
+          <td>{{ l.actor or '—' }}</td>
+          <td><span class="badge badge-cat-{{ l.category or 'action' }}">{{ l.category or '—' }}</span></td>
           <td>{{ l.action }}</td>
-          <td>{{ l.target }}</td>
-          <td>{{ l.detail }}</td>
+          <td>{{ l.target or '—' }}</td>
+          <td class="{{ 'status-err' if l.status and l.status >= 400 else '' }}">{{ l.status or '—' }}</td>
+          <td>
+            {{ (l.detail or '') | truncate(80, True) }}
+            {% if l.detail %}
+            <button type="button" class="btn btn-sm btn-secondary js-view"
+                    data-detail="{{ l.detail }}"
+                    data-meta="{{ l.method or '' }} {{ l.path or '' }} &middot; {{ l.ip or '' }} &middot; {{ l.created_at }}">View</button>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  <div class="pager">
+    {% if page > 1 %}
+    <a class="btn btn-secondary btn-sm" href="?{{ (qs ~ '&') if qs }}page={{ page - 1 }}">&larr; Prev</a>
+    {% endif %}
+    <span>Page {{ page }} of {{ pages }} &middot; {{ total }} rows</span>
+    {% if page < pages %}
+    <a class="btn btn-secondary btn-sm" href="?{{ (qs ~ '&') if qs }}page={{ page + 1 }}">Next &rarr;</a>
+    {% endif %}
+  </div>
 </div>
+
+<!-- Detail modal (read-only) -->
+<div id="detail-modal" class="modal-overlay" onclick="if(event.target===this)closeDetail()">
+  <div class="modal modal--wide">
+    <button class="modal-close" onclick="closeDetail()">&times;</button>
+    <h3>Audit detail</h3>
+    <div class="modal-meta" id="detail-meta"></div>
+    <pre id="detail-pre" class="audit-detail-pre"></pre>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('.js-view').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var raw = btn.dataset.detail, out = raw;
+    try { out = JSON.stringify(JSON.parse(raw), null, 2); } catch(e) {}
+    document.getElementById('detail-pre').textContent = out;      // textContent = XSS-safe
+    document.getElementById('detail-meta').textContent = btn.dataset.meta;
+    document.getElementById('detail-modal').classList.add('active');
+  });
+});
+function closeDetail(){ document.getElementById('detail-modal').classList.remove('active'); }
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeDetail(); });
+</script>
 {% endblock %}

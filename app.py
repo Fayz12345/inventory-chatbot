@@ -3,7 +3,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from flask import Flask, render_template, request, session, redirect, url_for, jsonify, Response
+from flask import Flask, render_template, request, session, redirect, url_for, jsonify, Response, g
 from werkzeug.security import check_password_hash
 from functools import wraps
 import csv
@@ -107,6 +107,150 @@ def _inject_perms():
     consistently — previously only home/chat/ecommerce passed it, so admin and
     other pages fell through `perms is not defined` and showed all tabs."""
     return {'perms': _perms()}
+
+
+# --- Audit logging (central hook) ---
+# One row per request, written here — handlers no longer call
+# admin_audit.log_action directly; they enrich the pending row via
+# admin_audit.stash(...) (see admin_audit.py's module docstring for the full
+# contract). Best-effort everywhere: this hook must always `return response`,
+# even if the logging itself blew up.
+def _client_ip():
+    xff = request.headers.get('X-Forwarded-For', '')
+    return (xff.split(',')[0].strip() if xff else request.remote_addr) or ''
+
+
+_AUDIT_SKIP_PREFIXES = ('/static/',)
+_AUDIT_SKIP_PATHS = {'/favicon.ico', '/health', '/healthz', '/robots.txt'}
+_AUDIT_SKIP_ENDPOINTS = {
+    'privacy',                                 # public legal page
+    'ebay_account_deletion',                   # eBay webhook pings (public, high-noise)
+    'admin_audit_view',                        # the audit page must not audit itself
+    'ecommerce.scrape_preview',                # AJAX impact-count polling (noise)
+    'analytics.telus_weekly_client_for_tag',   # AJAX autocomplete (noise)
+    'static',
+}
+
+# endpoint -> (action label, category). Unmapped/future endpoints fall through
+# to the generic rule in _audit_log() ("view /path" / "post /path"), so new
+# routes get audited automatically without touching this map. Endpoints whose
+# handler always stashes its own action/actor (login, logout, set_password)
+# are intentionally omitted — the stash wins over this map anyway.
+_AUDIT_ROUTE_MAP = {
+    'home': ('view_home', 'navigation'),
+    'chat': ('view_chat', 'navigation'),
+    'ask': ('chat_ask', 'chat'),
+    'ask_stream': ('chat_ask', 'chat'),
+    'ask_export': ('chat_export', 'chat'),
+    'profile': ('view_profile', 'navigation'),
+    'profile_password': ('change_password', 'action'),
+    'profile_email': ('change_email', 'action'),
+    'admin_users': ('view_admin_users', 'navigation'),
+    'admin_chat_log': ('view_chat_log', 'navigation'),
+    'admin_create_user': ('create_user', 'action'),
+    'admin_resend_invite': ('resend_invite', 'action'),
+    'admin_reset_password': ('reset_password', 'action'),
+    'admin_toggle_admin': ('toggle_admin', 'action'),
+    'admin_set_role': ('set_role', 'action'),
+    'admin_delete_user': ('delete_user', 'action'),
+    'admin_edit_user': ('edit_user', 'action'),
+    'admin_set_active': ('set_active', 'action'),
+    'ecommerce.dashboard_index': ('view_ecommerce_dashboard', 'navigation'),
+    'ecommerce.dashboard_detail': ('view_ecommerce_batch', 'navigation'),
+    'ecommerce.scrape_settings_save': ('ecommerce_scrape_settings', 'action'),
+    'ecommerce.approve': ('ecommerce_preview', 'action'),
+    'ecommerce.post_listing': ('ecommerce_post', 'action'),
+    'ecommerce.mark_listed': ('ecommerce_mark_listed', 'action'),
+    'ecommerce.view_listing': ('view_listing', 'navigation'),
+    'ecommerce.reject': ('ecommerce_reject', 'action'),
+    'analytics.index': ('view_analytics', 'navigation'),
+    'analytics.telus_weekly_form': ('view_telus_weekly', 'navigation'),
+    'analytics.telus_weekly_report': ('telus_report', 'action'),
+    'analytics.telus_weekly_export': ('telus_export', 'action'),
+    'analytics.price_review': ('view_price_review', 'navigation'),
+    'analytics.price_review_save': ('price_update', 'action'),
+    'analytics.price_review_bulk_add': ('price_bulk_add', 'action'),
+    'analytics.price_review_add': ('price_add', 'action'),
+    'billing.billing_home': ('view_billing', 'navigation'),
+    'billing.tms_page': ('view_tms_billing', 'navigation'),
+    'billing.tms_generate': ('tms_report', 'action'),
+    'billing.tms_raw': ('tms_raw_download', 'action'),
+    'billing.tms_flat': ('view_tms_flat', 'navigation'),
+    'billing.osl_page': ('view_osl_billing', 'navigation'),
+    'billing.osl_generate': ('osl_report', 'action'),
+    'billing.osl_raw': ('osl_raw_download', 'action'),
+}
+
+
+def _audit_log(response):
+    path = request.path
+    if request.method in ('OPTIONS', 'HEAD'):
+        return
+    if any(path.startswith(p) for p in _AUDIT_SKIP_PREFIXES):
+        return
+    if path in _AUDIT_SKIP_PATHS:
+        return
+    if request.endpoint in _AUDIT_SKIP_ENDPOINTS:
+        return
+    if request.endpoint is None and response.status_code == 404:
+        return  # unmatched asset probes / scanners — no route, nothing to attribute
+
+    ga = getattr(g, 'audit', None) or {}
+    if ga.get('skip'):
+        return  # /ask/stream: the generator logs the row itself at stream end
+
+    actor = ga.get('actor') or session.get('username')
+    if not actor:
+        return  # anonymous traffic is not audited
+
+    mapped = _AUDIT_ROUTE_MAP.get(request.endpoint)
+    action = ga.get('action') or (mapped and mapped[0]) or \
+        ('view ' + path if request.method == 'GET' else request.method.lower() + ' ' + path)
+    category = ga.get('category') or (mapped and mapped[1]) or \
+        ('navigation' if request.method == 'GET' else 'action')
+
+    target = ga.get('target')
+    if not target and request.view_args and request.endpoint != 'set_password':
+        # set_password's view_args carries the invite token — never build target from it
+        target = ' '.join(f'{k}={v}' for k, v in request.view_args.items())
+
+    detail = dict(ga.get('detail') or {})
+    if not detail:
+        if request.args:
+            detail['args'] = admin_audit.redact_raw(dict(request.args))
+        if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+            body = request.get_json(silent=True)
+            if isinstance(body, dict):
+                detail['body'] = admin_audit.redact_raw(body)
+            elif request.form:
+                detail['body'] = admin_audit.redact_raw(dict(request.form))
+    # Always (stash or not): capture the app's ok:false-with-HTTP-200 convention
+    # from small JSON responses, without per-handler work.
+    if not response.is_streamed and (response.content_length or 0) < 4096:
+        payload = response.get_json(silent=True)
+        if isinstance(payload, dict):
+            if 'ok' in payload:
+                detail['ok'] = payload['ok']
+            if 'error' in payload:
+                detail['error'] = str(payload['error'])[:300]
+
+    detail = admin_audit.redact(detail)
+
+    if request.endpoint == 'set_password':
+        path = '/set-password/[redacted]'
+
+    admin_audit.log_request(actor=actor, action=action, target=target, detail=detail,
+                            category=category, path=path, method=request.method,
+                            status=response.status_code, ip=_client_ip())
+
+
+@chatbot_app.after_request
+def _audit_after(response):
+    try:
+        _audit_log(response)
+    except Exception:
+        pass
+    return response
 
 
 # --- eBay Marketplace Account Deletion (MAD) webhook ---
@@ -472,12 +616,31 @@ def _resolve_and_run(user_question, history):
 
 
 def _log_ask(username, question, t0, *, ok, sql=None, error=None, row_count=None,
-             retries=0, in_tok=0, out_tok=0):
+             retries=0, in_tok=0, out_tok=0, kind=None, answer=None, audit_ctx=None):
     try:
         chat_log.log_query(username=username, question=question, sql=sql, ok=ok, error=error,
                            row_count=row_count, retries=retries,
                            latency_ms=int((time.time() - t0) * 1000),
                            input_tokens=in_tok, output_tokens=out_tok)
+    except Exception:
+        pass
+    # Audit trail row — complements (never replaces) chat_log above. /ask goes
+    # through the central hook via stash(); /ask/stream defers the hook (it
+    # stashed skip=True while the request context was live) and writes its own
+    # row here, at stream end, using the audit_ctx captured before iteration.
+    try:
+        detail = {'question': (question or '')[:2000], 'kind': kind, 'sql': (sql or '')[:2000],
+                  'row_count': row_count, 'retries': retries,
+                  'in_tok': in_tok, 'out_tok': out_tok,
+                  'answer': (answer or '')[:500] or None,
+                  'error': (error or '')[:300] or None}
+        detail = {k: v for k, v in detail.items() if v not in (None, '')}
+        if audit_ctx is None:
+            admin_audit.stash(action='chat_ask', category='chat', **detail)
+        else:
+            admin_audit.log_request(actor=username, action='chat_ask', category='chat',
+                                    detail=detail, path=audit_ctx['path'], method='POST',
+                                    status=200, ip=audit_ctx['ip'])
     except Exception:
         pass
 
@@ -494,16 +657,25 @@ def login():
             session['username'] = user['username']
             session['role'] = user.get('role') or ('admin' if user['is_admin'] else 'user')
             session['is_admin'] = bool(user['is_admin'])
+            admin_audit.stash(action='login', category='auth',
+                              actor=user['username'], target=user['username'])
             return redirect(url_for('chat'))
         # distinguish disabled / locked / bad-credential (match username OR email,
         # so the right message shows even when the person signs in with their email)
         row = users_db.get_by_identifier(username)
+        attempted = (username or '')[:80]
         if row and not row.get('is_active', 1):
             error = 'This account is disabled. Contact an administrator.'
+            admin_audit.stash(action='login_failed', category='auth',
+                              actor=attempted, target=attempted, reason='disabled')
         elif row and users_db.is_locked(row):
             error = 'Too many failed attempts. Try again in ~15 minutes.'
+            admin_audit.stash(action='login_failed', category='auth',
+                              actor=attempted, target=attempted, reason='locked')
         else:
             error = 'Invalid username or password.'
+            admin_audit.stash(action='login_failed', category='auth',
+                              actor=attempted, target=attempted, reason='bad_credentials')
     return render_template('login.html', error=error)
 
 @chatbot_app.route('/home')
@@ -538,22 +710,23 @@ def ask():
     kind = result["kind"]
 
     if kind == "unable":
-        _log_ask(username, user_question, t0, ok=False, sql='', retries=retries, in_tok=in_tok, out_tok=out_tok)
+        _log_ask(username, user_question, t0, ok=False, sql='', retries=retries, in_tok=in_tok, out_tok=out_tok,
+                 kind='unable')
         return jsonify({'answer': "I'm unable to answer that from the inventory data I have access to.", 'sql': ''})
     if kind == "error":
         _log_ask(username, user_question, t0, ok=False, sql=result["sql"], error=result["error"],
-                 retries=retries, in_tok=in_tok, out_tok=out_tok)
+                 retries=retries, in_tok=in_tok, out_tok=out_tok, kind='error')
         return jsonify({'answer': FRIENDLY_ERROR, 'sql': result["sql"]})
     if kind == "empty":
         _log_ask(username, user_question, t0, ok=True, sql=result["sql"], row_count=0,
-                 retries=retries, in_tok=in_tok, out_tok=out_tok)
+                 retries=retries, in_tok=in_tok, out_tok=out_tok, kind='empty')
         return jsonify({'answer': 'No results found for your question.', 'sql': result["sql"],
                         'columns': result["columns"], 'rows': []})
 
     sql, data = result["sql"], result["data"]
     answer = format_answer(sql, data, user_question, truncated=result["truncated"], total_rows=result["total_rows"])
     _log_ask(username, user_question, t0, ok=True, sql=sql, row_count=result["total_rows"],
-             retries=retries, in_tok=in_tok, out_tok=out_tok)
+             retries=retries, in_tok=in_tok, out_tok=out_tok, kind='ok', answer=answer)
     return jsonify({'answer': answer, 'sql': sql, 'rows': data['rows'][:CHAT_ROW_CAP],
                     'columns': data['columns'], 'truncated': result["truncated"], 'total_rows': result["total_rows"]})
 
@@ -568,6 +741,13 @@ def ask_stream():
         return jsonify({'error': 'No question provided'}), 400
     history = _sanitize_history((request.json or {}).get('history'))
     username = session.get('username')
+
+    # after_request fires BEFORE this generator ever runs, so the request
+    # context (g/request) is gone by the time gen() iterates — the hook can't
+    # write this row. Suppress it here (skip=True) and capture path/ip now,
+    # in the closure, so gen()'s own _log_ask calls can log it at stream end.
+    admin_audit.stash(skip=True)
+    audit_ctx = {'path': request.path, 'ip': _client_ip()}
 
     def ev(**kw):
         return json.dumps(kw, default=_ndjson_default) + "\n"
@@ -588,14 +768,15 @@ def ask_stream():
             if kind == "unable":
                 yield ev(type="final", answer="I'm unable to answer that from the inventory data I have access to.", sql="")
                 yield ev(type="done")
-                _log_ask(username, user_question, t0, ok=False, sql='', retries=retries, in_tok=in_tok, out_tok=out_tok)
+                _log_ask(username, user_question, t0, ok=False, sql='', retries=retries, in_tok=in_tok, out_tok=out_tok,
+                         kind='unable', audit_ctx=audit_ctx)
                 return
             if kind == "error":
                 sql = result["sql"]
                 yield ev(type="final", answer=FRIENDLY_ERROR, sql=sql, error=True)
                 yield ev(type="done")
                 _log_ask(username, user_question, t0, ok=False, sql=sql, error=result["error"],
-                         retries=retries, in_tok=in_tok, out_tok=out_tok)
+                         retries=retries, in_tok=in_tok, out_tok=out_tok, kind='error', audit_ctx=audit_ctx)
                 return
             if kind == "empty":
                 sql = result["sql"]
@@ -603,7 +784,7 @@ def ask_stream():
                 yield ev(type="final", answer="No results found for your question.", sql=sql)
                 yield ev(type="done")
                 _log_ask(username, user_question, t0, ok=True, sql=sql, row_count=0,
-                         retries=retries, in_tok=in_tok, out_tok=out_tok)
+                         retries=retries, in_tok=in_tok, out_tok=out_tok, kind='empty', audit_ctx=audit_ctx)
                 return
 
             sql, data = result["sql"], result["data"]
@@ -611,21 +792,32 @@ def ask_stream():
                      truncated=result["truncated"], total_rows=result["total_rows"])
             yield ev(type="stage", stage="summarizing")
             usage_out = {}
+            buf = []
             for chunk in format_answer_stream(sql, data, user_question, result["truncated"],
                                               result["total_rows"], usage_out):
+                if sum(len(x) for x in buf) < 500:
+                    buf.append(chunk)
                 yield ev(type="delta", text=chunk)
             in_tok += usage_out.get('input_tokens', 0)
             out_tok += usage_out.get('output_tokens', 0)
             yield ev(type="done")
             _log_ask(username, user_question, t0, ok=True, sql=sql, row_count=result["total_rows"],
-                     retries=retries, in_tok=in_tok, out_tok=out_tok)
+                     retries=retries, in_tok=in_tok, out_tok=out_tok, kind='ok', answer=''.join(buf),
+                     audit_ctx=audit_ctx)
+        except GeneratorExit:
+            # Client disconnected mid-stream (generator .close()'d before
+            # exhaustion) — log the abort, never yield after this, then
+            # re-raise so Python's generator-close protocol is honored.
+            _log_ask(username, user_question, t0, ok=False, sql=sql, error='client disconnected',
+                     retries=retries, in_tok=in_tok, out_tok=out_tok, kind='aborted', audit_ctx=audit_ctx)
+            raise
         except Exception as e:
             try:
                 yield ev(type="error", message="Something went wrong. Please try again.")
             except Exception:
                 pass
             _log_ask(username, user_question, t0, ok=False, sql=sql, error=str(e),
-                     retries=retries, in_tok=in_tok, out_tok=out_tok)
+                     retries=retries, in_tok=in_tok, out_tok=out_tok, kind='error', audit_ctx=audit_ctx)
 
     return Response(gen(), mimetype="application/x-ndjson",
                     headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
@@ -679,6 +871,7 @@ def ask_export():
         safe_sql = chat_sql.validate_sql(sql)
     except chat_sql.SqlValidationError as e:
         return jsonify({'error': f'Query not allowed: {e}'}), 400
+    admin_audit.stash(action='chat_export', category='chat', sql=sql[:2000], format=fmt)
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -688,6 +881,7 @@ def ask_export():
         conn.close()
     except Exception:
         return jsonify({'error': 'Could not run the query.'}), 500
+    admin_audit.stash(row_count=len(rows))
 
     if fmt == 'csv':
         buf = io.StringIO()
@@ -717,6 +911,9 @@ def ask_export():
 
 @chatbot_app.route('/logout')
 def logout():
+    # Stash the actor BEFORE session.clear() — once cleared there is no
+    # session['username'] left for the hook to fall back to.
+    admin_audit.stash(action='logout', category='auth', actor=session.get('username'))
     session.clear()
     return redirect(url_for('login'))
 
@@ -729,13 +926,18 @@ def set_password(token):
         return render_template('set_password.html', error='This invite link is invalid or has expired.', token=None, username=None)
 
     if request.method == 'POST':
+        admin_audit.stash(action='set_password', category='auth',
+                          actor=user['username'], target=user['username'])
         password = request.form.get('password', '').strip()
         confirm = request.form.get('confirm', '').strip()
         if len(password) < 6:
+            admin_audit.stash(result='too_short')
             return render_template('set_password.html', error='Password must be at least 6 characters.', token=token, username=user['username'])
         if password != confirm:
+            admin_audit.stash(result='mismatch')
             return render_template('set_password.html', error='Passwords do not match.', token=token, username=user['username'])
         users_db.set_password_by_token(token, password)
+        admin_audit.stash(result='ok')
         return render_template('set_password.html', success=True, token=None, username=user['username'])
 
     return render_template('set_password.html', token=token, username=user['username'], error=None)
@@ -761,11 +963,43 @@ def admin_chat_log():
                            is_admin=session.get('is_admin', False), active='admin')
 
 
+AUDIT_PAGE_SIZE = 50
+
+
 @chatbot_app.route('/admin/audit')
 def admin_audit_view():
     if not session.get('logged_in') or not session.get('is_admin'):
         return redirect(url_for('login'))
-    return render_template('admin_audit.html', logs=admin_audit.recent(200),
+
+    def _date(name):
+        v = (request.args.get(name) or '').strip()
+        try:
+            time.strptime(v, '%Y-%m-%d')
+            return v
+        except ValueError:
+            return ''
+
+    f = {'from': _date('from'), 'to': _date('to'),
+         'action': (request.args.get('action') or '').strip(),
+         'actor': (request.args.get('actor') or '').strip()}
+    try:
+        page = max(int(request.args.get('page', 1)), 1)
+    except (TypeError, ValueError):
+        page = 1
+    rows, total = admin_audit.query(from_date=f['from'] or None, to_date=f['to'] or None,
+                                    action=f['action'] or None, actor=f['actor'] or None,
+                                    limit=AUDIT_PAGE_SIZE, offset=(page - 1) * AUDIT_PAGE_SIZE)
+    pages = max(1, -(-total // AUDIT_PAGE_SIZE))
+    if page > pages:
+        page = pages
+        rows, total = admin_audit.query(from_date=f['from'] or None, to_date=f['to'] or None,
+                                        action=f['action'] or None, actor=f['actor'] or None,
+                                        limit=AUDIT_PAGE_SIZE, offset=(page - 1) * AUDIT_PAGE_SIZE)
+    qs = urlparse.urlencode({k: v for k, v in f.items() if v})
+    return render_template('admin_audit.html', logs=rows, total=total, page=page, pages=pages,
+                           filters=f, qs=qs,
+                           actions=admin_audit.distinct_actions(),
+                           actors=admin_audit.distinct_actors(),
                            username=session.get('username'),
                            is_admin=True, active='audit')
 
@@ -778,6 +1012,7 @@ def admin_create_user():
     new_username = (data.get('username') or '').strip()
     new_email = (data.get('email') or '').strip()
     is_admin = bool(data.get('is_admin', False))
+    admin_audit.stash(action='create_user', target=new_username, email=new_email, is_admin=is_admin)
     if not new_username or not new_email:
         return jsonify({'ok': False, 'error': 'Username and email are required'})
     if users_db.email_in_use(new_email):
@@ -786,8 +1021,6 @@ def admin_create_user():
         token = users_db.create_user(new_username, new_email, is_admin,
                                      created_by=session.get('username'))
         send_invite_email(new_email, new_username, token)
-        admin_audit.log_action(session.get('username'), 'create_user',
-                               target=new_username, detail=new_email)
         return jsonify({'ok': True})
     except Exception as e:
         if 'UNIQUE' in str(e).upper():
@@ -806,11 +1039,10 @@ def admin_resend_invite():
         return jsonify({'ok': False, 'error': 'User not found'})
     if not user.get('email'):
         return jsonify({'ok': False, 'error': 'User has no email address'})
+    admin_audit.stash(action='resend_invite', target=user['username'], email=user.get('email'))
     try:
         token = users_db.generate_invite_token(user_id)
         send_invite_email(user['email'], user['username'], token)
-        admin_audit.log_action(session.get('username'), 'resend_invite',
-                               target=user['username'])
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
@@ -827,11 +1059,10 @@ def admin_reset_password():
         return jsonify({'ok': False, 'error': 'User not found'})
     if not user.get('email'):
         return jsonify({'ok': False, 'error': 'User has no email address'})
+    admin_audit.stash(action='reset_password', target=user['username'], email=user.get('email'))
     try:
         token = users_db.generate_invite_token(user_id)
         send_invite_email(user['email'], user['username'], token)
-        admin_audit.log_action(session.get('username'), 'reset_password',
-                               target=user['username'])
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
@@ -850,9 +1081,8 @@ def admin_toggle_admin():
         return jsonify({'ok': False, 'error': 'Cannot change your own admin status'})
     new_admin_state = not user['is_admin']
     users_db.update_admin_status(user_id, new_admin_state)
-    admin_audit.log_action(session.get('username'), 'toggle_admin',
-                           target=user['username'],
-                           detail='admin' if new_admin_state else 'not_admin')
+    admin_audit.stash(action='toggle_admin', target=user['username'],
+                      changes={'is_admin': {'old': bool(user['is_admin']), 'new': new_admin_state}})
     return jsonify({'ok': True, 'is_admin': new_admin_state})
 
 
@@ -869,8 +1099,9 @@ def admin_set_role():
     role = d.get('role')
     if role not in roles.ROLES:
         return jsonify({'ok': False, 'error': 'Invalid role'})
+    admin_audit.stash(action='set_role', target=user['username'],
+                      changes={'role': {'old': user.get('role'), 'new': role}})
     users_db.set_role(d['id'], role)
-    admin_audit.log_action(session.get('username'), 'set_role', target=user['username'], detail=role)
     return jsonify({'ok': True})
 
 
@@ -885,8 +1116,10 @@ def admin_delete_user():
         return jsonify({'ok': False, 'error': 'User not found'})
     if user['username'] == session.get('username'):
         return jsonify({'ok': False, 'error': 'Cannot delete your own account'})
+    # Capture the row's identifying fields BEFORE delete_user removes it.
+    admin_audit.stash(action='delete_user', target=user['username'], user_id=user_id,
+                      email=user.get('email'), role=user.get('role'))
     users_db.delete_user(user_id)
-    admin_audit.log_action(session.get('username'), 'delete_user', target=user['username'])
     return jsonify({'ok': True})
 
 
@@ -906,9 +1139,13 @@ def admin_edit_user():
         return jsonify({'ok': False, 'error': f'Email "{new_email}" is already used by another account'})
     is_self = user['username'] == session.get('username')
     actor = session.get('username')
+    changes = {}
     try:
         if new_username != user['username']:
             users_db.update_username(d['id'], new_username)
+            changes['username'] = {'old': user['username'], 'new': new_username}
+        if new_email != (user.get('email') or ''):
+            changes['email'] = {'old': user.get('email'), 'new': new_email}
         users_db.set_email(d['id'], new_email)
     except Exception as e:
         if 'UNIQUE' in str(e).upper():
@@ -921,7 +1158,7 @@ def admin_edit_user():
             return jsonify({'ok': False, 'error': 'Invalid role'})
         if new_role != user.get('role'):
             users_db.set_role(d['id'], new_role)
-            admin_audit.log_action(actor, 'set_role', target=new_username, detail=new_role)
+            changes['role'] = {'old': user.get('role'), 'new': new_role}
     # Apply active change (non-self only)
     if 'active' in d and not is_self:
         raw_active = d['active']
@@ -929,11 +1166,13 @@ def admin_edit_user():
             new_active = raw_active
         else:
             new_active = str(raw_active).lower() not in ('false', '0', '')
+        old_active = bool(user.get('is_active', 1))
         users_db.set_active(d['id'], new_active)
-        admin_audit.log_action(actor, 'set_active', target=new_username,
-                               detail='active' if new_active else 'disabled')
-    admin_audit.log_action(actor, 'edit_user', target=new_username,
-                           detail=f"email={new_email}")
+        if new_active != old_active:
+            changes['active'] = {'old': old_active, 'new': new_active}
+    # ONE merged row for the whole edit (was up to 3 separate log_action calls
+    # — username/email + role + active each wrote their own row).
+    admin_audit.stash(action='edit_user', target=new_username, changes=changes)
     return jsonify({'ok': True})
 
 
@@ -948,9 +1187,9 @@ def admin_set_active():
     if user['username'] == session.get('username'):
         return jsonify({'ok': False, 'error': 'Cannot disable your own account'})
     active = bool(d.get('active'))
+    admin_audit.stash(action='set_active', target=user['username'],
+                      changes={'active': {'old': bool(user.get('is_active', 1)), 'new': active}})
     users_db.set_active(d['id'], active)
-    admin_audit.log_action(session.get('username'), 'set_active', target=user['username'],
-                           detail='active' if active else 'disabled')
     return jsonify({'ok': True})
 
 
@@ -972,6 +1211,14 @@ def profile_password():
     if not session.get('logged_in'):
         return jsonify({'ok': False, 'error': 'Not logged in'}), 401
     d = request.get_json() or {}
+    # Non-empty detail marker (NOT the raw body) — keeps the raw {current, new}
+    # password fields from ever reaching the hook's generic body-capture
+    # fallback for the normal (CSRF-passed) path. If CSRF ever rejects this
+    # request (_csrf_guard 403s in before_request, before this handler runs),
+    # this stash never executes — that path is covered separately by
+    # admin_audit.redact_raw() in app.py's _audit_log() (see
+    # admin_audit.SENSITIVE_KEY_EXACT's note on 'new').
+    admin_audit.stash(action='change_password', target=session.get('username'), note='password_change')
     if not users_db.verify_password(session['username'], d.get('current', '')):
         return jsonify({'ok': False, 'error': 'Current password is incorrect'})
     if len(d.get('new', '')) < 6:
@@ -986,10 +1233,13 @@ def profile_email():
     if not session.get('logged_in'):
         return jsonify({'ok': False, 'error': 'Not logged in'}), 401
     d = request.get_json() or {}
-    uid = users_db._row_by_username(session['username'])['id']
+    me = users_db._row_by_username(session['username'])
+    uid = me['id']
     new_email = (d.get('email') or '').strip()
     if new_email and users_db.email_in_use(new_email, exclude_id=uid):
         return jsonify({'ok': False, 'error': 'That email is already used by another account'})
+    admin_audit.stash(action='change_email', target=session.get('username'),
+                      changes={'email': {'old': me.get('email'), 'new': new_email}})
     users_db.set_email(uid, new_email)
     return jsonify({'ok': True})
 
