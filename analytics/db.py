@@ -206,6 +206,30 @@ def get_telus_project_tags():
         return []
 
 
+def get_client_for_project_tag(project_tag):
+    """Distinct client company name(s) for a Version='000' ProjectTag. Almost always
+    exactly one — used to auto-fill the Client Name field once a tag is chosen."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT LTRIM(RTRIM(c.CompanyName)) AS CompanyName
+            FROM dbo.ReceiveDetail rd
+            LEFT JOIN dbo.ClientLocation cl ON cl.ClientLocationID = rd.ClientLocationID
+            LEFT JOIN dbo.Client c ON c.ClientID = cl.ClientID
+            WHERE rd.Version = '000'
+              AND LTRIM(RTRIM(rd.ProjectTag)) = ?
+              AND c.CompanyName IS NOT NULL
+              AND LTRIM(RTRIM(c.CompanyName)) <> ''
+            ORDER BY CompanyName
+        """, (project_tag,))
+        rows = [row[0] for row in cursor.fetchall() if row[0] and row[0].strip()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
 def get_telus_client_names():
     """Return distinct non-empty CompanyNames linked to Version='000' ReceiveDetail rows."""
     try:

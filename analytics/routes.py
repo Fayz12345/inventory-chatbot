@@ -28,11 +28,10 @@ def index():
     return templates.render_analytics_index()
 
 
-@analytics_bp.route('/telus-weekly')
-def telus_weekly_form():
-    redir = _require_login()
-    if redir:
-        return redir
+def _telus_options():
+    """Fetch the combobox option lists (tags + client names). Every form render —
+    including error re-renders — must pass these, or the comboboxes come back empty
+    and unusable ("No matches" for everything)."""
     try:
         project_tags = db.get_telus_project_tags()
     except Exception:
@@ -41,10 +40,37 @@ def telus_weekly_form():
         client_names = db.get_telus_client_names()
     except Exception:
         client_names = []
+    return project_tags, client_names
+
+
+@analytics_bp.route('/telus-weekly')
+def telus_weekly_form():
+    redir = _require_login()
+    if redir:
+        return redir
+    project_tags, client_names = _telus_options()
     return templates.render_telus_weekly_form(
         project_tags=project_tags,
         client_names=client_names,
     )
+
+
+@analytics_bp.route('/telus-weekly/client-for-tag')
+def telus_weekly_client_for_tag():
+    """AJAX: distinct client name(s) for a ProjectTag. Returns `client` (a single
+    name) only when the tag maps unambiguously to one client, so the form can
+    auto-fill it; ambiguous/none -> `client` is null and the field is left alone."""
+    if not session.get('logged_in'):
+        return jsonify({'ok': False, 'error': 'Not logged in'}), 401
+    tag = request.args.get('project_tag', '').strip()
+    if not tag:
+        return jsonify({'ok': True, 'clients': [], 'client': None})
+    try:
+        clients = db.get_client_for_project_tag(tag)
+    except Exception:
+        clients = []
+    return jsonify({'ok': True, 'clients': clients,
+                    'client': clients[0] if len(clients) == 1 else None})
 
 
 @analytics_bp.route('/telus-weekly/report', methods=['POST'])
@@ -57,23 +83,28 @@ def telus_weekly_report():
     client_name = request.form.get('client_name', '').strip() or None
 
     if not project_tag:
-        return templates.render_telus_weekly_form(error='ProjectTag is required.')
+        project_tags, client_names = _telus_options()
+        return templates.render_telus_weekly_form(
+            error='ProjectTag is required.',
+            project_tags=project_tags, client_names=client_names)
 
     try:
         devices = db.call_repair_assessment(project_tag, client_name)
     except Exception as e:
+        project_tags, client_names = _telus_options()
         return templates.render_telus_weekly_form(
             error=f'Database error: {e}',
             project_tag=project_tag,
             client_name=client_name,
-        )
+            project_tags=project_tags, client_names=client_names)
 
     if not devices:
+        project_tags, client_names = _telus_options()
         return templates.render_telus_weekly_form(
             error=f'No devices found for ProjectTag "{project_tag}".',
             project_tag=project_tag,
             client_name=client_name,
-        )
+            project_tags=project_tags, client_names=client_names)
 
     pricing_map = db.get_pricing_map()
     enriched, summary = pricing.compute_report(devices, pricing_map)

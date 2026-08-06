@@ -250,7 +250,7 @@ def _telus_weekly_form_html(error, project_tag, client_name, project_tags, clien
     return prefix.concat(sub).slice(0, MAX);
   }}
 
-  function initCombobox(inputEl, panelEl, chevronEl, listEl, options) {{
+  function initCombobox(inputEl, panelEl, chevronEl, listEl, options, onSelect) {{
     var activeIdx = -1;
     var currentQuery = '';
     var isOpen = false;
@@ -342,6 +342,7 @@ def _telus_weekly_form_html(error, project_tag, client_name, project_tags, clien
       inputEl.value = val;
       closePanel();
       inputEl.focus();
+      if (onSelect) onSelect(val);
     }}
 
     // Input events
@@ -410,13 +411,29 @@ def _telus_weekly_form_html(error, project_tag, client_name, project_tags, clien
     }});
   }}
 
-  // Init both fields
+  // Auto-fill the Client Name for the chosen ProjectTag when it maps to exactly
+  // one client. Best-effort: leaves the field alone on ambiguity/none/errors.
+  function fillClientForTag(tag) {{
+    tag = (tag || '').trim();
+    if (!tag) return;
+    fetch('/analytics/telus-weekly/client-for-tag?project_tag=' + encodeURIComponent(tag))
+      .then(function(r) {{ return r.json(); }})
+      .then(function(res) {{
+        if (res && res.ok && res.client) {{
+          document.getElementById('client_name').value = res.client;
+        }}
+      }})
+      .catch(function() {{}});
+  }}
+
+  // Init both fields (choosing a ProjectTag auto-fills its Client Name)
   initCombobox(
     document.getElementById('project_tag'),
     document.getElementById('pt-panel'),
     document.getElementById('pt-chevron'),
     document.getElementById('pt-list'),
-    PROJECTTAG_OPTIONS
+    PROJECTTAG_OPTIONS,
+    fillClientForTag
   );
   initCombobox(
     document.getElementById('client_name'),
@@ -425,6 +442,11 @@ def _telus_weekly_form_html(error, project_tag, client_name, project_tags, clien
     document.getElementById('cn-list'),
     CLIENTNAME_OPTIONS
   );
+
+  // Also fill when a full tag is typed and the field loses focus.
+  document.getElementById('project_tag').addEventListener('change', function() {{
+    fillClientForTag(this.value);
+  }});
 
   // Submit loading state
   document.getElementById('report-form').addEventListener('submit', function() {{
@@ -940,7 +962,7 @@ def render_telus_weekly_report(project_tag, client_name, devices, summary):
         ),
         title="Telus Weekly: " + str(project_tag),
         active="analytics",
-        back=("/analytics/", "Analytics"),
+        back=("/analytics/telus-weekly", "Telus Weekly"),
     )
 
 
