@@ -292,6 +292,9 @@ def send_invite_email(email, username, token):
     <p style="margin:0 0 16px;color:#333;font-size:15px">
       You've been invited to <strong>Bridge Platform</strong>. Click the button below to set your password and get started.
     </p>
+    <p style="margin:0 0 16px;color:#333;font-size:15px">
+      After setting your password you can sign in with this email address <em>or</em> your username <strong>{username}</strong>.
+    </p>
     <div style="text-align:center;margin:28px 0">
       <a href="{link}"
          style="display:inline-block;padding:12px 32px;background:#2563eb;color:#fff;text-decoration:none;
