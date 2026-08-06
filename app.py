@@ -566,7 +566,7 @@ def ask_stream():
     username = session.get('username')
 
     def ev(**kw):
-        return json.dumps(kw) + "\n"
+        return json.dumps(kw, default=_ndjson_default) + "\n"
 
     def gen():
         t0 = time.time()
@@ -625,6 +625,19 @@ def ask_stream():
 
     return Response(gen(), mimetype="application/x-ndjson",
                     headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
+
+
+def _ndjson_default(o):
+    """JSON fallback for stream events: DB Decimal -> float, dates -> ISO string.
+    (Plain json.dumps can't serialize Decimal/datetime, which broke any query with a
+    cost/price/date column.)"""
+    import datetime as _dt
+    from decimal import Decimal
+    if isinstance(o, Decimal):
+        return float(o)
+    if isinstance(o, (_dt.datetime, _dt.date, _dt.time)):
+        return o.isoformat()
+    return str(o)
 
 
 def _xl(v):

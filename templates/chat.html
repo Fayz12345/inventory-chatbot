@@ -70,6 +70,12 @@
         const lines = String(text || '').split('\n');
         let html = '', inList = false;
         for (const line of lines) {
+            const h = line.match(/^\s*#{1,6}\s+(.*)$/);
+            if (h) {
+                if (inList) { html += '</ul>'; inList = false; }
+                html += '<strong>' + inline(h[1]) + '</strong><br>';
+                continue;
+            }
             const m = line.match(/^\s*[-•]\s+(.*)$/);
             if (m) {
                 if (!inList) { html += '<ul>'; inList = true; }
@@ -182,7 +188,7 @@
 
     // --- Chart (inline SVG bars) when one label col + one numeric col, 2..30 rows ---
     function chartable(cols, rows) {
-        if (rows.length < 2 || rows.length > 30 || cols.length < 2) return null;
+        if (rows.length < 2 || rows.length > 50 || cols.length < 2) return null;
         const isNum = i => rows.every(r => r[i] !== null && r[i] !== '' && !isNaN(Number(r[i])));
         let valIdx = -1;
         for (let i = cols.length - 1; i >= 0; i--) { if (isNum(i)) { valIdx = i; break; } }

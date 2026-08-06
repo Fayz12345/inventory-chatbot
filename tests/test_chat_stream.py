@@ -3,6 +3,7 @@
 logged, never sent to the client)."""
 import json
 import os
+from decimal import Decimal
 os.environ.setdefault("USERS_DB_PATH", "/tmp/test_users_chat.db")
 os.environ.setdefault("CHAT_LOG_DB_PATH", "/tmp/test_chat_log.db")
 
@@ -61,6 +62,26 @@ def test_stream_db_error_is_friendly_and_logged(monkeypatch):
     assert 'Invalid column name' not in r.data.decode()          # raw error never leaves the server
     assert logged.get('error') == "Invalid column name 'bad'."   # ...but it IS logged
     assert logged.get('ok') is False
+
+
+def test_stream_serializes_decimal_rows(monkeypatch):
+    # Rows with Decimal (cost/price) must not crash the NDJSON stream.
+    monkeypatch.setattr(app, "generate_sql",
+                        lambda m: ("SELECT Manufacturer, SUM(DeviceCost) c FROM ReportingInventoryFlat GROUP BY Manufacturer", _Usage()))
+    monkeypatch.setattr(app, "run_query",
+                        lambda s: ({'columns': ['Manufacturer', 'c'],
+                                    'rows': [['Apple', Decimal('12345.67')], ['Samsung', Decimal('890.50')]],
+                                    'truncated': False}, None))
+    monkeypatch.setattr(app, "format_answer_stream", lambda *a, **k: (t for t in ["ok"]))
+    monkeypatch.setattr(app.chat_log, "log_query", lambda **k: None)
+    client = app.chatbot_app.test_client(); _login(client)
+    r = client.post("/ask/stream", json={"question": "cost by manufacturer"}, headers=_CH)
+    assert r.status_code == 200
+    events = _events(r)                       # parses -> no serialization crash
+    types = [e['type'] for e in events]
+    assert 'meta' in types and types[-1] == 'done' and 'error' not in types
+    meta = next(e for e in events if e['type'] == 'meta')
+    assert meta['rows'][0][1] == 12345.67     # Decimal -> JSON number
 
 
 def test_stream_requires_auth():
