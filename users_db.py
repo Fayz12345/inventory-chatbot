@@ -73,13 +73,24 @@ def seed_admin_if_empty():
     conn.close()
 
 
-def authenticate(username, password):
+def get_by_identifier(identifier):
+    """Look up a user by username OR email — both case-insensitive. Invites are
+    delivered to a person's email and address them by name, so people naturally
+    try to sign in with the email; accepting either avoids the "Invalid username
+    or password" dead-end when they type the email instead of the username."""
     conn = _get_conn()
-    row = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+    row = conn.execute(
+        'SELECT * FROM users WHERE username = ? '
+        'OR (email IS NOT NULL AND email <> "" AND LOWER(email) = LOWER(?))',
+        (identifier, identifier)).fetchone()
     conn.close()
+    return dict(row) if row else None
+
+
+def authenticate(identifier, password):
+    row = get_by_identifier(identifier)
     if not row:
         return None
-    row = dict(row)
     if not row.get('is_active', 1):
         return None
     if is_locked(row):
@@ -87,7 +98,7 @@ def authenticate(username, password):
     if row['password_set'] and check_password_hash(row['password_hash'], password):
         update_last_login(row['id'])
         return row
-    record_failed_login(username)
+    record_failed_login(row['username'])   # key the lockout counter on the real username
     return None
 
 
