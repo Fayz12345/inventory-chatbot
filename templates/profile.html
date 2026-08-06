@@ -47,7 +47,8 @@
     <h2 class="card-title">Change Email</h2>
     <div class="field">
       <label for="new-email">New Email Address</label>
-      <input type="email" id="new-email" autocomplete="email" placeholder="e.g. you@example.com">
+      <input type="email" id="new-email" autocomplete="email" placeholder="e.g. you@example.com"
+             value="{{ me.email if me and me.email else '' }}">
     </div>
     <div style="margin-top:4px">
       <button class="btn btn-primary" id="email-btn" onclick="changeEmail()">Update Email</button>
@@ -103,7 +104,8 @@ function changeEmail() {
             if (data.ok) {
                 showToast('Email updated', 'success');
                 document.getElementById('current-email').textContent = email;
-                document.getElementById('new-email').value = '';
+                // Keep the field showing the now-current email (edit-to-change).
+                document.getElementById('new-email').value = email;
             } else {
                 showToast(data.error || 'Failed to update email', 'error');
             }

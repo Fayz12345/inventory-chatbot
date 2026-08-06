@@ -48,6 +48,15 @@ def test_profile_renders_for_logged_in_user():
     assert "profuser" in body
 
 
+def test_profile_prefills_current_email_in_change_form():
+    # The "New Email Address" box is pre-filled with the current email so the
+    # user edits it in place (delete-to-change) instead of starting blank.
+    c = _app.chatbot_app.test_client()
+    _login(c, "prefiller")                     # created with email prefiller@x.com
+    body = c.get("/profile").get_data(as_text=True)
+    assert 'id="new-email"' in body and 'value="prefiller@x.com"' in body
+
+
 # --- POST /profile/password ---
 
 def test_change_password_requires_correct_current():
